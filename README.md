@@ -28,5 +28,11 @@ EOF
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 
+## Install packages
+sudo apt update
+pip3 uninstall -y hid
+sudo apt remove --purge python3-hid
 
-
+# Install the true hidapi binding
+sudo apt install -y libhidapi-hidraw0 libhidapi-dev python3-dev
+sudo apt install libhidapi-hidraw0 python3-hidapi
