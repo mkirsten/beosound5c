@@ -49,7 +49,10 @@ def scan_loop(loop):
     devices = hid.enumerate(VID, PID)
     if not devices:
         print("BS5 not found"); sys.exit(1)
-    dev = hid.Device(path=devices[0]['path'])
+    dev = hid.device()
+    dev.open(VID, PID)
+    dev.set_nonblocking(True)
+    
     last_laser = None
     first = True
     while True:
