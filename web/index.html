@@ -4,85 +4,42 @@
   <meta charset="UTF-8">
   <title>BeoSound 5 Dashboard</title>
   <style>
-    /* Fixed viewport */
-    html, body { margin:0; padding:0; width:1024px; height:768px; overflow:hidden; }
-    #main-ui {
-      position: relative;
-      width: 1024px;
-      height: 768px;
-      background: black;
-      display: flex;
+    html, body { margin:0; padding:0; width:1024px; height:768px; overflow:hidden; background:#000; }
+    #main-ui { display:flex; width:1024px; height:768px; }
+    /* Sidebar */
+    #nav { width:8%; min-width:80px; background:#1c1c1c; position:relative;
+      transition: transform 0.3s ease;
     }
-    /* Navigation column */
-    #nav {
-      width: 8%;        /* ~82px */
-      min-width: 80px;
-      background: #1c1c1c;
-      color: white;
-      font-family: sans-serif;
-      padding-top: 20px;
-      position: relative;
+    #nav.hidden { transform: translateX(-100%); }
+    #nav ul { list-style:none; margin:0; padding:20px 0; }
+    #nav li { padding:12px; color:#fff; }
+    #nav li.active { background:rgba(255,255,255,0.2); border-radius:4px; }
+    #laser-pointer { position:absolute; width:4px; height:24px; background:cyan; left:0; transition: top 0.1s; }
+    /* Content area */
+    #content-area { flex:1; position:relative; overflow:hidden; }
+    #artwork-container, #page-container {
+      position:absolute; top:0; left:0; right:0; bottom:0;
+      display:flex; align-items:center; justify-content:center;
+      transition: opacity 0.5s ease;
     }
-    #nav ul { list-style: none; margin:0; padding:0; }
-    #nav li {
-      padding: 12px;
-      cursor: default;
+    #artwork-container { z-index:1; opacity:1; }
+    #page-container { z-index:2; opacity:0; pointer-events:none; }
+    #artwork { max-width:90%; max-height:90%; border-radius:8px; transition: opacity 0.6s ease; position:absolute; }
+    #info-box { position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
+      background:rgba(0,0,0,0.7); color:#fff; padding:8px 16px; border-radius:8px;
+      font-family:sans-serif; text-align:center; z-index:3;
     }
-    #nav li.active {
-      background: rgba(255,255,255,0.2);
-      border-radius: 4px;
+    #info-box #track-title { font-size:24px; margin-bottom:4px; }
+    #info-box #track-album { font-size:16px; margin-bottom:2px; }
+    #info-box #track-artist { font-size:14px; opacity:0.9; }
+    /* Volume gauge: larger, more right */
+    #vol-gauge { position:absolute; right:40px; top:50%; transform:translateY(-50%);
+      width:200px; height:300px; z-index:3;
     }
-    #laser-pointer {
-      position: absolute;
-      width: 4px; height: 24px;
-      background: cyan;
-      left: 0;
-      transition: top 0.1s;
-    }
-    /* Artwork area */
-    #artwork-container {
-      flex: 1;
-      position: relative;
-      overflow: hidden;
-    }
-    #artwork {
-      position: absolute;
-      max-width: 90%;
-      max-height: 90%;
-      left: 50%; top: 50%;
-      transform: translate(-50%,-50%);
-      border-radius: 8px;
-      transition: opacity 0.6s ease;
-    }
-    #info-box {
-      position: absolute;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0,0,0,0.7);
-      color: #fff;
-      padding: 8px 16px;
-      border-radius: 8px;
-      font-family: sans-serif;
-      text-align: center;
-      z-index: 2;
-    }
-    #info-box #track-title { font-size: 24px; margin-bottom:4px; }
-    #info-box #track-album { font-size: 16px; margin-bottom:2px; }
-    #info-box #track-artist { font-size: 14px; opacity:0.9; }
-    /* WebSocket log */
-    #ws-log {
-      position: absolute;
-      top: 0; right: 0;
-      background: red;
-      color: white;
-      font-family: monospace;
-      font-size: 0.8em;
-      padding: 4px;
-      width: 300px;
-      height: 60px;
-      overflow: hidden;
-      z-index: 10;
+    /* WS log */
+    #ws-log { position:absolute; top:0; right:0; background:red; color:white;
+      font-family:monospace; font-size:0.8em; padding:4px; width:300px; height:60px;
+      overflow:hidden; z-index:10;
     }
   </style>
 </head>
@@ -93,100 +50,81 @@
       <ul>
         <li>Playing now</li>
         <li>Playlists</li>
+	<li>Scenes</li>
         <li>Security</li>
         <li>Control</li>
         <li>Settings</li>
       </ul>
     </nav>
-    <div id="artwork-container">
-      <img id="artwork" src="" alt="Art" />
-      <div id="info-box">
-        <div id="track-title">—</div>
-        <div id="track-album">—</div>
-        <div id="track-artist">—</div>
+    <div id="content-area">
+      <div id="artwork-container">
+        <img id="artwork" src="" alt="Art" />
+        <div id="info-box">
+          <div id="track-title">—</div>
+          <div id="track-album">—</div>
+          <div id="track-artist">—</div>
+        </div>
       </div>
+      <div id="page-container">
+        <span id="page-title" style="color:white; font-size:48px;"></span>
+      </div>
+      <canvas id="vol-gauge" width="200" height="300"></canvas>
       <div id="ws-log"></div>
     </div>
   </div>
 
   <script>
-    // Element refs
-    const navItems = [...document.querySelectorAll('#nav li')];
-    const pointer  = document.getElementById('laser-pointer');
-    const artwork  = document.getElementById('artwork');
-    const trackTitle  = document.getElementById('track-title');
-    const trackAlbum  = document.getElementById('track-album');
-    const trackArtist = document.getElementById('track-artist');
-    const wsLog       = document.getElementById('ws-log');
+    // Elements
+    const nav = document.getElementById('nav');
+    const navItems = [...nav.querySelectorAll('li')];
+    const pointer = document.getElementById('laser-pointer');
+    const artCont = document.getElementById('artwork-container');
+    const pageCont= document.getElementById('page-container');
+    const pageTitle= document.getElementById('page-title');
+    const artwork = document.getElementById('artwork');
+    const titleEl = document.getElementById('track-title');
+    const albumEl = document.getElementById('track-album');
+    const artistEl= document.getElementById('track-artist');
+    const wsLog   = document.getElementById('ws-log');
+    const vg      = document.getElementById('vol-gauge');
+    const ctx     = vg.getContext('2d');
 
     // HA config
-    const HA_URL   = 'http://homeassistant.local:8123';
+    const HA_URL = 'http://homeassistant.local:8123';
     const HA_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjMDY0NDFjNDRjOWM0YTQ3ODk1OWVmMjcwYzY2MTU2ZiIsImlhdCI6MTc0NTI2ODYzNywiZXhwIjoyMDYwNjI4NjM3fQ.ldZPYpESQgL_dQj026faUhBzqTgJBVH4oYSrXtWzfC0';
-    const ENTITY  = 'media_player.medierum';
+    const ENTITY = 'media_player.medierum';
 
     // WebSocket
-    const WS_URL = 'ws://localhost:8765';
-    const ws = new WebSocket(WS_URL);
-    const recent = [];
-    function logMsg(m) {
-      recent.unshift(m);
-      if(recent.length>3) recent.pop();
-      wsLog.innerText = recent.join('\n');
-    }
-    ws.onopen  = ()=> logMsg('WS open');
-    ws.onclose = ()=> logMsg('WS close');
-    ws.onerror = e => logMsg('WS error');
-    ws.onmessage = ev => {
-      const {type,data} = JSON.parse(ev.data);
-      logMsg(`${type}: ${JSON.stringify(data)}`);
-      switch(type) {
-        case 'button':
-          // navigate menu
-          const idx = data.button==='left'   ? getActiveIndex()+1
-                     : data.button==='right'  ? getActiveIndex()-1
-                     : getActiveIndex();
-          activateItem(idx);
-          break;
-        case 'laser':
-          // map 0-100 to items
-          const pos = Math.round(data.position / 100 * (navItems.length-1));
-          activateItem(pos);
-          break;
-        case 'playback':
-          fetchMedia();
-          break;
+    const ws = new WebSocket('ws://localhost:8765');
+    const recent=[];
+    function logMsg(m){ recent.unshift(m); if(recent.length>3) recent.pop(); wsLog.innerText=recent.join('\n'); }
+    ws.onopen  = ()=>logMsg('WS open');
+    ws.onclose = ()=>logMsg('WS close');
+    ws.onerror = e=>logMsg('WS err');
+    ws.onmessage = ev=>{
+      const {type,data} = JSON.parse(ev.data); logMsg(`${type}:${JSON.stringify(data)}`);
+      if(type==='button'){
+        if(data.button==='left') prevTrack();
+        else if(data.button==='right') nextTrack();
+        else if(data.button==='go') onGo();
       }
+      if(type==='laser') onLaser(data.position);
+      if(type==='playback') fetchMedia();
+      if(type==='volume') drawGauge(data.speed);
     };
 
-    function getActiveIndex() {
-      return navItems.findIndex(li=>li.classList.contains('active'));
-    }
-    function activateItem(i) {
-      if(i<0) i=0;
-      if(i>=navItems.length) i=navItems.length-1;
-      navItems.forEach((li,j)=> li.classList.toggle('active', j===i));
-      const navRect = document.getElementById('nav').getBoundingClientRect();
-      const itmRect = navItems[i].getBoundingClientRect();
-      pointer.style.top = (itmRect.top - navRect.top + 4) + 'px';
-    }
-
-    // initial activate & fetch
-    activateItem(0);
-    fetchMedia();
-    setInterval(fetchMedia, 5000);
-
-    // fetch media from HA
-    async function fetchMedia() {
+    // fetch media + volume
+    async function fetchMedia(){
       try{
-        const res = await fetch(`${HA_URL}/api/states/${ENTITY}`, {
-          headers:{'Authorization':'Bearer '+HA_TOKEN}
-        });
-        const d = await res.json();
-        const pic = HA_URL + d.attributes.entity_picture;
-        trackTitle.textContent  = d.attributes.media_title      || '—';
-        trackAlbum.textContent  = d.attributes.media_album_name || '—';
-        trackArtist.textContent = d.attributes.media_artist     || '—';
-        // load & crossfade
+        const r=await fetch(`${HA_URL}/api/states/${ENTITY}`,{headers:{'Authorization':'Bearer '+HA_TOKEN}});
+        const d=await r.json();
+        const pic=HA_URL+d.attributes.entity_picture;
+        const vol = Math.round((d.attributes.volume_level||0)*100);
+        // update metadata
+        titleEl.textContent=d.attributes.media_title||'—';
+        albumEl.textContent=d.attributes.media_album_name||'—';
+        artistEl.textContent=d.attributes.media_artist||'—';
+        // update artwork with crossfade
         if(artwork.src !== pic) {
           artwork.style.opacity = 0;
           artwork.addEventListener('transitionend', function once() {
@@ -195,9 +133,49 @@
             artwork.style.opacity = 1;
           });
         }
-      } catch(e){ console.warn(e); }
+        // update gauge
+        drawGauge(vol);
+      } catch(e) { console.warn(e); }
     }
+    fetchMedia(); setInterval(fetchMedia,5000);
+
+    // nav activation
+    let curIdx=0;
+    function activate(i){ if(i<0)i=0; if(i>=navItems.length)i=navItems.length-1; curIdx=i;
+      navItems.forEach((li,j)=>li.classList.toggle('active',j===i));
+      const nr=nav.getBoundingClientRect(), ir=navItems[i].getBoundingClientRect();
+      pointer.style.top=(ir.top-nr.top+4)+'px';
+    }
+    activate(0);
+
+    // laser event: show only bottom 25%
+    function onLaser(pos){
+      if(pos>70 && pos <102) nav.classList.remove('hidden'); else nav.classList.add('hidden');
+      // leverage ×4 inverted
+      let eff = (100-pos)*4; if(eff>100) eff=100;
+      const idx = Math.round(eff*(navItems.length-1)/100);
+      activate(idx);
+      const page = navItems[curIdx].textContent;
+      if(page==='Playing now') fadeToArtwork();
+      else fadeToPage(page);
+      if(pos<=70 || post >= 102) fadeToArtwork();
+    }
+
+    // Prev/Next track
+    async function prevTrack(){ await fetch(`${HA_URL}/api/services/media_player/media_previous_track`,{method:'POST',headers:{'Authorization':'Bearer '+HA_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({entity_id:ENTITY})}); fetchMedia(); }
+    async function nextTrack(){ await fetch(`${HA_URL}/api/services/media_player/media_next_track`,{method:'POST',headers:{'Authorization':'Bearer '+HA_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({entity_id:ENTITY})}); fetchMedia(); }
+
+    // Go button: show page or artwork
+    function onGo(){
+      const page = navItems[curIdx].textContent;
+      if(page==='Playing now') fadeToArtwork();
+      else fadeToPage(page);
+    }
+    function fadeToPage(page){ pageTitle.textContent=page; pageCont.style.pointerEvents='auto'; artCont.style.opacity=0; pageCont.style.opacity=1; }
+    function fadeToArtwork(){ pageCont.style.opacity=0; pageCont.style.pointerEvents='none'; artCont.style.opacity=1; }
+
+    // volume gauge
+    function drawGauge(val){ const pct=val/100; ctx.clearRect(0,0,vg.width,vg.height); ctx.lineWidth=20; ctx.strokeStyle='#333'; ctx.beginPath(); ctx.arc(vg.width,vg.height/2,vg.width-10,Math.PI/2,3*Math.PI/2); ctx.stroke(); ctx.strokeStyle='#4fc3f7'; ctx.beginPath(); ctx.arc(vg.width,vg.height/2,vg.width-10,Math.PI/2,Math.PI/2+Math.PI*pct,false); ctx.stroke(); }
   </script>
 </body>
 </html>
-
