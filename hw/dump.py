@@ -58,20 +58,11 @@ def parse_report(rep):
 
 # ——————————————————————————————————————
 
-# find & open device
-devices = hid.enumerate(VID, PID)
-if not devices:
-    print(f"No BS5 found at VID:PID = {VID:04x}:{PID:04x}")
-    sys.exit(1)
-
-info = devices[0]
-path = info['path']
-if isinstance(path, (bytes, bytearray)):
-    path = path.decode(errors='ignore')
-print(f"Found {info.get('product_string','<unknown>')} @ {path}")
-
-dev = hid.Device(path=info['path'])
-print("Driver connected to BeoSound 5")
+dev = hid.device()
+dev.open(VID, PID)
+print("Opened")
+dev.set_nonblocking(True)
+print("Configured")
 
 last_laser = None
 first = True
