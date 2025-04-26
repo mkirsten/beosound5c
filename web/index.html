@@ -2,359 +2,118 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Beosound Standalone UI</title>
+  <title>BeoSound 5 Dashboard</n></title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #222; display: flex; justify-content: center; align-items: center; height: 100vh; }
-
-    /* Container = controls + red UI */
-    #app-container {
-      position: relative;
-      width: 1174px;  /* 1024 + 150 */
-      height: 768px;
-    }
-
-    /* 1) Main red‑bordered canvas */
+    /* Fixed viewport */
+    html, body { margin:0; padding:0; width:1024px; height:768px; overflow:hidden; }
     #main-ui {
-      position: absolute; left: 0; top: 0;
-      width: 1024px; height: 768px;
+      position: relative;
+      width: 1024px;
+      height: 768px;
       border: 8px solid red;
       background: black;
-      overflow: hidden;
-      display: flex;
     }
-
-    /* b) Navigation column */
-    #nav {
-      width: 200px; padding: 20px;
-      color: white; font-family: sans-serif;
-      position: relative;
+    /* Controls and artwork fill the area */
+    #controls { position:absolute; left:0; top:0; width:150px; height:100%; background:#1c1c1c; }
+    #controls button { display:block; width: 120px; margin: 10px auto; font-size:1em; }
+    #slider-vol, #slider-laser {
+      width:120px; margin:10px auto; display:block;
     }
-    #nav ul { list-style: none; }
-    #nav li {
-      padding: 12px 8px; margin-bottom: 8px;
-      color: white; cursor: default;
-    }
-    #nav li.active {
-      background: rgba(255,255,255,0.2);
-      border-radius: 4px;
-    }
-    #laser-pointer {
-      position: absolute; width: 4px; height: 24px;
-      background: cyan; left: 0;
-      transition: top 0.1s;
-    }
-
-    /* a) Artwork + reflection + info + gauge */
     #artwork-container {
-      flex: 1; position: relative; overflow: hidden;
+      position:absolute; left:150px; top:0; right:0; bottom:0; overflow:hidden;
     }
-    #artwork {
-      position: absolute;
-      top: 40%; left: 37%;
-      max-width: 60%; max-height: 60%;
-      transform: translate(-45%, -45%);
-      border-radius: 8px;
-      z-index: 1;
-      transition: opacity 0.6s ease;
-    }
-    #reflection {
-      position: absolute;
-      /* will be positioned via JS */
-      background: no-repeat center/100% 100%;
-      /* clip to an upside‑down triangle */
-      clip-path: polygon(0 0, 100% 0, 50% 100%);
-      opacity: 0.4;
-      transition: opacity 0.6s ease;
-      z-index: 0;
-    }
+    #artwork { position:absolute; max-width:100%; max-height:100%; left:50%; top:50%; transform:translate(-50%,-50%); }
     #info-box {
-      position: absolute;
-      background: rgba(0,0,0,0.75);
-      padding: 8px 16px; border-radius: 8px;
-      color: #fff; text-align: center;
-      font-family: sans-serif;
-      z-index: 2;
-      transition: top 0.3s;
+      position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
+      background:rgba(0,0,0,0.7); color:white; padding:8px 16px; border-radius:8px; text-align:center;
     }
-    #info-box #track-title   { font-size: 32px; margin-bottom:4px; }
-    #info-box #track-album   { font-size: 18px; margin-bottom:2px; }
-    #info-box #track-artist  { font-size: 14px; opacity:0.9; }
-
-    /* c) Half‑circle gauge */
-    #gauge {
-      position: absolute; right: 20px; bottom: 20px;
-      width: 150px; height: 75px;
-    }
-
-    /* 2) Controls column (fixed 150px) */
-    #controls {
-      position: absolute; left: 1024px; top: 0;
-      width: 150px; height: 768px;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: space-around;
-      color: white; font-family: sans-serif;
-    }
-    #controls button {
-      width: 60px; height: 40px; font-size: 18px;
-    }
-    .slider-group {
-      display: flex; flex-direction: column; align-items: center;
-    }
-    .slider-group label { margin-bottom: 4px; }
-    .slider-group input {
-      writing-mode: bt-lr;
-      -webkit-appearance: slider-vertical;
-      width: 16px; height: 150px;
+    #laser-pointer { position:absolute; left:150px; width:4px; height:24px; background:cyan; }
+    /* WebSocket log */
+    #ws-log {
+      position:absolute; top:0; right:0; background:red; color:white;
+      font-family:monospace; font-size:0.8em; padding:4px; width:300px; height:60px; overflow:hidden;
     }
   </style>
 </head>
 <body>
-
-  <div id="app-container">
-    <!-- Main canvas -->
-    <div id="main-ui">
-      <nav id="nav">
-        <div id="laser-pointer"></div>
-        <ul>
-          <li>Playing now</li>
-          <li>Playlists</li>
-          <li>Security</li>
-          <li>Control</li>
-          <li>Settings</li>
-        </ul>
-      </nav>
-
-      <div id="artwork-container">
-<!-- Now Playing -->
-<img id="artwork" src="" alt="Art">
-<!-- Next Up (smaller overlay in corner) -->
-<img id="next-artwork" src="" alt="Next Up" style="
-  position:absolute;
-  top:8px; right:8px;
-  width:100px; height:100px;
-  border-radius:4px;
-  box-shadow:0 0 8px rgba(0,0,0,0.5);
-  opacity:0.8;
-  z-index:3;
-">
-        <div id="reflection"></div>
-        <canvas id="gauge"></canvas>
-        <div id="info-box">
-          <div id="track-title">—</div>
-          <div id="track-album">—</div>
-          <div id="track-artist">—</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Controls -->
+  <div id="main-ui">
     <div id="controls">
-      <button id="prev">&lt;</button>
-      <button id="next">&gt;</button>
-      <button id="go">GO</button>
-      <div class="slider-group">
-        <label for="volume">Volume</label>
-        <input type="range" id="volume" min="0" max="100" value="50">
+      <button id="btn-prev">Prev</button>
+      <button id="btn-next">Next</button>
+      <input type="range" id="slider-vol" min="0" max="100" />
+      <input type="range" id="slider-laser" min="0" max="100" />
+    </div>
+    <div id="artwork-container">
+      <img id="artwork" src="" alt="Art" />
+      <div id="info-box">
+        <div id="track-title">—</div>
+        <div id="track-album">—</div>
+        <div id="track-artist">—</div>
       </div>
-      <div class="slider-group">
-        <label for="wheel">Wheel</label>
-        <input type="range" id="wheel" min="0" max="100" value="50">
-      </div>
-      <div class="slider-group">
-        <label for="laser">Laser</label>
-        <input type="range" id="laser" min="0" max="4" value="4">
-      </div>
+      <div id="laser-pointer"></div>
+      <div id="ws-log"></div>
     </div>
   </div>
 
   <script>
-    // element refs
-    const artwork          = document.getElementById('artwork');
-    const reflection       = document.getElementById('reflection');
-    const trackTitle       = document.getElementById('track-title');
-    const trackArtist      = document.getElementById('track-artist');
-    const trackAlbum       = document.getElementById('track-album');
-    const artworkContainer = document.getElementById('artwork-container');
-    const infoBox          = document.getElementById('info-box');
-    const volSlider        = document.getElementById('volume');
+    const WS_URL = "ws://localhost:8765";
+    const ws = new WebSocket(WS_URL);
 
-    // CONFIG: point to your HA + token + entity
-    const HA_URL    = 'http://homeassistant.local:8123';
-    const HA_TOKEN  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjMDY0NDFjNDRjOWM0YTQ3ODk1OWVmMjcwYzY2MTU2ZiIsImlhdCI6MTc0NTI2ODYzNywiZXhwIjoyMDYwNjI4NjM3fQ.ldZPYpESQgL_dQj026faUhBzqTgJBVH4oYSrXtWzfC0';
-    const ENTITY_ID = 'media_player.medierum';
+    // Elements
+    const btnPrev = document.getElementById('btn-prev');
+    const btnNext = document.getElementById('btn-next');
+    const sliderVol   = document.getElementById('slider-vol');
+    const sliderLaser = document.getElementById('slider-laser');
+    const artworkEl   = document.getElementById('artwork');
+    const titleEl     = document.getElementById('track-title');
+    const albumEl     = document.getElementById('track-album');
+    const artistEl    = document.getElementById('track-artist');
+    const laserPtr    = document.getElementById('laser-pointer');
+    const wsLog       = document.getElementById('ws-log');
 
-    // fetch media state + volume, cross‑fade on artwork change
-    async function fetchMedia() {
-      try {
-        const res = await fetch(`${HA_URL}/api/states/${ENTITY_ID}`, {
-          headers: { 'Authorization': 'Bearer ' + HA_TOKEN }
-        });
-        if (!res.ok) throw new Error(res.status);
-        const d = await res.json();
-        const newPic = HA_URL + d.attributes.entity_picture;
+    // WS message queue
+    const recent = [];
+    function logMsg(msg) {
+      recent.unshift(msg);
+      if (recent.length>3) recent.pop();
+      wsLog.innerText = recent.join('\n');
+    }
 
-        // cross‑fade artwork & reflection
-        if (artwork.src !== newPic) {
-          artwork.style.opacity    = 0;
-          reflection.style.opacity = 0;
-          artwork.addEventListener('transitionend', function _f() {
-            artwork.removeEventListener('transitionend', _f);
-            artwork.src = newPic;
-            reflection.style.backgroundImage = `url(${newPic})`;
-            positionElements();
-            artwork.style.opacity    = 1;
-            setTimeout(()=> reflection.style.opacity = 0.4, 100);
-          });
-        }
+    ws.onopen = () => logMsg('WS open');
+    ws.onclose = () => logMsg('WS close');
+    ws.onerror = e => logMsg('WS error');
 
-        // update metadata
-        trackTitle.textContent  = d.attributes.media_title      || '—';
-        trackAlbum.textContent  = d.attributes.media_album_name || '—';
-        trackArtist.textContent = d.attributes.media_artist     || '—';
+    ws.onmessage = ev => {
+      const {type,data} = JSON.parse(ev.data);
+      logMsg(`${type}: ${JSON.stringify(data)}`);
 
-        // sync volume slider + gauge
-        if (d.attributes.volume_level != null) {
-          const vol100 = Math.round(d.attributes.volume_level * 100);
-          volSlider.value = vol100;
-          drawHalfGauge(vol100);
-        }
-      } catch (e) {
-        console.warn('Fetch failed', e);
+      switch(type) {
+        case 'button':
+          if (data.button==='left')  btnPrev.click();
+          if (data.button==='right') btnNext.click();
+          break;
+        case 'volume':
+          sliderVol.value = data.speed;
+          sliderVol.dispatchEvent(new Event('input'));
+          break;
+        case 'laser':
+          const pct = data.position;
+          sliderLaser.value = pct;
+          sliderLaser.dispatchEvent(new Event('input'));
+          // position pointer
+          const cont = document.getElementById('artwork-container').getBoundingClientRect();
+          const x = cont.left + pct/100 * cont.width;
+          laserPtr.style.top = (cont.top+10)+'px';
+          laserPtr.style.left = x+'px';
+          break;
       }
-  fetchQueue();
-    }
+    };
 
-// Fetch Sonos queue (browse_media) and display next artwork
-async function fetchQueue() {
-  try {
-    const res = await fetch(`${HA_URL}/api/media_player/browse_media`, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + HA_TOKEN,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        entity_id: ENTITY_ID,
-        media_content_type: 'queue'
-      })
-    });
-    if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
-    // Sonos queue returns children[], first child is "Now playing", so pick index 1
-    const next = data.children?.[1] || null;
-    if (next && next.thumbnail) {
-      document.getElementById('next-artwork').src = HA_URL + next.thumbnail;
-    } else {
-      document.getElementById('next-artwork').style.display = 'none';
-    }
-  } catch (e) {
-    console.warn('Queue fetch failed', e);
-    document.getElementById('next-artwork').style.display = 'none';
-  }
-}
-
-    fetchMedia();
-
-    setInterval(fetchMedia, 5000);
-
-    // position reflection + info
-    function positionElements() {
-      const artRect  = artwork.getBoundingClientRect();
-      const contRect = artworkContainer.getBoundingClientRect();
-      const artLeft  = artRect.left  - contRect.left;
-      const artTop   = artRect.top   - contRect.top;
-      const artW     = artRect.width;
-      const artH     = artRect.height;
-
-      // reflection
-      const reflH = artH * 0.25;
-      reflection.style.width  = artW + 'px';
-      reflection.style.height = reflH + 'px';
-      reflection.style.left   = artLeft + 'px';
-      reflection.style.top    = artTop + artH + 'px';
-
-      // info‑box
-      let infoTop = artTop + artH + reflH + 8;
-      const maxTop = contRect.height - infoBox.offsetHeight - 8;
-      if (infoTop > maxTop) infoTop = maxTop;
-      infoBox.style.top       = infoTop + 'px';
-      infoBox.style.left      = (artLeft + artW/2) + 'px';
-      infoBox.style.transform = 'translateX(-50%)';
-    }
-    artwork.addEventListener('load',  positionElements);
-    window.addEventListener('resize', positionElements);
-
-    // laser nav (inverted)
-    const navItems = [...document.querySelectorAll('#nav li')];
-    const laser    = document.getElementById('laser');
-    const pointer  = document.getElementById('laser-pointer');
-    function updateLaser() {
-      const idx = laser.max - parseInt(laser.value,10);
-      navItems.forEach((li,i)=> li.classList.toggle('active', i===idx));
-      const navRect  = document.getElementById('nav').getBoundingClientRect();
-      const itemRect = navItems[idx].getBoundingClientRect();
-      pointer.style.top = (itemRect.top - navRect.top + 4) + 'px';
-    }
-    laser.addEventListener('input', updateLaser);
-    updateLaser();
-
-    // half‑circle volume gauge
-    const gauge = document.getElementById('gauge');
-    const ctx   = gauge.getContext('2d');
-    gauge.width  = 150; gauge.height = 75;
-    function drawHalfGauge(val) {
-      const pct = val / volSlider.max;
-      ctx.clearRect(0,0,150,75);
-      // bg semi‑circle
-      ctx.beginPath();
-      ctx.arc(75,75,60,Math.PI/2,3*Math.PI/2);
-      ctx.fillStyle = '#333'; ctx.fill();
-      // fill
-      ctx.beginPath();
-      ctx.moveTo(75,75);
-      ctx.arc(75,75,60,Math.PI/2,Math.PI/2+Math.PI*pct,false);
-      ctx.closePath(); ctx.fillStyle = '#4fc3f7'; ctx.fill();
-      // inner cutout
-      ctx.beginPath();
-      ctx.arc(75,75,40,0,2*Math.PI); ctx.fillStyle = '#222'; ctx.fill();
-    }
-    volSlider.addEventListener('input', () => drawHalfGauge(volSlider.value));
-    // send volume to Sonos on slider change
-    volSlider.addEventListener('change', () => {
-      const level = parseInt(volSlider.value,10)/100;
-      fetch(`${HA_URL}/api/services/media_player/volume_set`, {
-        method:'POST',
-        headers:{
-          'Authorization':'Bearer '+HA_TOKEN,
-          'Content-Type':'application/json'
-        },
-        body: JSON.stringify({ entity_id:ENTITY_ID, volume_level:level })
-      }).catch(console.error);
-    });
-    drawHalfGauge(volSlider.value);
-
-    // prev/next track
-    document.getElementById('prev').addEventListener('click', () => {
-      fetch(`${HA_URL}/api/services/media_player/media_previous_track`, {
-        method:'POST',
-        headers:{
-          'Authorization':'Bearer '+HA_TOKEN,
-          'Content-Type':'application/json'
-        },
-        body: JSON.stringify({ entity_id:ENTITY_ID })
-      }).then(fetchMedia).catch(console.error);
-    });
-    document.getElementById('next').addEventListener('click', () => {
-      fetch(`${HA_URL}/api/services/media_player/media_next_track`, {
-        method:'POST',
-        headers:{
-          'Authorization':'Bearer '+HA_TOKEN,
-          'Content-Type':'application/json'
-        },
-        body: JSON.stringify({ entity_id:ENTITY_ID })
-      }).then(fetchMedia).catch(console.error);
-    });
+    // Stub handlers (replace with HA fetch logic or callbacks)
+    btnPrev.addEventListener('click', () => console.log('Prev song'));
+    btnNext.addEventListener('click', () => console.log('Next song'));
+    sliderVol.addEventListener('input', () => console.log('Set vol', sliderVol.value));
+    sliderLaser.addEventListener('input', () => console.log('Laser pos', sliderLaser.value));
   </script>
 </body>
 </html>

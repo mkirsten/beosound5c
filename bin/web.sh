@@ -3,4 +3,4 @@ chromium-browser \
   --disable-infobars \
   --disable-session-crashed-bubble \
   --kiosk \
-  "file://$HOME/beosound5/web/index.html"
+  "file://$HOME/beosound5c/web/index.html"
