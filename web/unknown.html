@@ -67,18 +67,6 @@
       </div>
       <div id="page-container">
         <span id="page-title" style="color:white; font-size:48px;"></span>
-<!-- in #page-container, immediately after the <span id="page-title">…</span> -->
-<iframe
-  id="security-iframe"
-  src="/ha/dashboard-security/0"
-  style="
-    display: none;
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    border: none;
-  ">
-</iframe>
       </div>
       <canvas id="vol-gauge" width="200" height="300"></canvas>
       <div id="ws-log"></div>
@@ -100,8 +88,6 @@
     const wsLog   = document.getElementById('ws-log');
     const vg      = document.getElementById('vol-gauge');
     const ctx     = vg.getContext('2d');
-
-    const securityFrame = document.getElementById('security-iframe');
 
     // HA config
     const HA_URL = 'http://homeassistant.local:8123';
@@ -170,29 +156,9 @@
       const idx = Math.round(eff*(navItems.length-1)/100);
       activate(idx);
       const page = navItems[curIdx].textContent;
-
-if (page === 'Playing now') {
-  // hide iframe, show artwork
-  securityFrame.style.display = 'none';
-  pageTitle.style.display = 'block';
-  fadeToArtwork();
-}
-else if (page === 'Security') {
-  // load and show HA security dashboard
-  pageTitle.style.display = 'none';
-  securityFrame.src = 'http://homeassistant.local:8123/dashboard-security/0';
-  securityFrame.style.display = 'block';
-  // fade iframe in, artwork out
-  artCont.style.opacity = 0;
-  pageCont.style.opacity = 1;
-  pageCont.style.pointerEvents = 'auto';
-}
-else {
-  // any other page: hide iframe, show plain title
-  securityFrame.style.display = 'none';
-  pageTitle.style.display = 'block';
-  fadeToPage(page);
-}
+      if(page==='Playing now') fadeToArtwork();
+      else fadeToPage(page);
+      if(pos<=70 || post >= 102) fadeToArtwork();
     }
 
     // Prev/Next track
