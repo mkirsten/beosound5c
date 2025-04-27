@@ -15,7 +15,7 @@ clients = set()
 
 # --- WebSocket boilerplate --
 
-async def handler(ws, path):
+async def handler(ws, path=None):
     clients.add(ws)
     try:
         await ws.wait_closed()
