@@ -32,7 +32,6 @@ def parse_report(rep):
             direction = 'counter'
             speed = 256 - nav
         nav_evt = {'direction': direction, 'speed': speed}
-
     # VOLUME
     vol_evt = None
     vol = rep[1]
@@ -76,6 +75,8 @@ try:
 
             if nav_evt:
                 print(f"NAV     → {nav_evt}")
+                if(nav_evt['speed'] > 2):
+                  dev.write([0x41, 0x00])
             if vol_evt:
                 print(f"VOLUME  → {vol_evt}")
             if btn_evt:
