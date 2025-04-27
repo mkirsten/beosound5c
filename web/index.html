@@ -141,6 +141,9 @@
     let searchResultElements = [];
     let searchResultIndex = -1;
 
+    // Track current volume level
+    let currentVolume = 0;
+
     // Logging function
     const recent = [];
     function logMsg(m) { 
@@ -560,7 +563,10 @@
         }
         if(type==='laser') onLaser(data.position);
         if(type==='playback') fetchMedia();
-        if(type==='volume') drawGauge(data.speed);
+        if(type==='volume') {
+          logMsg(`Volume message received: speed=${data.speed}, direction=${data.direction || 'none'}`);
+          adjustVolume(data.speed, data.direction);
+        }
         if(type==='nav') {
           if (navItems[curIdx].textContent === 'Home status') {
             if (haInterfaceState === 'search-results') {
@@ -629,13 +635,85 @@
     // Initial connection
     connectWebSocket();
 
+    // function to adjust Sonos volume
+    async function adjustVolume(speed, direction) {
+      try {
+        logMsg(`Current volume: ${Math.round(currentVolume * 100)}%, speed: ${speed}`);
+        
+        // Determine adjustment factor based on speed and direction
+        let adjustment;
+          // If speed isn't a number but we have direction, use direction
+          adjustment = direction === 'clock' ? 0.05 : -0.05;
+          logMsg(`Using direction value: adjustment = ${adjustment}`);
+        
+        let newVolume = currentVolume + adjustment;
+        
+        // Keep volume within 0-1 range
+        newVolume = Math.max(0, Math.min(1, newVolume));
+        logMsg(`Adjusting volume from ${Math.round(currentVolume * 100)}% to ${Math.round(newVolume * 100)}%`);
+        
+        // Only update if there's an actual change
+        if (newVolume !== currentVolume) {
+          // Update Sonos volume via Home Assistant API
+          logMsg(`Sending volume_set API call to ${HA_URL} for entity ${ENTITY}`);
+          try {
+            const response = await fetch(`${HA_URL}/api/services/media_player/volume_set`, {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + HA_TOKEN,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                entity_id: ENTITY,
+                volume_level: newVolume
+              })
+            });
+            
+            const responseStatus = response.status;
+            logMsg(`Volume API response status: ${responseStatus}`);
+            
+            if (responseStatus >= 200 && responseStatus < 300) {
+              // Success - update local volume immediately for responsiveness
+              currentVolume = newVolume;
+              logMsg(`Volume set successfully to ${Math.round(newVolume * 100)}%`);
+            } else {
+              const responseText = await response.text();
+              logMsg(`Volume API error: ${responseStatus}, ${responseText.substring(0, 50)}...`);
+            }
+          } catch (apiError) {
+            logMsg(`Volume API fetch error: ${apiError.message}`);
+          }
+          
+          // Fetch latest state to sync with actual volume
+          setTimeout(fetchMedia, 500);
+        } else {
+          logMsg('No volume change needed (already at limit)');
+        }
+      } catch (e) {
+        logMsg(`Volume error: ${e.message}`);
+        console.error('Volume adjustment error:', e);
+      }
+    }
+
     // fetch media + volume
     async function fetchMedia(){
       try{
+        logMsg(`Fetching media state from ${HA_URL}/api/states/${ENTITY}`);
         const r=await fetch(`${HA_URL}/api/states/${ENTITY}`,{headers:{'Authorization':'Bearer '+HA_TOKEN}});
         const d=await r.json();
         const pic=HA_URL+d.attributes.entity_picture;
-        const vol = Math.round((d.attributes.volume_level||0)*100);
+        
+        // Store current volume for use with the volume wheel
+        const prevVolume = currentVolume;
+        currentVolume = d.attributes.volume_level || 0;
+        
+        if (prevVolume !== currentVolume) {
+          logMsg(`Volume updated from fetch: ${Math.round(currentVolume * 100)}%`);
+        }
+        
+        // Log all relevant media info for debugging
+        logMsg(`Media state: ${d.state}, volume: ${Math.round(currentVolume * 100)}%`);
+        
         // update metadata
         titleEl.textContent=d.attributes.media_title||'—';
         albumEl.textContent=d.attributes.media_album_name||'—';
@@ -649,9 +727,10 @@
             artwork.style.opacity = 1;
           });
         }
-        // update gauge
-        drawGauge(vol);
-      } catch(e) { console.warn(e); }
+      } catch(e) { 
+        logMsg(`Media fetch error: ${e.message}`);
+        console.warn(e); 
+      }
     }
     fetchMedia(); setInterval(fetchMedia,5000);
 
@@ -759,9 +838,6 @@
 
     function fadeToPage(page){ pageTitle.textContent=page; pageCont.style.pointerEvents='auto'; artCont.style.opacity=0; pageCont.style.opacity=1; }
     function fadeToArtwork(){ pageCont.style.opacity=0; pageCont.style.pointerEvents='none'; artCont.style.opacity=1; }
-
-    // volume gauge
-    function drawGauge(val){ const pct=val/100; ctx.clearRect(0,0,vg.width,vg.height); ctx.lineWidth=20; ctx.strokeStyle='#333'; ctx.beginPath(); ctx.arc(vg.width,vg.height/2,vg.width-10,Math.PI/2,3*Math.PI/2); ctx.stroke(); ctx.strokeStyle='#4fc3f7'; ctx.beginPath(); ctx.arc(vg.width,vg.height/2,vg.width-10,Math.PI/2,Math.PI/2+Math.PI*pct,false); ctx.stroke(); }
 
     // Populate playlist with real names
     const realPlaylistNames = [
