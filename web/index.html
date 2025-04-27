@@ -601,8 +601,8 @@
       if (navItems[curIdx].textContent === 'Doorcam' || navItems[curIdx].textContent === 'Home status') {
         const scrollContainer = pageCont.querySelector('.iframe-scroll-container');
         if (scrollContainer) {
-          // Amount to scroll
-          const scrollAmount = 100; // pixels to scroll
+          // Amount to scroll - reduced for finer control
+          const scrollAmount = 40; // pixels to scroll (reduced from 100)
           if (direction === 'clock') {
             // Scroll down
             scrollContainer.scrollTop += scrollAmount;
@@ -905,11 +905,11 @@
         
         // Add click handlers
         scrollUpButton.addEventListener('click', () => {
-          scrollContainer.scrollTop -= 100;
+          scrollContainer.scrollTop -= 40; // Reduced from 100 for finer control
         });
         
         scrollDownButton.addEventListener('click', () => {
-          scrollContainer.scrollTop += 100;
+          scrollContainer.scrollTop += 40; // Reduced from 100 for finer control
         });
         
         // Append elements
@@ -1014,11 +1014,11 @@
         
         // Add click handlers
         scrollUpButton.addEventListener('click', () => {
-          scrollContainer.scrollTop -= 100;
+          scrollContainer.scrollTop -= 40; // Reduced from 100 for finer control
         });
         
         scrollDownButton.addEventListener('click', () => {
-          scrollContainer.scrollTop += 100;
+          scrollContainer.scrollTop += 40; // Reduced from 100 for finer control
         });
         
         // Append elements
