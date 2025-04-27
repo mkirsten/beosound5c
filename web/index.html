@@ -82,6 +82,7 @@
         <li>Security</li>
         <li>Control</li>
         <li>Settings</li>
+        <li>Doorcam</li>
         <li>Home status</li>
       </ul>
     </nav>
@@ -300,7 +301,7 @@
     // Setup keyboard control for the virtual cursor
     document.addEventListener('keydown', (e) => {
       // Only handle keys when on Home status page
-      if (navItems[curIdx].textContent !== 'Home status') return;
+      if (navItems[curIdx].textContent !== 'Home status' && navItems[curIdx].textContent !== 'Doorcam') return;
       
       switch (e.key) {
         case 'Tab':
@@ -476,7 +477,7 @@
     // Setup keyboard control for card navigation
     document.addEventListener('keydown', (e) => {
       // Only handle keys when on Home status page
-      if (navItems[curIdx].textContent !== 'Home status') return;
+      if (navItems[curIdx].textContent !== 'Home status' && navItems[curIdx].textContent !== 'Doorcam') return;
       
       switch (e.key) {
         case 'c': // 'c' key to toggle card navigation
@@ -537,7 +538,7 @@
       ws.onmessage = ev => {
         const {type,data} = JSON.parse(ev.data); logMsg(`${type}:${JSON.stringify(data)}`);
         if(type==='button'){
-          if (navItems[curIdx].textContent === 'Home status') {
+          if (navItems[curIdx].textContent === 'Home status' || navItems[curIdx].textContent === 'Doorcam') {
             if (haInterfaceState === 'search-results') {
               // For search results navigation
               if(data.button==='left') navigateSearchResults('up');
@@ -568,7 +569,7 @@
           adjustVolume(data.speed, data.direction);
         }
         if(type==='nav') {
-          if (navItems[curIdx].textContent === 'Home status') {
+          if (navItems[curIdx].textContent === 'Home status' || navItems[curIdx].textContent === 'Doorcam') {
             if (haInterfaceState === 'search-results') {
               // For search results navigation
               if (data.direction === 'clock') {
@@ -595,6 +596,47 @@
 
     function handleNav(data) {
       const { direction, speed } = data;
+      
+      // If on Doorcam or Home status page, scroll the container
+      if (navItems[curIdx].textContent === 'Doorcam' || navItems[curIdx].textContent === 'Home status') {
+        const scrollContainer = pageCont.querySelector('.iframe-scroll-container');
+        if (scrollContainer) {
+          // Amount to scroll
+          const scrollAmount = 100; // pixels to scroll
+          if (direction === 'clock') {
+            // Scroll down
+            scrollContainer.scrollTop += scrollAmount;
+            logMsg('Scrolling down');
+            
+            // Show the scroll indicator briefly for feedback
+            const instructionDiv = pageCont.querySelector('div[style*="bottom: 20px"]');
+            if (instructionDiv) {
+              instructionDiv.style.opacity = '1';
+              instructionDiv.textContent = 'Scrolling down...';
+              setTimeout(() => {
+                instructionDiv.style.opacity = '0';
+              }, 1000);
+            }
+          } else {
+            // Scroll up
+            scrollContainer.scrollTop -= scrollAmount;
+            logMsg('Scrolling up');
+            
+            // Show the scroll indicator briefly for feedback
+            const instructionDiv = pageCont.querySelector('div[style*="bottom: 20px"]');
+            if (instructionDiv) {
+              instructionDiv.style.opacity = '1';
+              instructionDiv.textContent = 'Scrolling up...';
+              setTimeout(() => {
+                instructionDiv.style.opacity = '0';
+              }, 1000);
+            }
+          }
+          return;
+        }
+      }
+      
+      // Original playlist navigation behavior
       let currentIndex = playlistItems.findIndex(item => item.classList.contains('selected'));
       if (currentIndex === -1) currentIndex = 0;
 
@@ -745,7 +787,7 @@
       const page = navItems[curIdx].textContent;
       
       // Save iframe from being destroyed when navigating away from Home status
-      if (pageCont.querySelector('iframe') && page !== 'Home status') {
+      if (pageCont.querySelector('iframe') && page !== 'Home status' && page !== 'Doorcam') {
         if (!haIframe) {
           haIframe = pageCont.querySelector('iframe');
         }
@@ -778,7 +820,13 @@
           item.style.fontSize = '16px';
           item.style.color = 'white';
         });
-      } else if (page === 'Home status') {
+      } else if (page === 'Doorcam') {
+        // Disable card navigation and scanning features for this page
+        if (cursorVisible && highlightBorder) {
+          cursorVisible = false;
+          highlightBorder.style.display = 'none';
+        }
+        
         pageTitle.style.display = 'none';
         playlistContainer.style.display = 'none';
         artCont.style.opacity = 0;
@@ -787,26 +835,201 @@
         
         pageCont.innerHTML = '';
         
-        // Use cached iframe if available, otherwise create a new one
+        // Create wrapper div for iframe and controls
+        const wrapperDiv = document.createElement('div');
+        wrapperDiv.style.width = '100%';
+        wrapperDiv.style.height = '100%';
+        wrapperDiv.style.position = 'relative';
+        
+        // Add scrolling instruction
+        const instructionDiv = document.createElement('div');
+        instructionDiv.style.position = 'absolute';
+        instructionDiv.style.bottom = '20px';
+        instructionDiv.style.left = '50%';
+        instructionDiv.style.transform = 'translateX(-50%)';
+        instructionDiv.style.backgroundColor = 'rgba(0,0,0,0.7)';
+        instructionDiv.style.color = 'white';
+        instructionDiv.style.padding = '10px';
+        instructionDiv.style.borderRadius = '5px';
+        instructionDiv.style.zIndex = '1000';
+        instructionDiv.textContent = 'Use wheel to scroll up/down';
+        instructionDiv.style.opacity = '1';
+        instructionDiv.style.transition = 'opacity 0.5s';
+        
+        // Fade out instruction after 3 seconds
+        setTimeout(() => {
+          instructionDiv.style.opacity = '0';
+        }, 3000);
+        
+        // Create a scrollable container
+        const scrollContainer = document.createElement('div');
+        scrollContainer.style.width = '100%';
+        scrollContainer.style.height = '100%';
+        scrollContainer.style.overflow = 'auto';
+        scrollContainer.className = 'iframe-scroll-container';
+        
+        // Create a new iframe for the security dashboard
+        const doorcamIframe = document.createElement('iframe');
+        doorcamIframe.src = 'http://homeassistant.local:8123/dashboard-security/0';
+        doorcamIframe.style.width = '100%';
+        doorcamIframe.style.height = '200%'; // Make taller to allow scrolling
+        doorcamIframe.style.border = 'none';
+        doorcamIframe.style.pointerEvents = 'none'; // Prevent direct interaction with iframe
+        
+        // Scroll buttons
+        const scrollUpButton = document.createElement('button');
+        scrollUpButton.textContent = '▲';
+        scrollUpButton.style.position = 'absolute';
+        scrollUpButton.style.right = '20px';
+        scrollUpButton.style.top = '20px';
+        scrollUpButton.style.zIndex = '1000';
+        scrollUpButton.style.padding = '10px 15px';
+        scrollUpButton.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        scrollUpButton.style.color = 'white';
+        scrollUpButton.style.border = 'none';
+        scrollUpButton.style.borderRadius = '5px';
+        scrollUpButton.style.cursor = 'pointer';
+        
+        const scrollDownButton = document.createElement('button');
+        scrollDownButton.textContent = '▼';
+        scrollDownButton.style.position = 'absolute';
+        scrollDownButton.style.right = '20px';
+        scrollDownButton.style.top = '70px';
+        scrollDownButton.style.zIndex = '1000';
+        scrollDownButton.style.padding = '10px 15px';
+        scrollDownButton.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        scrollDownButton.style.color = 'white';
+        scrollDownButton.style.border = 'none';
+        scrollDownButton.style.borderRadius = '5px';
+        scrollDownButton.style.cursor = 'pointer';
+        
+        // Add click handlers
+        scrollUpButton.addEventListener('click', () => {
+          scrollContainer.scrollTop -= 100;
+        });
+        
+        scrollDownButton.addEventListener('click', () => {
+          scrollContainer.scrollTop += 100;
+        });
+        
+        // Append elements
+        scrollContainer.appendChild(doorcamIframe);
+        wrapperDiv.appendChild(scrollContainer);
+        wrapperDiv.appendChild(scrollUpButton);
+        wrapperDiv.appendChild(scrollDownButton);
+        wrapperDiv.appendChild(instructionDiv);
+        pageCont.appendChild(wrapperDiv);
+        
+        logMsg('Doorcam loaded with scrolling controls');
+      } else if (page === 'Home status') {
+        // Similar setup for Home status
+        if (cursorVisible && highlightBorder) {
+          cursorVisible = false;
+          highlightBorder.style.display = 'none';
+        }
+        
+        pageTitle.style.display = 'none';
+        playlistContainer.style.display = 'none';
+        artCont.style.opacity = 0;
+        pageCont.style.opacity = 1;
+        pageCont.style.pointerEvents = 'auto';
+        
+        pageCont.innerHTML = '';
+        
+        // Create wrapper div for iframe and controls
+        const wrapperDiv = document.createElement('div');
+        wrapperDiv.style.width = '100%';
+        wrapperDiv.style.height = '100%';
+        wrapperDiv.style.position = 'relative';
+        
+        // Add scrolling instruction
+        const instructionDiv = document.createElement('div');
+        instructionDiv.style.position = 'absolute';
+        instructionDiv.style.bottom = '20px';
+        instructionDiv.style.left = '50%';
+        instructionDiv.style.transform = 'translateX(-50%)';
+        instructionDiv.style.backgroundColor = 'rgba(0,0,0,0.7)';
+        instructionDiv.style.color = 'white';
+        instructionDiv.style.padding = '10px';
+        instructionDiv.style.borderRadius = '5px';
+        instructionDiv.style.zIndex = '1000';
+        instructionDiv.textContent = 'Use wheel to scroll up/down';
+        instructionDiv.style.opacity = '1';
+        instructionDiv.style.transition = 'opacity 0.5s';
+        
+        // Fade out instruction after 3 seconds
+        setTimeout(() => {
+          instructionDiv.style.opacity = '0';
+        }, 3000);
+        
+        // Create a scrollable container
+        const scrollContainer = document.createElement('div');
+        scrollContainer.style.width = '100%';
+        scrollContainer.style.height = '100%';
+        scrollContainer.style.overflow = 'auto';
+        scrollContainer.className = 'iframe-scroll-container';
+        
+        // Create new iframe or update existing one
         if (!haIframe) {
           haIframe = document.createElement('iframe');
           haIframe.src = 'http://homeassistant.local:8123/dashboard-basement/basement';
           haIframe.style.width = '100%';
-          haIframe.style.height = '100%';
+          haIframe.style.height = '200%'; // Make taller to allow scrolling
           haIframe.style.border = 'none';
-          
-          // Initialize card navigation after iframe loads
-          haIframe.onload = () => {
-            initHighlightBorder();
-            logMsg('Iframe loaded. Press c to activate card navigation.');
-          };
+          haIframe.style.pointerEvents = 'none'; // Prevent direct interaction with iframe
         } else {
-          // If iframe already exists and is being reused
-          initHighlightBorder();
-          logMsg('Press c to activate card navigation.');
+          // Make sure iframe has the correct src
+          if (haIframe.src !== 'http://homeassistant.local:8123/dashboard-basement/basement') {
+            haIframe.src = 'http://homeassistant.local:8123/dashboard-basement/basement';
+          }
+          haIframe.style.pointerEvents = 'none'; // Ensure pointer events are disabled
         }
         
-        pageCont.appendChild(haIframe);
+        // Scroll buttons
+        const scrollUpButton = document.createElement('button');
+        scrollUpButton.textContent = '▲';
+        scrollUpButton.style.position = 'absolute';
+        scrollUpButton.style.right = '20px';
+        scrollUpButton.style.top = '20px';
+        scrollUpButton.style.zIndex = '1000';
+        scrollUpButton.style.padding = '10px 15px';
+        scrollUpButton.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        scrollUpButton.style.color = 'white';
+        scrollUpButton.style.border = 'none';
+        scrollUpButton.style.borderRadius = '5px';
+        scrollUpButton.style.cursor = 'pointer';
+        
+        const scrollDownButton = document.createElement('button');
+        scrollDownButton.textContent = '▼';
+        scrollDownButton.style.position = 'absolute';
+        scrollDownButton.style.right = '20px';
+        scrollDownButton.style.top = '70px';
+        scrollDownButton.style.zIndex = '1000';
+        scrollDownButton.style.padding = '10px 15px';
+        scrollDownButton.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        scrollDownButton.style.color = 'white';
+        scrollDownButton.style.border = 'none';
+        scrollDownButton.style.borderRadius = '5px';
+        scrollDownButton.style.cursor = 'pointer';
+        
+        // Add click handlers
+        scrollUpButton.addEventListener('click', () => {
+          scrollContainer.scrollTop -= 100;
+        });
+        
+        scrollDownButton.addEventListener('click', () => {
+          scrollContainer.scrollTop += 100;
+        });
+        
+        // Append elements
+        scrollContainer.appendChild(haIframe);
+        wrapperDiv.appendChild(scrollContainer);
+        wrapperDiv.appendChild(scrollUpButton);
+        wrapperDiv.appendChild(scrollDownButton);
+        wrapperDiv.appendChild(instructionDiv);
+        pageCont.appendChild(wrapperDiv);
+        
+        logMsg('Home status loaded with scrolling controls');
       } else {
         pageTitle.style.display = 'block';
         playlistContainer.style.display = 'none';
@@ -828,7 +1051,18 @@
       // leverage ×4 inverted
       let eff = (100-pos)*4; if(eff>100) eff=100;
       const idx = Math.round(eff*(navItems.length-1)/100);
-      activate(idx);
+      
+      // If panel is shown and Home status is selected, ensure content is loaded
+      if(pos>70 && pos <102 && idx === navItems.length-1) { // Home status is the last item
+        // Make sure Home status page is shown properly
+        if (pageCont.innerHTML === '' || !pageCont.querySelector('iframe')) {
+          // Force Home status content to load
+          logMsg('Ensuring Home status content is loaded');
+          activate(navItems.length-1);
+        }
+      } else {
+        activate(idx);
+      }
     }
 
     // Prev/Next track
@@ -1036,20 +1270,39 @@
       }
     }
 
-    // Handle Go button in Home Status page - updated to include search functionality
+    // Handle Go button in Home Status page
     function onGo() {
-      if (navItems[curIdx].textContent === 'Home status') {
-        // Handle different states for the Go button in HA interface
-        if (haInterfaceState === 'normal') {
-          if (cursorVisible) {
-            clickSelectedCard(); // If in card navigation mode
-          } else {
-            activateHaSearch(); // Activate search if in normal mode
+      if (navItems[curIdx].textContent === 'Home status' || navItems[curIdx].textContent === 'Doorcam') {
+        // Special handling for iframe pages
+        // Use Go button to toggle the scroll buttons visibility
+        const scrollButtons = pageCont.querySelectorAll('button');
+        
+        if (scrollButtons.length > 0) {
+          const isVisible = scrollButtons[0].style.opacity !== '0';
+          
+          scrollButtons.forEach(button => {
+            button.style.opacity = isVisible ? '0' : '1';
+            button.style.pointerEvents = isVisible ? 'none' : 'auto';
+          });
+          
+          // Show instruction about button visibility
+          const instructionDiv = pageCont.querySelector('div[style*="bottom: 20px"]');
+          if (instructionDiv) {
+            instructionDiv.style.opacity = '1';
+            instructionDiv.textContent = isVisible ? 'Scroll buttons hidden' : 'Scroll buttons visible';
+            setTimeout(() => {
+              instructionDiv.style.opacity = '0';
+            }, 2000);
           }
-        } else if (haInterfaceState === 'search-pending') {
-          executeHaSearch(); // Execute search if waiting for search input
-        } else if (haInterfaceState === 'search-results') {
-          clickSearchResult(); // Select result if navigating search results
+          
+          logMsg(isVisible ? 'Scroll buttons hidden' : 'Scroll buttons shown');
+        } else {
+          // Fall back to original behavior
+          fetch(`${HA_URL}/api/services/media_player/media_play_pause`, {
+            method: 'POST',
+            headers: {'Authorization': 'Bearer ' + HA_TOKEN, 'Content-Type': 'application/json'},
+            body: JSON.stringify({entity_id: ENTITY})
+          }).then(() => fetchMedia());
         }
       } else {
         // Original behavior for other pages
