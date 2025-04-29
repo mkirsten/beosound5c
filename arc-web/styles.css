@@ -1,0 +1,113 @@
+:root {
+  font-family: 'Montserrat', sans-serif;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: black;
+}
+
+.container {
+  overflow: hidden;
+  width: 100%;
+  height: 100vh;
+  position: relative;
+}
+
+#viewport {
+  background-color: black;
+  width: 100%;
+  height: 100%;
+  cursor: none;
+}
+
+.list-item {
+  z-index: 1000;
+  font-weight: 100;
+  font-size: 14px;
+  color: white;
+  display: flex;
+  justify-content: right;
+  align-items: center;
+  transition: font-weight 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.list-item.selectedItem {
+  font-weight: bold;
+}
+
+#pointerDot, #pointerLine {
+  transition: all 100ms ease;
+}
+
+/* SVG filters */
+#blurPointFilter {
+  filter: blur(5px);
+}
+
+#exposureFilter {
+  filter: brightness(2);
+}
+
+#blurPointerFilter {
+  filter: blur(10px);
+}
+
+#contentArea {
+  transition: all 0.25s ease-out;
+}
+
+.slide-up-enter {
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+.slide-up-leave {
+  opacity: 0;
+  transform: translateY(-30px);
+}
+
+.list-item:hover {
+  font-weight: bold;
+  color: rgba(102,153,255,1);
+}
+
+.arc-content-flow {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.flow-items {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.flow-item {
+  position: absolute;
+  color: white;
+  font-size: 14px;
+  width: 200px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  transition: all 0.2s ease-out;
+  cursor: pointer;
+}
+
+.flow-item:hover {
+  color: rgba(102,153,255,1);
+}
+
