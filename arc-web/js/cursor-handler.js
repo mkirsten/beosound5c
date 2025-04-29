@@ -7,7 +7,7 @@ const config = {
     bypassRAF: true,        // Bypass requestAnimationFrame for immediate updates
     useShadowPointer: false, // Use a shadow pointer for immediate visual feedback
     showDebugOverlay: false, // Show the debug overlay
-    volumeThrottleDelay: 100 // Delay between volume updates in ms
+    volumeProcessingDelay: 50 // Delay between volume updates processing in ms
 };
 
 // Global variables for laser event optimization
@@ -16,6 +16,11 @@ let isAnimationRunning = false;
 let lastVolumeUpdate = 0;
 let volumeUpdatePending = false;
 let pendingVolumeData = null;
+
+// Volume adjustment variables
+let requestVolumeChangeNotStarted = 0;
+let requestVolumeChangeInProgress = 0;
+let volumeProcessorRunning = false;
 
 // Performance tracking
 let lastUpdateTime = 0;
@@ -69,14 +74,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Start the animation frame loop for processing laser events
     processLaserEvents();
     
-    // Try to identify pointer elements right away
+    // NOTE: The following two calls are likely unnecessary as the pointer elements
+    // are directly referenced by ID in UIStore.updatePointer() method
     findPointerElements();
-    
-    // Set up observer to find pointer elements when they're added or changed
     setupMutationObserver();
     
     // Create shadow pointer for visual feedback
     createShadowPointer();
+    
+    // Start the volume processor loop
+    startVolumeProcessor();
 });
 
 // Create shadow pointer for immediate visual feedback
@@ -123,135 +130,28 @@ function updateShadowPointer(angle) {
     shadowPointer.style.display = 'block';
 }
 
-// Set up mutation observer to find pointer elements when they change
-function setupMutationObserver() {
-    // Create an observer to watch for DOM changes
-    const observer = new MutationObserver((mutations) => {
-        // Look for added nodes that might be pointer elements
-        for (const mutation of mutations) {
-            if (mutation.type === 'childList') {
-                // Check added nodes
-                for (const node of mutation.addedNodes) {
-                    if (node.nodeType === Node.ELEMENT_NODE) {
-                        checkElement(node);
-                        // Also check children of added nodes
-                        node.querySelectorAll('*').forEach(checkElement);
-                    }
-                }
-            } else if (mutation.type === 'attributes') {
-                // If an element's attributes are changing, it might be the pointer
-                checkElement(mutation.target);
-            }
-        }
-    });
-    
-    // Start observing the whole document
-    observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['style', 'transform', 'class']
-    });
-    
-    console.log("Mutation observer set up to find pointer elements");
-}
-
-// Check if an element might be a pointer element
-function checkElement(element) {
-    // Skip if we've already processed this element
-    if (pointerElements.includes(element)) return;
-    
-    // Check for pointer-related attributes
-    const isPointer = 
-        (element.id && (element.id.includes('pointer') || element.id.includes('cursor'))) ||
-        (element.className && (String(element.className).includes('pointer') || String(element.className).includes('cursor'))) ||
-        element.tagName.toLowerCase() === 'g' ||
-        element.hasAttribute('transform') ||
-        getComputedStyle(element).transform !== 'none';
-    
-    if (isPointer) {
-        pointerElements.push(element);
-        console.log("Found potential pointer element:", element.tagName, element.id, element.className);
-        
-        // Test applying a transform to see if it moves correctly
-        const originalTransform = element.style.transform || '';
-        const originalAttrTransform = element.getAttribute('transform') || '';
-        
-        // We'll restore these immediately
-        if (element.style.transform !== undefined) {
-            element.style.transform = 'rotate(180deg)';
-            setTimeout(() => {
-                element.style.transform = originalTransform;
-            }, 10);
-        }
-        
-        if (element.hasAttribute('transform')) {
-            element.setAttribute('transform', 'rotate(180)');
-            setTimeout(() => {
-                if (originalAttrTransform) {
-                    element.setAttribute('transform', originalAttrTransform);
-                } else {
-                    element.removeAttribute('transform');
-                }
-            }, 10);
-        }
-    }
-}
-
-// Function to find pointer elements more aggressively
+// Function to find pointer elements more efficiently
 function findPointerElements() {
-    console.log("Searching for pointer elements...");
+    // NOTE: This function appears to be unnecessary in the current implementation.
+    // The pointer elements (pointerDot, pointerLine) are already directly manipulated
+    // in the UIStore.updatePointer() method, making this discovery process redundant.
     
-    // Try common patterns for the wheel pointer
-    const selectors = [
-        '#laser-pointer',
-        '.wheel-pointer',
-        '[class*="pointer"]',
-        '[id*="pointer"]',
-        '[class*="cursor"]',
-        '[id*="cursor"]',
-        'g[transform]',
-        '.top-wheel-pointer',
-        'line',
-        'path',
-        'polygon',
-        '*[style*="transform"]',
-        '*[style*="rotate"]'
-    ];
+    // If needed, we can directly target the specific elements we know about
+    const pointerDot = document.getElementById('pointerDot');
+    const pointerLine = document.getElementById('pointerLine');
     
-    // Try to find elements matching our selectors
-    for (const selector of selectors) {
-        try {
-            const elements = document.querySelectorAll(selector);
-            if (elements.length > 0) {
-                console.log(`Found ${elements.length} potential pointer elements with selector: ${selector}`);
-                elements.forEach(el => {
-                    if (!pointerElements.includes(el)) {
-                        pointerElements.push(el);
-                    }
-                });
-            }
-        } catch (e) {
-            console.error(`Error with selector ${selector}:`, e);
-        }
-    }
+    if (pointerDot && !pointerElements.includes(pointerDot)) pointerElements.push(pointerDot);
+    if (pointerLine && !pointerElements.includes(pointerLine)) pointerElements.push(pointerLine);
     
-    // Also look for elements with transform styles
-    document.querySelectorAll('*').forEach(el => {
-        try {
-            const style = window.getComputedStyle(el);
-            if (style.transform !== 'none') {
-                if (!pointerElements.includes(el)) {
-                    pointerElements.push(el);
-                    console.log("Found element with transform:", el.tagName, el.id, el.className);
-                }
-            }
-        } catch (e) {
-            // Ignore errors for inaccessible elements
-        }
-    });
-    
-    console.log(`Found ${pointerElements.length} potential pointer elements`);
+    // Log number of elements found
+    console.log(`Using ${pointerElements.length} known pointer elements`);
+}
+
+// Optional - we can also simplify the mutation observer setup
+function setupMutationObserver() {
+    // NOTE: This observer may also be unnecessary if we're directly targeting
+    // known elements by ID. It's kept for compatibility but could be removed.
+    console.log("Mutation observer setup skipped - not needed with direct element targeting");
 }
 
 // Function to update transition styles
@@ -339,6 +239,13 @@ function createDebugOverlay() {
 function toggleDebugOverlay() {
     // Use UIStore's debug overlay if available
     if (window.uiStore && window.uiStore.debugEnabled && document.getElementById('debug-overlay')) {
+        // Use the UIStore's toggle method if available
+        if (typeof window.uiStore.toggleDebugOverlay === 'function') {
+            window.uiStore.toggleDebugOverlay();
+            return;
+        }
+        
+        // Fallback to direct toggling
         const uiDebugOverlay = document.getElementById('debug-overlay');
         uiDebugOverlay.style.display = 
             uiDebugOverlay.style.display === 'none' ? 'block' : 'none';
@@ -620,57 +527,75 @@ function handleNavEvent(uiStore, data) {
 
 // Handle volume wheel events
 function handleVolumeEvent(uiStore, data) {
-    const now = Date.now();
+    if (!uiStore) return;
     
-    // Check if we need to throttle volume updates
-    if (now - lastVolumeUpdate < config.volumeThrottleDelay) {
-        // If an update is already pending, just update the data
-        if (volumeUpdatePending) {
-            pendingVolumeData = data;
-            return;
-        }
-        
-        // Schedule an update for later
-        volumeUpdatePending = true;
-        pendingVolumeData = data;
-        
-        setTimeout(() => {
-            if (pendingVolumeData) {
-                processVolumeEvent(uiStore, pendingVolumeData);
-                pendingVolumeData = null;
-                volumeUpdatePending = false;
-                lastVolumeUpdate = Date.now();
-            }
-        }, config.volumeThrottleDelay - (now - lastVolumeUpdate));
-        
-        return;
-    }
+    // Convert the incoming volume change to a step size
+    // The speed is the magnitude, the direction determines sign
+    const volumeStepChange = data.direction === 'clock' 
+        ? Math.min(3, data.speed / 10) // Cap adjustment for clockwise (increase)
+        : -Math.min(3, data.speed / 10); // Cap adjustment for counter-clockwise (decrease)
     
-    // Process immediately if not throttled
-    processVolumeEvent(uiStore, data);
-    lastVolumeUpdate = now;
+    // Log the requested change for debugging
+    console.log(`Volume change requested: ${volumeStepChange.toFixed(1)}`);
+    
+    // Accumulate the requested change
+    // This is thread 1 - it just adds to the pending change amount
+    requestVolumeChangeNotStarted += volumeStepChange;
+    
+    // Log the accumulated change for debugging
+    console.log(`Accumulated volume change: ${requestVolumeChangeNotStarted.toFixed(1)}`);
 }
 
-// Process the actual volume change with smoother handling
-function processVolumeEvent(uiStore, data) {
-    // Use a more consistent approach to volume steps
-    // Scale based on speed but with dampening for stability
-    let volumeStep = Math.min(5, data.speed / 5); // Cap maximum step size, reduce sensitivity
+// Start the volume processor - this runs as "thread 2"
+function startVolumeProcessor() {
+    // Only start if not already running
+    if (volumeProcessorRunning) return;
     
-    // Apply direction
-    if (data.direction === 'clock') {
-        uiStore.volume = Math.min(100, uiStore.volume + volumeStep);
-    } else {
-        uiStore.volume = Math.max(0, uiStore.volume - volumeStep);
-    }
+    volumeProcessorRunning = true;
     
-    // Update the volume arc
-    //uiStore.updateVolumeArc();
+    // Log that we're starting the processor
+    console.log("Volume processor started");
     
-    // Log to debug overlay
-    if (window.uiStore && window.uiStore.logWebsocketMessage) {
-        window.uiStore.logWebsocketMessage(`Volume: ${uiStore.volume.toFixed(1)}%`);
-    }
+    // Define the processor function
+    const processVolumeChanges = async () => {
+        while (volumeProcessorRunning) {
+            // Check if there are pending volume changes
+            if (requestVolumeChangeNotStarted !== 0) {
+                // Thread safety: Quickly capture and reset the pending value
+                // This minimizes the time we're accessing the shared variable
+                requestVolumeChangeInProgress = requestVolumeChangeNotStarted;
+                requestVolumeChangeNotStarted = 0;
+                
+                // Log the processing step
+                console.log(`Processing volume change: ${requestVolumeChangeInProgress.toFixed(1)}`);
+                
+                // Apply the change to the UI store
+                const uiStore = window.uiStore;
+                if (uiStore) {
+                    // Apply the volume change with limits
+                    uiStore.volume = Math.max(0, Math.min(100, uiStore.volume + requestVolumeChangeInProgress));
+                    
+                    // Update the volume arc UI
+                    uiStore.updateVolumeArc();
+                    
+                    // Log to debug overlay
+                    if (uiStore.logWebsocketMessage) {
+                        uiStore.logWebsocketMessage(`Volume adjusted to: ${uiStore.volume.toFixed(1)}%`);
+                    }
+                }
+                
+                // Clear the in-progress flag
+                requestVolumeChangeInProgress = 0;
+            }
+            
+            // Wait a bit before processing more changes
+            // This introduces a small delay between updates to avoid UI lag
+            await new Promise(resolve => setTimeout(resolve, config.volumeProcessingDelay));
+        }
+    };
+    
+    // Start the processor loop
+    processVolumeChanges();
 }
 
 // Handle button press events
