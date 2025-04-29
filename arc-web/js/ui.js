@@ -6,6 +6,20 @@ class UIStore {
         this.isNowPlayingOverlayActive = false;
         this.selectedMenuItem = -1;
         
+        // HA integration settings
+        this.HA_URL = 'http://homeassistant.local:8123';
+        this.HA_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjMDY0NDFjNDRjOWM0YTQ3ODk1OWVmMjcwYzY2MTU2ZiIsImlhdCI6MTc0NTI2ODYzNywiZXhwIjoyMDYwNjI4NjM3fQ.ldZPYpESQgL_dQj026faUhBzqTgJBVH4oYSrXtWzfC0';
+        this.ENTITY = 'media_player.medierum';
+        
+        // Media info
+        this.mediaInfo = {
+            title: '—',
+            artist: '—',
+            album: '—',
+            artwork: '',
+            state: 'idle'
+        };
+        
         this.menuItems = [
             {title: 'HOME', path: 'menu'},
             {title: 'SETTINGS', path: 'menu/settings'},
@@ -64,8 +78,20 @@ class UIStore {
             'menu/nowplaying': {
                 title: 'NOW PLAYING',
                 content: `
-                    <div id="now-playing" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: red; color: white;">
-                        Now Playing View
+                    <div id="now-playing" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; text-align: center;">
+                        <div id="artwork-container" style="width: 60%; aspect-ratio: 1; margin: 20px; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
+                            <img id="now-playing-artwork" src="" alt="Album Art" style="width: 100%; height: 100%; object-fit: cover; transition: opacity 0.6s ease;">
+                        </div>
+                        <div id="media-info" style="width: 80%; padding: 10px;">
+                            <div id="media-title" style="font-size: 24px; font-weight: bold; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
+                            <div id="media-artist" style="font-size: 18px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
+                            <div id="media-album" style="font-size: 16px; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
+                        </div>
+                        <div id="media-controls" style="display: flex; gap: 20px; margin-top: 20px;">
+                            <button id="prev-track" style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;"></button>
+                            <button id="play-pause" style="background: none; border: none; color: white; font-size: 30px; cursor: pointer;"></button>
+                            <button id="next-track" style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;"></button>
+                        </div>
                     </div>`
             }
         };
@@ -78,8 +104,113 @@ class UIStore {
         this.initializeUI();
         this.setupEventListeners();
         this.updateView();
+        
+        // Start fetching media info
+        this.fetchMediaInfo();
+        this.setupMediaInfoRefresh();
     }
-
+    
+    // Fetch media information from Home Assistant
+    async fetchMediaInfo() {
+        try {
+            console.log(`Fetching media state from ${this.HA_URL}/api/states/${this.ENTITY}`);
+            const response = await fetch(`${this.HA_URL}/api/states/${this.ENTITY}`, {
+                headers: { 'Authorization': 'Bearer ' + this.HA_TOKEN }
+            });
+            
+            const data = await response.json();
+            const artworkUrl = data.attributes.entity_picture ? this.HA_URL + data.attributes.entity_picture : '';
+            
+            // Update media info
+            this.mediaInfo = {
+                title: data.attributes.media_title || '—',
+                artist: data.attributes.media_artist || '—',
+                album: data.attributes.media_album_name || '—',
+                artwork: artworkUrl,
+                state: data.state
+            };
+            
+            // Update volume if available
+            if (data.attributes.volume_level !== undefined) {
+                this.volume = Math.round(data.attributes.volume_level * 100);
+                this.updateVolumeArc();
+            }
+            
+            // Update the now playing view if it's active
+            if (this.currentRoute === 'menu/nowplaying') {
+                this.updateNowPlayingView();
+            }
+            
+            console.log('Media info updated:', this.mediaInfo);
+        } catch (error) {
+            console.error('Error fetching media info:', error);
+        }
+    }
+    
+    // Set up periodic refresh of media info
+    setupMediaInfoRefresh() {
+        // Refresh every 5 seconds
+        setInterval(() => this.fetchMediaInfo(), 5000);
+    }
+    
+    // Update the now playing view with current media info
+    updateNowPlayingView() {
+        const artworkEl = document.getElementById('now-playing-artwork');
+        const titleEl = document.getElementById('media-title');
+        const artistEl = document.getElementById('media-artist');
+        const albumEl = document.getElementById('media-album');
+        const playPauseBtn = document.getElementById('play-pause');
+        
+        if (!artworkEl || !titleEl || !artistEl || !albumEl) return;
+        
+        // Update text elements
+        titleEl.textContent = this.mediaInfo.title;
+        artistEl.textContent = this.mediaInfo.artist;
+        albumEl.textContent = this.mediaInfo.album;
+        
+        // Update play/pause button based on state
+        if (playPauseBtn) {
+            playPauseBtn.textContent = this.mediaInfo.state === 'playing' ? '⏸' : '▶️';
+        }
+        
+        // Update artwork with cross-fade
+        if (artworkEl.src !== this.mediaInfo.artwork && this.mediaInfo.artwork) {
+            artworkEl.style.opacity = 0;
+            
+            // After fade out, update src and fade in
+            setTimeout(() => {
+                artworkEl.src = this.mediaInfo.artwork;
+                artworkEl.style.opacity = 1;
+            }, 600);
+        }
+    }
+    
+    // Handle media controls
+    async sendMediaCommand(command) {
+        try {
+            const endpoint = `${this.HA_URL}/api/services/media_player/${command}`;
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + this.HA_TOKEN,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ entity_id: this.ENTITY })
+            });
+            
+            if (response.ok) {
+                console.log(`Media command ${command} sent successfully`);
+                // Fetch updated info after a short delay
+                setTimeout(() => this.fetchMediaInfo(), 500);
+            } else {
+                console.error(`Error sending media command: ${response.status}`);
+            }
+        } catch (error) {
+            console.error('Error sending media command:', error);
+        }
+    }
+    
+    // Initialize UI
     initializeUI() {
         // Draw initial arcs
         const mainArc = document.getElementById('mainArc');
@@ -247,6 +378,8 @@ class UIStore {
             if (!this.isNowPlayingOverlayActive) {
                 this.isNowPlayingOverlayActive = true;
                 this.navigateToView('menu/nowplaying');
+                // Fetch the latest media info when entering now playing view
+                this.fetchMediaInfo();
             }
         } else if (this.isNowPlayingOverlayActive) {
             this.isNowPlayingOverlayActive = false;
@@ -285,6 +418,13 @@ class UIStore {
         }
 
         contentArea.innerHTML = view.content;
+        
+        // If navigating to now playing view, update it with current media info
+        if (this.currentRoute === 'menu/nowplaying') {
+            this.updateNowPlayingView();
+            this.setupMediaControls();
+        }
+        
         this.setupContentScroll();
     }
 
@@ -330,5 +470,24 @@ class UIStore {
 
         // Initial position
         updateFlowItems();
+    }
+
+    // Set up media control buttons
+    setupMediaControls() {
+        const prevBtn = document.getElementById('prev-track');
+        const playPauseBtn = document.getElementById('play-pause');
+        const nextBtn = document.getElementById('next-track');
+        
+        if (prevBtn) {
+            prevBtn.addEventListener('click', () => this.sendMediaCommand('media_previous_track'));
+        }
+        
+        if (playPauseBtn) {
+            playPauseBtn.addEventListener('click', () => this.sendMediaCommand('media_play_pause'));
+        }
+        
+        if (nextBtn) {
+            nextBtn.addEventListener('click', () => this.sendMediaCommand('media_next_track'));
+        }
     }
 } 
