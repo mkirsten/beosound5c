@@ -6,12 +6,16 @@ const config = {
     disableTransitions: true, // Set to true to disable CSS transitions on the pointer
     bypassRAF: true,        // Bypass requestAnimationFrame for immediate updates
     useShadowPointer: false, // Use a shadow pointer for immediate visual feedback
-    showDebugOverlay: false  // Show the debug overlay
+    showDebugOverlay: false, // Show the debug overlay
+    volumeThrottleDelay: 100 // Delay between volume updates in ms
 };
 
 // Global variables for laser event optimization
 let lastLaserEvent = null;
 let isAnimationRunning = false;
+let lastVolumeUpdate = 0;
+let volumeUpdatePending = false;
+let pendingVolumeData = null;
 
 // Performance tracking
 let lastUpdateTime = 0;
@@ -303,8 +307,14 @@ function updateTransitionStyles() {
 
 // Create debug overlay to show stats
 function createDebugOverlay() {
+    // Skip creating our own debug overlay if UIStore's debug is enabled
+    if (window.uiStore && window.uiStore.debugEnabled) {
+        console.log("Using UIStore's debug overlay instead");
+        return;
+    }
+    
     const overlay = document.createElement('div');
-    overlay.id = 'debug-overlay';
+    overlay.id = 'cursor-debug-overlay'; // Changed to avoid ID conflicts
     overlay.style.cssText = `
         position: fixed;
         top: 10px;
@@ -327,8 +337,18 @@ function createDebugOverlay() {
 
 // Toggle debug overlay visibility
 function toggleDebugOverlay() {
+    // Use UIStore's debug overlay if available
+    if (window.uiStore && window.uiStore.debugEnabled && document.getElementById('debug-overlay')) {
+        const uiDebugOverlay = document.getElementById('debug-overlay');
+        uiDebugOverlay.style.display = 
+            uiDebugOverlay.style.display === 'none' ? 'block' : 'none';
+        console.log(`UIStore debug overlay ${uiDebugOverlay.style.display === 'none' ? 'hidden' : 'shown'}`);
+        return;
+    }
+    
+    // Fall back to cursor debug overlay
     config.showDebugOverlay = !config.showDebugOverlay;
-    const overlay = document.getElementById('debug-overlay');
+    const overlay = document.getElementById('cursor-debug-overlay');
     if (overlay) {
         overlay.style.display = config.showDebugOverlay ? 'block' : 'none';
     }
@@ -337,7 +357,10 @@ function toggleDebugOverlay() {
 
 // Update the debug overlay with current stats
 function updateDebugOverlay() {
-    const overlay = document.getElementById('debug-overlay');
+    // Skip if using UIStore's debug overlay
+    if (window.uiStore && window.uiStore.debugEnabled) return;
+    
+    const overlay = document.getElementById('cursor-debug-overlay');
     if (!overlay || !config.showDebugOverlay) return;
     
     overlay.innerHTML = `
@@ -371,10 +394,40 @@ function processLaserEvents() {
 
 // Process a single laser event
 function processLaserEvent(data) {
-    // Map 0-100 laser position to wheel angle range (158-202)
-    const minAngle = 158;
-    const maxAngle = 202;
-    const angle = minAngle + (data.position / 100) * (maxAngle - minAngle);
+    // Log the original laser position (0-100)
+    console.log(`Laser position: ${data.position}`);
+    
+    // Calibration points as variables
+    const MIN_LASER_POS = 3;
+    const MID_LASER_POS = 72;
+    const MAX_LASER_POS = 123;
+    
+    const MIN_ANGLE = 150;
+    const MID_ANGLE = 180;
+    const MAX_ANGLE = 210;
+    
+    // Custom mapping based on calibration points
+    let angle;
+    const pos = data.position;
+    
+    if (pos <= MIN_LASER_POS) {
+        // At or below minimum
+        angle = MIN_ANGLE;
+    } else if (pos < MID_LASER_POS) {
+        // Between min and mid, map to MIN_ANGLE-MID_ANGLE
+        const slope = (MID_ANGLE - MIN_ANGLE) / (MID_LASER_POS - MIN_LASER_POS);
+        angle = MIN_ANGLE + slope * (pos - MIN_LASER_POS);
+    } else if (pos <= MAX_LASER_POS) {
+        // Between mid and max, map to MID_ANGLE-MAX_ANGLE
+        const slope = (MAX_ANGLE - MID_ANGLE) / (MAX_LASER_POS - MID_LASER_POS);
+        angle = MID_ANGLE + slope * (pos - MID_LASER_POS);
+    } else {
+        // Above maximum
+        angle = MAX_ANGLE;
+    }
+    
+    // Log the calculated angle
+    console.log(`Laser position: ${pos}, Wheel angle: ${angle.toFixed(2)}`);
     
     // Store the last known angle
     lastKnownPointerAngle = angle;
@@ -406,6 +459,11 @@ function updateViaStore(angle) {
         }
     }
     
+    // Update laser position in debug overlay if available
+    if (uiStore.setLaserPosition) {
+        uiStore.setLaserPosition(lastLaserEvent?.position || 0);
+    }
+    
     uiStore.handleWheelChange();
 }
 
@@ -413,21 +471,43 @@ function updateViaStore(angle) {
 function initWebSocket() {
     const ws = new WebSocket(config.wsUrl);
     
-    ws.onopen = () => console.log('WebSocket connected');
+    ws.onopen = () => {
+        console.log('WebSocket connected');
+        // Log to debug overlay if available
+        if (window.uiStore && window.uiStore.logWebsocketMessage) {
+            window.uiStore.logWebsocketMessage('WebSocket connected');
+        }
+    };
     
     ws.onclose = () => {
         console.log('WebSocket disconnected, reconnecting in 1s...');
+        // Log to debug overlay if available
+        if (window.uiStore && window.uiStore.logWebsocketMessage) {
+            window.uiStore.logWebsocketMessage('WebSocket disconnected, reconnecting...');
+        }
         setTimeout(initWebSocket, 1000);
     };
     
-    ws.onerror = error => console.error('WebSocket error:', error);
+    ws.onerror = error => {
+        console.error('WebSocket error:', error);
+        // Log to debug overlay if available
+        if (window.uiStore && window.uiStore.logWebsocketMessage) {
+            window.uiStore.logWebsocketMessage(`WebSocket error: ${error}`);
+        }
+    };
     
     // Counter for event skipping
     let eventCounter = 0;
     
     ws.onmessage = event => {
         try {
-            const { type, data } = JSON.parse(event.data);
+            const message = JSON.parse(event.data);
+            const { type, data } = message;
+            
+            // Log to debug overlay if available (for non-laser events to avoid spam)
+            if (window.uiStore && window.uiStore.logWebsocketMessage && type !== 'laser') {
+                window.uiStore.logWebsocketMessage(JSON.stringify(message));
+            }
             
             // Special handling for laser events
             if (type === 'laser') {
@@ -439,13 +519,13 @@ function initWebSocket() {
                 
                 // Only process on certain intervals based on skipFactor
                 if (eventCounter === 0) {
+                    // Store the laser position for the debug overlay
+                    lastLaserEvent = data;
+                    
                     // Bypass RAF for immediate processing if configured
                     if (config.bypassRAF) {
                         processLaserEvent(data);
                     } else {
-                        // Set the most recent event for RAF processing
-                        lastLaserEvent = data;
-                        
                         // Ensure the animation loop is running
                         if (!isAnimationRunning) {
                             processLaserEvents();
@@ -540,9 +620,44 @@ function handleNavEvent(uiStore, data) {
 
 // Handle volume wheel events
 function handleVolumeEvent(uiStore, data) {
-    // Adjust volume based on direction and speed
-    const volumeStep = data.speed / 25; // Scale down for smoother control
+    const now = Date.now();
     
+    // Check if we need to throttle volume updates
+    if (now - lastVolumeUpdate < config.volumeThrottleDelay) {
+        // If an update is already pending, just update the data
+        if (volumeUpdatePending) {
+            pendingVolumeData = data;
+            return;
+        }
+        
+        // Schedule an update for later
+        volumeUpdatePending = true;
+        pendingVolumeData = data;
+        
+        setTimeout(() => {
+            if (pendingVolumeData) {
+                processVolumeEvent(uiStore, pendingVolumeData);
+                pendingVolumeData = null;
+                volumeUpdatePending = false;
+                lastVolumeUpdate = Date.now();
+            }
+        }, config.volumeThrottleDelay - (now - lastVolumeUpdate));
+        
+        return;
+    }
+    
+    // Process immediately if not throttled
+    processVolumeEvent(uiStore, data);
+    lastVolumeUpdate = now;
+}
+
+// Process the actual volume change with smoother handling
+function processVolumeEvent(uiStore, data) {
+    // Use a more consistent approach to volume steps
+    // Scale based on speed but with dampening for stability
+    let volumeStep = Math.min(5, data.speed / 5); // Cap maximum step size, reduce sensitivity
+    
+    // Apply direction
     if (data.direction === 'clock') {
         uiStore.volume = Math.min(100, uiStore.volume + volumeStep);
     } else {
@@ -550,31 +665,43 @@ function handleVolumeEvent(uiStore, data) {
     }
     
     // Update the volume arc
-    uiStore.updateVolumeArc();
+    //uiStore.updateVolumeArc();
+    
+    // Log to debug overlay
+    if (window.uiStore && window.uiStore.logWebsocketMessage) {
+        window.uiStore.logWebsocketMessage(`Volume: ${uiStore.volume.toFixed(1)}%`);
+    }
 }
 
 // Handle button press events
 function handleButtonEvent(uiStore, data) {
+    // Log to debug overlay
+    if (window.uiStore && window.uiStore.logWebsocketMessage) {
+        window.uiStore.logWebsocketMessage(`Button pressed: ${data.button}`);
+    }
+    
     switch (data.button) {
         case 'left':
-            // Simulate left action - move to previous menu item
-            uiStore.topWheelPosition = -1;
-            uiStore.handleWheelChange();
+            // Previous track
+            console.log('Previous track button pressed');
+            if (uiStore.sendMediaCommand) {
+                uiStore.sendMediaCommand('media_previous_track');
+            }
             break;
             
         case 'right':
-            // Simulate right action - move to next menu item
-            uiStore.topWheelPosition = 1;
-            uiStore.handleWheelChange();
+            // Next track
+            console.log('Next track button pressed');
+            if (uiStore.sendMediaCommand) {
+                uiStore.sendMediaCommand('media_next_track');
+            }
             break;
             
         case 'go':
-            // Simulate selection/activation of current menu item
-            const currentItem = uiStore.menuItems[uiStore.selectedMenuItem];
-            if (currentItem) {
-                console.log('Activating menu item:', currentItem.title);
-                // The UI already navigates to the view when selected
-                // This is just an additional activation if needed
+            // Play/Pause
+            console.log('Play/Pause button pressed');
+            if (uiStore.sendMediaCommand) {
+                uiStore.sendMediaCommand('media_play_pause');
             }
             break;
             
