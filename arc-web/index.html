@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beosound 5c</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app" class="container">
+        <div id="viewport">
+            <!-- Main content area -->
+            <div id="mainMenu" class="container">
+                <!-- Main Arc SVG -->
+                <svg width="1024" height="768" style="position: absolute; z-index: 90;">
+                    <defs>
+                        <linearGradient id="gradient" gradientTransform="rotate(90)">
+                            <stop offset="0%" stop-color="rgba(102,153,255,0)"/>
+                            <stop offset="5%" stop-color="rgba(102,153,255,1)"/>
+                            <stop offset="95%" stop-color="rgba(0,255,204,1)"/>
+                            <stop offset="100%" stop-color="rgba(0,255,204,0)"/>
+                        </linearGradient>
+                    </defs>
+                    <path id="mainArc" fill="none" stroke="url(#gradient)" 
+                          stroke-width="3" stroke-linecap="round"/>
+                </svg>
+
+                <!-- Volume Arc SVG -->
+                <svg width="1024" height="768" style="position: absolute; z-index: 90; opacity: 0.5;">
+                    <defs>
+                        <linearGradient id="volumeGradient">
+                            <stop offset="5%" stop-color="rgba(102,153,255,0.3)" />
+                            <stop offset="95%" stop-color="rgba(102,153,204,0.3)" />
+                        </linearGradient>
+                    </defs>
+                    <path id="volumeArc" fill="none" stroke="url(#volumeGradient)"
+                          stroke-width="10" stroke-linecap="round" />
+                </svg>
+
+                <!-- Angle Pointer SVG -->
+                <svg id="anglePointer" width="1024" height="768" style="position: absolute; z-index: 100;">
+                    <defs>
+                        <radialGradient id="lineGradient">
+                            <stop offset="0%" stop-color="rgba(102,153,255,0.45)" />
+                            <stop offset="90%" stop-color="rgba(0,0,0,0)" />
+                        </radialGradient>
+                        <radialGradient id="dotGradient">
+                            <stop offset="0%" stop-color="rgba(128,204,255,0.9)" />
+                            <stop offset="40%" stop-color="rgba(128,204,255,0.4)" />
+                            <stop offset="100%" stop-color="rgba(128,204,255,0)" />
+                        </radialGradient>
+                    </defs>
+                    <ellipse id="pointerDot" rx="45" ry="25" 
+                            fill="url(#dotGradient)" filter="url(#blurPointFilter)"/>
+                    <ellipse id="pointerLine" rx="40" ry="400"
+                            fill="url(#lineGradient)" filter="url(#exposureFilter)"/>
+                </svg>
+
+                <!-- Menu Items -->
+                <div id="menuItems"></div>
+                <!-- Content Area -->
+                <div id="contentArea" style="position: absolute; top: 20px; left: 180px; z-index: 1; width: 820px; height: 700px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/arcs.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/cursor-handler.js"></script>
+</body>
+</html> 
