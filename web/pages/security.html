@@ -1,0 +1,221 @@
+<div class="security-page">
+  <h1>Security</h1>
+  <style>
+    .security-page {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: white;
+      font-family: sans-serif;
+      overflow: hidden;
+    }
+    
+    .security-container {
+      width: 90%;
+      max-height: 80%;
+      overflow-y: scroll;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      padding: 20px;
+      
+      /* Hide scrollbars on all browsers */
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* Internet Explorer and Edge */
+    }
+    
+    /* Hide scrollbar for Chrome, Safari and Opera */
+    .security-container::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      background: transparent;
+    }
+    
+    .security-card {
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 8px;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: background 0.3s ease;
+    }
+    
+    .security-card:hover {
+      background: rgba(0, 0, 0, 0.5);
+    }
+    
+    .device-info {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .device-icon {
+      font-size: 24px;
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .device-name {
+      font-size: 18px;
+      font-weight: bold;
+    }
+    
+    .device-status {
+      font-size: 14px;
+      opacity: 0.8;
+    }
+    
+    .device-status.secure {
+      color: #4CAF50;
+    }
+    
+    .device-status.warning {
+      color: #FFC107;
+    }
+    
+    .device-status.alert {
+      color: #F44336;
+    }
+    
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 60px;
+      height: 34px;
+    }
+    
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #333;
+      transition: .4s;
+      border-radius: 34px;
+    }
+    
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 26px;
+      width: 26px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    
+    input:checked + .slider {
+      background-color: cyan;
+    }
+    
+    input:checked + .slider:before {
+      transform: translateX(26px);
+    }
+  </style>
+  
+  <div class="security-container">
+    <!-- Placeholder security items -->
+    <div class="security-card">
+      <div class="device-info">
+        <div class="device-icon">🔒</div>
+        <div>
+          <div class="device-name">Main Entrance</div>
+          <div class="device-status secure">Secured</div>
+        </div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+    
+    <div class="security-card">
+      <div class="device-info">
+        <div class="device-icon">🚪</div>
+        <div>
+          <div class="device-name">Back Door</div>
+          <div class="device-status secure">Secured</div>
+        </div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+    
+    <div class="security-card">
+      <div class="device-info">
+        <div class="device-icon">🪟</div>
+        <div>
+          <div class="device-name">Living Room Window</div>
+          <div class="device-status warning">Partially Open</div>
+        </div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox">
+        <span class="slider"></span>
+      </label>
+    </div>
+    
+    <div class="security-card">
+      <div class="device-info">
+        <div class="device-icon">📷</div>
+        <div>
+          <div class="device-name">Front Camera</div>
+          <div class="device-status secure">Monitoring</div>
+        </div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+    
+    <div class="security-card">
+      <div class="device-info">
+        <div class="device-icon">📷</div>
+        <div>
+          <div class="device-name">Backyard Camera</div>
+          <div class="device-status secure">Monitoring</div>
+        </div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+    
+    <div class="security-card">
+      <div class="device-info">
+        <div class="device-icon">🚨</div>
+        <div>
+          <div class="device-name">Alarm System</div>
+          <div class="device-status secure">Armed</div>
+        </div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+</div> 
