@@ -8,8 +8,9 @@ class UIStore {
         
         // Debug info
         this.debugEnabled = true;
+        this.debugVisible = false;
         this.wsMessages = [];
-        this.maxWsMessages = 1000;
+        this.maxWsMessages = 50;
         this.laserPosition = 0;
         
         // HA integration settings
@@ -27,7 +28,7 @@ class UIStore {
         };
         
         this.menuItems = [
-            {title: 'HOME', path: 'menu'},
+            {title: 'STATUS', path: 'menu/status'},
             {title: 'SETTINGS', path: 'menu/settings'},
             {title: 'SECURITY', path: 'menu/security'},
             {title: 'SCENES', path: 'menu/scenes'},
@@ -127,11 +128,6 @@ class UIStore {
         // Start fetching media info
         this.fetchMediaInfo();
         this.setupMediaInfoRefresh();
-        
-        // Start debug overlay updates
-        if (this.debugEnabled) {
-            this.setupDebugUpdates();
-        }
     }
     
     // Fetch media information from Home Assistant
@@ -254,11 +250,6 @@ class UIStore {
         // Setup menu items
         this.renderMenuItems();
         this.updatePointer();
-        
-        // Create debug overlay if enabled
-        if (this.debugEnabled) {
-            this.createDebugOverlay();
-        }
     }
 
     updateVolumeArc() {
@@ -267,9 +258,6 @@ class UIStore {
         const endAngle = 265;
         const volumeAngle = ((this.volume - 0) * (endAngle - startAngle)) / (100 - 0) + startAngle;
         volumeArc.setAttribute('d', arcs.drawArc(arcs.cx, arcs.cy, 270, startAngle, volumeAngle));
-        
-        // Update the debug overlay
-        this.updateDebugOverlay();
     }
 
     updatePointer() {
@@ -295,9 +283,6 @@ class UIStore {
                 mainMenu.classList.remove('slide-out');
             }
         }
-        
-        // Update the debug overlay
-        this.updateDebugOverlay();
     }
 
     renderMenuItems() {
@@ -555,7 +540,6 @@ class UIStore {
         // If navigating to now playing view, update it with current media info
         if (this.currentRoute === 'menu/nowplaying') {
             this.updateNowPlayingView();
-            this.setupMediaControls();
         }
         
         // If navigating to security view, set up the iframe
@@ -648,201 +632,8 @@ class UIStore {
         updateFlowItems();
     }
 
-    // Set up media control buttons
-    setupMediaControls() {
-        const prevBtn = document.getElementById('prev-track');
-        const playPauseBtn = document.getElementById('play-pause');
-        const nextBtn = document.getElementById('next-track');
-        
-        if (prevBtn) {
-            prevBtn.addEventListener('click', () => this.sendMediaCommand('media_previous_track'));
-        }
-        
-        if (playPauseBtn) {
-            playPauseBtn.addEventListener('click', () => this.sendMediaCommand('media_play_pause'));
-        }
-        
-        if (nextBtn) {
-            nextBtn.addEventListener('click', () => this.sendMediaCommand('media_next_track'));
-        }
-    }
-
-    // Create debug overlay
-    createDebugOverlay() {
-        // Create debug container if it doesn't exist
-        if (!document.getElementById('debug-overlay')) {
-            const debugOverlay = document.createElement('div');
-            debugOverlay.id = 'debug-overlay';
-            debugOverlay.className = 'debug-overlay';
-            debugOverlay.innerHTML = `
-                <div class="debug-header">
-                    <span>Debug Information</span>
-                    <span class="key-hint">(Press 'h' to toggle)</span>
-                </div>
-                <div class="debug-content">
-                    <div class="debug-section">
-                        <h4>Position Info</h4>
-                        <div id="debug-position">
-                            <div>Laser Position: <span id="debug-laser-pos">0</span></div>
-                            <div>Wheel Angle: <span id="debug-wheel-angle">0°</span></div>
-                            <div>Volume: <span id="debug-volume">0%</span></div>
-                        </div>
-                    </div>
-                    <div class="debug-section">
-                        <h4>WebSocket Messages <button id="debug-clear-ws">Clear</button></h4>
-                        <div id="debug-ws-messages" class="debug-messages"></div>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(debugOverlay);
-            
-            // Add clear WS messages functionality
-            const clearWsBtn = document.getElementById('debug-clear-ws');
-            clearWsBtn.addEventListener('click', () => {
-                this.wsMessages = [];
-                this.updateDebugOverlay();
-            });
-            
-            // Set initial style
-            const style = document.createElement('style');
-            style.textContent = `
-                .debug-overlay {
-                    position: fixed;
-                    top: 10px;
-                    right: 10px;
-                    width: 350px;
-                    max-height: 80vh;
-                    background: rgba(0, 0, 0, 0.85);
-                    color: #00ff00;
-                    border: 1px solid #00ff00;
-                    border-radius: 5px;
-                    font-family: monospace;
-                    z-index: 10000;
-                    overflow: hidden;
-                }
-                .debug-header {
-                    padding: 8px;
-                    border-bottom: 1px solid #00ff00;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                }
-                .key-hint {
-                    font-size: 12px;
-                    opacity: 0.7;
-                }
-                .debug-content {
-                    padding: 10px;
-                    overflow-y: auto;
-                    max-height: calc(80vh - 40px);
-                }
-                .debug-section {
-                    margin-bottom: 15px;
-                }
-                .debug-section h4 {
-                    margin: 0 0 5px 0;
-                    border-bottom: 1px dotted #00ff00;
-                    padding-bottom: 3px;
-                }
-                .debug-messages {
-                    max-height: 60vh;
-                    overflow-y: auto;
-                    font-size: 12px;
-                }
-                .debug-message {
-                    margin-bottom: 4px;
-                    display: flex;
-                }
-                .debug-time {
-                    color: #0088ff;
-                    margin-right: 8px;
-                    flex-shrink: 0;
-                }
-                #debug-ws-messages::-webkit-scrollbar {
-                    width: 6px;
-                }
-                #debug-ws-messages::-webkit-scrollbar-track {
-                    background: #111;
-                }
-                #debug-ws-messages::-webkit-scrollbar-thumb {
-                    background: #00aa00;
-                    border-radius: 3px;
-                }
-            `;
-            document.head.appendChild(style);
-            
-            // Only add the keyboard event listener once
-            document.removeEventListener('keydown', this._debugKeyHandler);
-            this._debugKeyHandler = (e) => {
-                if (e.key === 'h' || e.key === 'H') {
-                    debugOverlay.style.display = 
-                        debugOverlay.style.display === 'none' ? 'block' : 'none';
-                    e.preventDefault();
-                    console.log(`Debug overlay ${debugOverlay.style.display === 'none' ? 'hidden' : 'shown'}`);
-                }
-            };
-            document.addEventListener('keydown', this._debugKeyHandler);
-        }
-    }
-
-    // Add a websocket message to the debug log
-    logWebsocketMessage(message) {
-        if (!this.debugEnabled) return;
-        
-        // Don't truncate messages anymore - keep full message
-        const fullMessage = typeof message === 'string' 
-            ? message
-            : JSON.stringify(message);
-        
-        this.wsMessages.unshift({
-            time: new Date().toLocaleTimeString(),
-            message: fullMessage
-        });
-        
-        // Keep only the last N messages (now 1000)
-        if (this.wsMessages.length > this.maxWsMessages) {
-            this.wsMessages.pop();
-        }
-        
-        this.updateDebugOverlay();
-    }
-
     // Set the current laser position
     setLaserPosition(position) {
         this.laserPosition = position;
-        this.updateDebugOverlay();
-    }
-
-    // Update the debug overlay with current information
-    updateDebugOverlay() {
-        if (!this.debugEnabled) return;
-        
-        // Update position information
-        const laserPosEl = document.getElementById('debug-laser-pos');
-        const wheelAngleEl = document.getElementById('debug-wheel-angle');
-        const volumeEl = document.getElementById('debug-volume');
-        
-        if (laserPosEl) laserPosEl.textContent = this.laserPosition;
-        if (wheelAngleEl) wheelAngleEl.textContent = this.wheelPointerAngle.toFixed(1) + '°';
-        if (volumeEl) volumeEl.textContent = this.volume + '%';
-        
-        // Update websocket messages
-        const wsMessagesEl = document.getElementById('debug-ws-messages');
-        if (wsMessagesEl) {
-            wsMessagesEl.innerHTML = this.wsMessages.map(msg => 
-                `<div class="debug-message">
-                    <span class="debug-time">${msg.time}</span>
-                    <span class="debug-text">${msg.message}</span>
-                </div>`
-            ).join('');
-        }
-    }
-
-    // Set up periodic updates for the debug overlay
-    setupDebugUpdates() {
-        // Update debug overlay every second
-        setInterval(() => {
-            this.updateDebugOverlay();
-        }, 1000);
     }
 } 
