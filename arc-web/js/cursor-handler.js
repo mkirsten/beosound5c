@@ -100,7 +100,7 @@ function handleNavEvent(uiStore, data) {
     }
     
     // Let the UI handle the movement based on position
-    uiStore.handleWheelChange();
+    //uiStore.handleWheelChange();
 }
 
 // Handle volume wheel events
