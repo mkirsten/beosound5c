@@ -6,6 +6,12 @@ class UIStore {
         this.isNowPlayingOverlayActive = false;
         this.selectedMenuItem = -1;
         
+        // Debug info
+        this.debugEnabled = true;
+        this.wsMessages = [];
+        this.maxWsMessages = 1000;
+        this.laserPosition = 0;
+        
         // HA integration settings
         this.HA_URL = 'http://homeassistant.local:8123';
         this.HA_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjMDY0NDFjNDRjOWM0YTQ3ODk1OWVmMjcwYzY2MTU2ZiIsImlhdCI6MTc0NTI2ODYzNywiZXhwIjoyMDYwNjI4NjM3fQ.ldZPYpESQgL_dQj026faUhBzqTgJBVH4oYSrXtWzfC0';
@@ -31,7 +37,7 @@ class UIStore {
 
         // Constants
         this.radius = 1000;
-        this.angleStep = 7;
+        this.angleStep = 5;
         
         // Initialize views first
         this.views = {
@@ -42,7 +48,7 @@ class UIStore {
             'menu/music': {
                 title: 'N.RADIO',
                 content: `
-                    <div class="arc-content-flow">
+                    <div class="arc-content-flow scrollable-content">
                         <div class="flow-items">
                             <div class="flow-item">Radio Station 1</div>
                             <div class="flow-item">Radio Station 2</div>
@@ -54,13 +60,18 @@ class UIStore {
                             <div class="flow-item">Radio Station 8</div>
                             <div class="flow-item">Radio Station 9</div>
                             <div class="flow-item">Radio Station 10</div>
+                            <div class="flow-item">Radio Station 11</div>
+                            <div class="flow-item">Radio Station 12</div>
+                            <div class="flow-item">Radio Station 13</div>
+                            <div class="flow-item">Radio Station 14</div>
+                            <div class="flow-item">Radio Station 15</div>
                         </div>
                     </div>`
             },
             'menu/settings': {
                 title: 'N.MUSIC',
                 content: `
-                    <div class="arc-content-flow">
+                    <div class="arc-content-flow scrollable-content">
                         <div class="flow-items">
                             <div class="flow-item">Music Track 1</div>
                             <div class="flow-item">Music Track 2</div>
@@ -72,8 +83,21 @@ class UIStore {
                             <div class="flow-item">Music Track 8</div>
                             <div class="flow-item">Music Track 9</div>
                             <div class="flow-item">Music Track 10</div>
+                            <div class="flow-item">Music Track 11</div>
+                            <div class="flow-item">Music Track 12</div>
+                            <div class="flow-item">Music Track 13</div>
+                            <div class="flow-item">Music Track 14</div>
+                            <div class="flow-item">Music Track 15</div>
                         </div>
                     </div>`
+            },
+            'menu/security': {
+                title: 'SECURITY',
+                content: `
+                    <div id="security-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                        <iframe id="security-iframe" style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);" allowfullscreen></iframe>
+                    </div>
+                `
             },
             'menu/nowplaying': {
                 title: 'NOW PLAYING',
@@ -86,11 +110,6 @@ class UIStore {
                             <div id="media-title" style="font-size: 24px; font-weight: bold; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
                             <div id="media-artist" style="font-size: 18px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
                             <div id="media-album" style="font-size: 16px; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
-                        </div>
-                        <div id="media-controls" style="display: flex; gap: 20px; margin-top: 20px;">
-                            <button id="prev-track" style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;"></button>
-                            <button id="play-pause" style="background: none; border: none; color: white; font-size: 30px; cursor: pointer;"></button>
-                            <button id="next-track" style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;"></button>
                         </div>
                     </div>`
             }
@@ -108,6 +127,11 @@ class UIStore {
         // Start fetching media info
         this.fetchMediaInfo();
         this.setupMediaInfoRefresh();
+        
+        // Start debug overlay updates
+        if (this.debugEnabled) {
+            this.setupDebugUpdates();
+        }
     }
     
     // Fetch media information from Home Assistant
@@ -175,13 +199,21 @@ class UIStore {
         
         // Update artwork with cross-fade
         if (artworkEl.src !== this.mediaInfo.artwork && this.mediaInfo.artwork) {
+            // Ensure the transition duration matches CSS
+            const transitionDuration = 600; // ms
+            
+            // Fade out
             artworkEl.style.opacity = 0;
             
             // After fade out, update src and fade in
             setTimeout(() => {
                 artworkEl.src = this.mediaInfo.artwork;
-                artworkEl.style.opacity = 1;
-            }, 600);
+                
+                // Force a repaint before fading in
+                setTimeout(() => {
+                    artworkEl.style.opacity = 1;
+                }, 20);
+            }, transitionDuration);
         }
     }
     
@@ -222,6 +254,11 @@ class UIStore {
         // Setup menu items
         this.renderMenuItems();
         this.updatePointer();
+        
+        // Create debug overlay if enabled
+        if (this.debugEnabled) {
+            this.createDebugOverlay();
+        }
     }
 
     updateVolumeArc() {
@@ -230,11 +267,15 @@ class UIStore {
         const endAngle = 265;
         const volumeAngle = ((this.volume - 0) * (endAngle - startAngle)) / (100 - 0) + startAngle;
         volumeArc.setAttribute('d', arcs.drawArc(arcs.cx, arcs.cy, 270, startAngle, volumeAngle));
+        
+        // Update the debug overlay
+        this.updateDebugOverlay();
     }
 
     updatePointer() {
         const pointerDot = document.getElementById('pointerDot');
         const pointerLine = document.getElementById('pointerLine');
+        const mainMenu = document.getElementById('mainMenu');
         
         const point = arcs.getArcPoint(this.radius, 0, this.wheelPointerAngle);
         const transform = `rotate(${this.wheelPointerAngle - 90}deg)`;
@@ -245,6 +286,18 @@ class UIStore {
             element.style.transformOrigin = `${point.x}px ${point.y}px`;
             element.style.transform = transform;
         });
+
+        // Toggle slide-out class based on angle range
+        if (mainMenu) {
+            if (this.wheelPointerAngle > 203 || this.wheelPointerAngle < 155) {
+                mainMenu.classList.add('slide-out');
+            } else {
+                mainMenu.classList.remove('slide-out');
+            }
+        }
+        
+        // Update the debug overlay
+        this.updateDebugOverlay();
     }
 
     renderMenuItems() {
@@ -363,6 +416,71 @@ class UIStore {
     }
 
     handleWheelChange() {
+        // Check if we're viewing content that could be scrollable
+        const isInContentView = this.currentRoute !== 'menu' && 
+                               this.currentRoute !== 'menu/nowplaying' &&
+                               this.wheelPointerAngle >= 155 && 
+                               this.wheelPointerAngle <= 203;
+
+        if (isInContentView) {
+            // We're in a content view - use wheel for scrolling instead of menu navigation
+            if (this.topWheelPosition !== 0) {
+                // Find scrollable containers
+                const contentArea = document.getElementById('contentArea');
+                const scrollableContent = contentArea.querySelector('.arc-content-flow') || 
+                                         contentArea.querySelector('iframe') ||
+                                         contentArea;
+                
+                if (scrollableContent) {
+                    const scrollAmount = 40; // Adjust for scroll sensitivity
+                    
+                    if (this.topWheelPosition > 0) {
+                        // Scroll down
+                        if (scrollableContent.tagName === 'IFRAME') {
+                            // For iframes we need to send a wheel event
+                            try {
+                                scrollableContent.contentWindow.scrollBy({
+                                    top: scrollAmount,
+                                    behavior: 'smooth'
+                                });
+                            } catch (e) {
+                                console.log('Cannot scroll iframe due to cross-origin policy');
+                            }
+                        } else {
+                            scrollableContent.scrollBy({
+                                top: scrollAmount,
+                                behavior: 'smooth'
+                            });
+                        }
+                    } else {
+                        // Scroll up
+                        if (scrollableContent.tagName === 'IFRAME') {
+                            // For iframes we need to send a wheel event
+                            try {
+                                scrollableContent.contentWindow.scrollBy({
+                                    top: -scrollAmount,
+                                    behavior: 'smooth'
+                                });
+                            } catch (e) {
+                                console.log('Cannot scroll iframe due to cross-origin policy');
+                            }
+                        } else {
+                            scrollableContent.scrollBy({
+                                top: -scrollAmount,
+                                behavior: 'smooth'
+                            });
+                        }
+                    }
+                    
+                    // If we're handling scrolling, don't adjust the pointer angle
+                    this.updatePointer();
+                    this.topWheelPosition = 0;
+                    return;
+                }
+            }
+        }
+
+        // Original wheel navigation behavior for menu selection
         if (this.topWheelPosition > 0) {
             if (this.wheelPointerAngle <= 202) {
                 this.wheelPointerAngle += this.angleStep;
@@ -394,8 +512,22 @@ class UIStore {
     navigateToView(path) {
         console.log('Navigating to path:', path);
         console.log('Available views:', Object.keys(this.views));
-        this.currentRoute = path;
-        this.updateView();
+        
+        // First fade out content
+        const contentArea = document.getElementById('contentArea');
+        if (contentArea) {
+            contentArea.style.opacity = 0;
+            
+            // Wait for fade-out animation to complete before changing route
+            setTimeout(() => {
+                this.currentRoute = path;
+                this.updateView();
+            }, 250); // Match the transition duration in CSS
+        } else {
+            // No content area found, just update immediately
+            this.currentRoute = path;
+            this.updateView();
+        }
     }
 
     updateView() {
@@ -417,6 +549,7 @@ class UIStore {
             return;
         }
 
+        // Update content while it's faded out
         contentArea.innerHTML = view.content;
         
         // If navigating to now playing view, update it with current media info
@@ -425,7 +558,32 @@ class UIStore {
             this.setupMediaControls();
         }
         
+        // If navigating to security view, set up the iframe
+        if (this.currentRoute === 'menu/security') {
+            const securityIframe = document.getElementById('security-iframe');
+            if (securityIframe) {
+                // Set the iframe source to the Home Assistant camera dashboard
+                securityIframe.src = `${this.HA_URL}/dashboard-cameras/home?auth=${this.HA_TOKEN}&kiosk`;
+                
+                // Add a loading indicator if needed
+                securityIframe.onload = () => {
+                    console.log('Security camera dashboard loaded');
+                    securityIframe.classList.add('loaded');
+                };
+                
+                securityIframe.onerror = (error) => {
+                    console.error('Error loading security camera dashboard:', error);
+                    // Maybe show an error message
+                };
+            }
+        }
+        
         this.setupContentScroll();
+        
+        // Fade the content back in
+        setTimeout(() => {
+            contentArea.style.opacity = 1;
+        }, 50); // Small delay to ensure content is ready
     }
 
     setupContentScroll() {
@@ -435,6 +593,18 @@ class UIStore {
         let scrollPosition = 0;
         const angleStep = 10;
         const radius = 300;
+
+        // Add visual indicator for scrolling
+        const scrollIndicator = document.createElement('div');
+        scrollIndicator.className = 'scroll-indicator';
+        scrollIndicator.innerHTML = '<span>Scroll with wheel</span>';
+        scrollIndicator.style.cssText = 'position: absolute; bottom: 15px; right: 15px; background: rgba(0,0,0,0.5); color: white; padding: 5px 10px; border-radius: 4px; font-size: 12px; opacity: 0.7; pointer-events: none; transition: opacity 0.3s ease;';
+        flowContainer.appendChild(scrollIndicator);
+        
+        // Fade out the indicator after a few seconds
+        setTimeout(() => {
+            scrollIndicator.style.opacity = '0';
+        }, 3000);
 
         const updateFlowItems = () => {
             const items = document.querySelectorAll('.flow-item');
@@ -455,6 +625,12 @@ class UIStore {
 
         // Handle wheel events for content scrolling
         flowContainer.addEventListener('wheel', (event) => {
+            // Show scroll indicator briefly when user uses mouse wheel
+            scrollIndicator.style.opacity = '0.7';
+            setTimeout(() => {
+                scrollIndicator.style.opacity = '0';
+            }, 1500);
+            
             event.preventDefault();
             const totalItems = document.querySelectorAll('.flow-item').length;
             const maxScroll = (totalItems - 1) * angleStep;
@@ -489,5 +665,184 @@ class UIStore {
         if (nextBtn) {
             nextBtn.addEventListener('click', () => this.sendMediaCommand('media_next_track'));
         }
+    }
+
+    // Create debug overlay
+    createDebugOverlay() {
+        // Create debug container if it doesn't exist
+        if (!document.getElementById('debug-overlay')) {
+            const debugOverlay = document.createElement('div');
+            debugOverlay.id = 'debug-overlay';
+            debugOverlay.className = 'debug-overlay';
+            debugOverlay.innerHTML = `
+                <div class="debug-header">
+                    <span>Debug Information</span>
+                    <span class="key-hint">(Press 'h' to toggle)</span>
+                </div>
+                <div class="debug-content">
+                    <div class="debug-section">
+                        <h4>Position Info</h4>
+                        <div id="debug-position">
+                            <div>Laser Position: <span id="debug-laser-pos">0</span></div>
+                            <div>Wheel Angle: <span id="debug-wheel-angle">0°</span></div>
+                            <div>Volume: <span id="debug-volume">0%</span></div>
+                        </div>
+                    </div>
+                    <div class="debug-section">
+                        <h4>WebSocket Messages <button id="debug-clear-ws">Clear</button></h4>
+                        <div id="debug-ws-messages" class="debug-messages"></div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(debugOverlay);
+            
+            // Add clear WS messages functionality
+            const clearWsBtn = document.getElementById('debug-clear-ws');
+            clearWsBtn.addEventListener('click', () => {
+                this.wsMessages = [];
+                this.updateDebugOverlay();
+            });
+            
+            // Set initial style
+            const style = document.createElement('style');
+            style.textContent = `
+                .debug-overlay {
+                    position: fixed;
+                    top: 10px;
+                    right: 10px;
+                    width: 350px;
+                    max-height: 80vh;
+                    background: rgba(0, 0, 0, 0.85);
+                    color: #00ff00;
+                    border: 1px solid #00ff00;
+                    border-radius: 5px;
+                    font-family: monospace;
+                    z-index: 10000;
+                    overflow: hidden;
+                }
+                .debug-header {
+                    padding: 8px;
+                    border-bottom: 1px solid #00ff00;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .key-hint {
+                    font-size: 12px;
+                    opacity: 0.7;
+                }
+                .debug-content {
+                    padding: 10px;
+                    overflow-y: auto;
+                    max-height: calc(80vh - 40px);
+                }
+                .debug-section {
+                    margin-bottom: 15px;
+                }
+                .debug-section h4 {
+                    margin: 0 0 5px 0;
+                    border-bottom: 1px dotted #00ff00;
+                    padding-bottom: 3px;
+                }
+                .debug-messages {
+                    max-height: 60vh;
+                    overflow-y: auto;
+                    font-size: 12px;
+                }
+                .debug-message {
+                    margin-bottom: 4px;
+                    display: flex;
+                }
+                .debug-time {
+                    color: #0088ff;
+                    margin-right: 8px;
+                    flex-shrink: 0;
+                }
+                #debug-ws-messages::-webkit-scrollbar {
+                    width: 6px;
+                }
+                #debug-ws-messages::-webkit-scrollbar-track {
+                    background: #111;
+                }
+                #debug-ws-messages::-webkit-scrollbar-thumb {
+                    background: #00aa00;
+                    border-radius: 3px;
+                }
+            `;
+            document.head.appendChild(style);
+            
+            // Only add the keyboard event listener once
+            document.removeEventListener('keydown', this._debugKeyHandler);
+            this._debugKeyHandler = (e) => {
+                if (e.key === 'h' || e.key === 'H') {
+                    debugOverlay.style.display = 
+                        debugOverlay.style.display === 'none' ? 'block' : 'none';
+                    e.preventDefault();
+                    console.log(`Debug overlay ${debugOverlay.style.display === 'none' ? 'hidden' : 'shown'}`);
+                }
+            };
+            document.addEventListener('keydown', this._debugKeyHandler);
+        }
+    }
+
+    // Add a websocket message to the debug log
+    logWebsocketMessage(message) {
+        if (!this.debugEnabled) return;
+        
+        // Don't truncate messages anymore - keep full message
+        const fullMessage = typeof message === 'string' 
+            ? message
+            : JSON.stringify(message);
+        
+        this.wsMessages.unshift({
+            time: new Date().toLocaleTimeString(),
+            message: fullMessage
+        });
+        
+        // Keep only the last N messages (now 1000)
+        if (this.wsMessages.length > this.maxWsMessages) {
+            this.wsMessages.pop();
+        }
+        
+        this.updateDebugOverlay();
+    }
+
+    // Set the current laser position
+    setLaserPosition(position) {
+        this.laserPosition = position;
+        this.updateDebugOverlay();
+    }
+
+    // Update the debug overlay with current information
+    updateDebugOverlay() {
+        if (!this.debugEnabled) return;
+        
+        // Update position information
+        const laserPosEl = document.getElementById('debug-laser-pos');
+        const wheelAngleEl = document.getElementById('debug-wheel-angle');
+        const volumeEl = document.getElementById('debug-volume');
+        
+        if (laserPosEl) laserPosEl.textContent = this.laserPosition;
+        if (wheelAngleEl) wheelAngleEl.textContent = this.wheelPointerAngle.toFixed(1) + '°';
+        if (volumeEl) volumeEl.textContent = this.volume + '%';
+        
+        // Update websocket messages
+        const wsMessagesEl = document.getElementById('debug-ws-messages');
+        if (wsMessagesEl) {
+            wsMessagesEl.innerHTML = this.wsMessages.map(msg => 
+                `<div class="debug-message">
+                    <span class="debug-time">${msg.time}</span>
+                    <span class="debug-text">${msg.message}</span>
+                </div>`
+            ).join('');
+        }
+    }
+
+    // Set up periodic updates for the debug overlay
+    setupDebugUpdates() {
+        // Update debug overlay every second
+        setInterval(() => {
+            this.updateDebugOverlay();
+        }, 1000);
     }
 } 

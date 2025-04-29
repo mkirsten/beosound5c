@@ -62,18 +62,39 @@ html, body {
   filter: blur(10px);
 }
 
+/* Animation for the menu elements only */
+#mainMenu #mainArc,
+#mainMenu #menuItems {
+  transition: transform 0.6s ease-out;
+  transform: translateX(0);
+}
+
+#mainMenu.slide-out #mainArc,
+#mainMenu.slide-out #menuItems {
+  transform: translateX(-100%);
+}
+
+/* Remove the animation from the main container */
+#mainMenu {
+  transition: none;
+  transform: none;
+}
+
+/* Ensure volume arc stays in place */
+#volumeArc {
+  transition: none;
+  transform: none !important;
+}
+
+/* Ensure content area stays in place */
 #contentArea {
-  transition: all 0.25s ease-out;
-}
-
-.slide-up-enter {
-  opacity: 0;
-  transform: translateY(30px);
-}
-
-.slide-up-leave {
-  opacity: 0;
-  transform: translateY(-30px);
+  transition: opacity 0.25s ease-in-out;
+  position: absolute;
+  top: 20px;
+  left: 180px;
+  z-index: 1;
+  width: 820px;
+  height: 700px;
 }
 
 .list-item:hover {
@@ -85,7 +106,8 @@ html, body {
   position: relative;
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  overflow: auto;
+  scroll-behavior: smooth;
 }
 
 .flow-items {
@@ -113,14 +135,14 @@ html, body {
 
 /* Now Playing View Styles */
 #now-playing {
-  background: linear-gradient(135deg, rgba(0,0,0,0.9) 0%, rgba(20,20,40,0.95) 100%);
-  border-radius: 12px;
+  background: black;
   overflow: hidden;
   box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  transition: opacity 0.3s ease-in-out;
 }
 
 #artwork-container {
-  transition: all 0.3s ease;
+  transition: all 0.3s ease-in-out;
   border-radius: 10px;
 }
 
@@ -131,6 +153,7 @@ html, body {
 
 #now-playing-artwork {
   border-radius: 8px;
+  transition: opacity 0.6s ease-in-out;
 }
 
 #media-info {
@@ -138,50 +161,167 @@ html, body {
   border-radius: 8px;
   padding: 15px;
   margin-top: 20px;
-  transition: all 0.3s ease;
+  transition: all 0.3s ease-in-out;
 }
 
-#media-title {
-  color: rgba(102,153,255,1);
-  text-shadow: 0 2px 5px rgba(0,0,0,0.5);
+.slide-up-enter {
+  opacity: 0;
+  transform: translateY(30px);
 }
 
-#media-artist {
-  color: rgba(0,255,204,0.9);
+.slide-up-leave {
+  opacity: 0;
+  transform: translateY(-30px);
 }
 
-#media-album {
-  color: rgba(255,255,255,0.7);
+/* Security View Styles */
+#security-container {
+  background: black;
+  overflow: hidden;
+  transition: opacity 0.3s ease-in-out;
 }
 
-#media-controls {
-  margin-top: 25px;
+#security-iframe {
+  opacity: 0;
+  transition: opacity 0.8s ease-in-out;
 }
 
-#media-controls button {
-  transition: all 0.2s ease;
-  opacity: 0.8;
-  padding: 10px;
-  border-radius: 50%;
-  width: 50px;
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-#media-controls button:hover {
+#security-iframe.loaded {
   opacity: 1;
-  transform: scale(1.1);
-  background-color: rgba(102,153,255,0.2);
 }
 
-#play-pause {
-  font-size: 30px;
-  color: rgba(102,153,255,1);
+/* Add styles for scrollable content */
+.scrollable-content {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+  height: 100%;
+  width: 100%;
 }
 
-#prev-track, #next-track {
-  color: rgba(0,255,204,0.9);
+/* Optional scrollbar styling for modern browsers */
+.scrollable-content::-webkit-scrollbar,
+.arc-content-flow::-webkit-scrollbar {
+  width: 6px;
 }
 
+.scrollable-content::-webkit-scrollbar-track,
+.arc-content-flow::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.scrollable-content::-webkit-scrollbar-thumb,
+.arc-content-flow::-webkit-scrollbar-thumb {
+  background: rgba(102, 153, 255, 0.6);
+  border-radius: 3px;
+}
+
+/* Debug Overlay Styles */
+.debug-overlay {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid rgba(102, 153, 255, 0.5);
+  border-radius: 5px;
+  color: white;
+  font-family: monospace;
+  font-size: 12px;
+  width: 350px;
+  max-height: 80vh;
+  z-index: 9999;
+  overflow: hidden;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+.debug-header {
+  background: rgba(102, 153, 255, 0.3);
+  padding: 5px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(102, 153, 255, 0.5);
+}
+
+.debug-content {
+  padding: 10px;
+  max-height: calc(80vh - 30px);
+  overflow-y: auto;
+}
+
+.debug-section {
+  margin-bottom: 15px;
+}
+
+.debug-section h4 {
+  margin: 0 0 5px 0;
+  font-size: 13px;
+  color: rgba(102, 153, 255, 1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.debug-messages {
+  max-height: 200px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+  padding: 5px;
+}
+
+.debug-message {
+  margin-bottom: 3px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid rgba(102, 153, 255, 0.2);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.debug-time {
+  color: rgba(102, 153, 255, 0.8);
+  margin-right: 5px;
+}
+
+#debug-position {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+  padding: 5px;
+}
+
+#debug-position div {
+  margin: 5px 0;
+}
+
+.debug-overlay button {
+  background: rgba(102, 153, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(102, 153, 255, 0.5);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.debug-overlay button:hover {
+  background: rgba(102, 153, 255, 0.4);
+}
+
+/* Style scrollbars in debug overlay */
+.debug-content::-webkit-scrollbar,
+.debug-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.debug-content::-webkit-scrollbar-track,
+.debug-messages::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.debug-content::-webkit-scrollbar-thumb,
+.debug-messages::-webkit-scrollbar-thumb {
+  background: rgba(102, 153, 255, 0.4);
+  border-radius: 3px;
+}
