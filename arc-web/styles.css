@@ -62,12 +62,6 @@ html, body {
   filter: blur(10px);
 }
 
-/* Animation for the menu elements only */
-#mainMenu #mainArc,
-#mainMenu #menuItems {
-  transition: transform 0.6s ease-out;
-  transform: translateX(0);
-}
 
 #mainMenu.slide-out #mainArc,
 #mainMenu.slide-out #menuItems {
@@ -214,114 +208,5 @@ html, body {
 .scrollable-content::-webkit-scrollbar-thumb,
 .arc-content-flow::-webkit-scrollbar-thumb {
   background: rgba(102, 153, 255, 0.6);
-  border-radius: 3px;
-}
-
-/* Debug Overlay Styles */
-.debug-overlay {
-  position: fixed;
-  top: 10px;
-  right: 10px;
-  background: rgba(0, 0, 0, 0.8);
-  border: 1px solid rgba(102, 153, 255, 0.5);
-  border-radius: 5px;
-  color: white;
-  font-family: monospace;
-  font-size: 12px;
-  width: 350px;
-  max-height: 80vh;
-  z-index: 9999;
-  overflow: hidden;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-}
-
-.debug-header {
-  background: rgba(102, 153, 255, 0.3);
-  padding: 5px 10px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid rgba(102, 153, 255, 0.5);
-}
-
-.debug-content {
-  padding: 10px;
-  max-height: calc(80vh - 30px);
-  overflow-y: auto;
-}
-
-.debug-section {
-  margin-bottom: 15px;
-}
-
-.debug-section h4 {
-  margin: 0 0 5px 0;
-  font-size: 13px;
-  color: rgba(102, 153, 255, 1);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.debug-messages {
-  max-height: 200px;
-  overflow-y: auto;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 3px;
-  padding: 5px;
-}
-
-.debug-message {
-  margin-bottom: 3px;
-  padding-bottom: 3px;
-  border-bottom: 1px solid rgba(102, 153, 255, 0.2);
-  font-size: 11px;
-  word-break: break-all;
-}
-
-.debug-time {
-  color: rgba(102, 153, 255, 0.8);
-  margin-right: 5px;
-}
-
-#debug-position {
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 3px;
-  padding: 5px;
-}
-
-#debug-position div {
-  margin: 5px 0;
-}
-
-.debug-overlay button {
-  background: rgba(102, 153, 255, 0.2);
-  color: white;
-  border: 1px solid rgba(102, 153, 255, 0.5);
-  border-radius: 3px;
-  padding: 2px 6px;
-  font-size: 11px;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.debug-overlay button:hover {
-  background: rgba(102, 153, 255, 0.4);
-}
-
-/* Style scrollbars in debug overlay */
-.debug-content::-webkit-scrollbar,
-.debug-messages::-webkit-scrollbar {
-  width: 6px;
-}
-
-.debug-content::-webkit-scrollbar-track,
-.debug-messages::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.debug-content::-webkit-scrollbar-thumb,
-.debug-messages::-webkit-scrollbar-thumb {
-  background: rgba(102, 153, 255, 0.4);
   border-radius: 3px;
 }
