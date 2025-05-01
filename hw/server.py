@@ -1,83 +1,115 @@
 #!/usr/bin/env python3
-import asyncio
-import threading
-import json
-import time
-import sys
-
-import hid
-import websockets
+import asyncio, threading, json, time, sys
+import hid, websockets
 
 VID, PID = 0x0cd4, 0x1112
-BTN_MAP = {0x20: 'left', 0x10: 'right', 0x40: 'go', 0x80: 'power'}
-
+BTN_MAP = {0x20:'left', 0x10:'right', 0x40:'go', 0x80:'power'}
 clients = set()
 
-# --- WebSocket boilerplate --
+# ——— track current "byte1" state (LED/backlight bits) ———
+state_byte1 = 0x00
+
+def bs5_send(data: bytes):
+    """Low-level HID write."""
+    try:
+        dev.write(data)
+    except Exception as e:
+        print("HID write failed:", e)
+
+def bs5_send_cmd(byte1, byte2=0x00):
+    """Build & send HID report."""
+    bs5_send(bytes([byte1, byte2]))
+
+def do_click():
+    """Send click bit on top of current state."""
+    global state_byte1
+    bs5_send_cmd(state_byte1 | 0x01)
+
+def set_led(mode: str):
+    """mode in {'on','off','blink'}"""
+    global state_byte1
+    state_byte1 &= ~(0x80 | 0x10)       # clear LED bits
+    if mode == 'on':
+        state_byte1 |= 0x80
+    elif mode == 'blink':
+        state_byte1 |= 0x10
+    bs5_send_cmd(state_byte1)
+
+def set_backlight(on: bool):
+    """Turn backlight bit on/off."""
+    global state_byte1
+    if on:
+        state_byte1 |= 0x40
+    else:
+        state_byte1 &= ~0x40
+    bs5_send_cmd(state_byte1)
+
+# ——— WebSocket boilerplate ———
 
 async def handler(ws, path=None):
     clients.add(ws)
+    recv_task = asyncio.create_task(receive_commands(ws))
     try:
         await ws.wait_closed()
     finally:
+        recv_task.cancel()
         clients.remove(ws)
 
 async def broadcast(msg: str):
     if not clients:
         return
-    # fire-and-forget to all clients
     await asyncio.gather(
         *(ws.send(msg) for ws in clients),
         return_exceptions=True
     )
 
-# --- HID parsing & stubs --
+async def receive_commands(ws):
+    async for raw in ws:
+        try:
+            msg = json.loads(raw)
+            print('[WS RECEIVED]', msg)  # Log every received message
+            if msg.get('type') != 'command':
+                continue
+            cmd    = msg.get('command')
+            params = msg.get('params', {})
+            if cmd == 'click':
+                do_click()
+            elif cmd == 'led':
+                set_led(params.get('mode','on'))
+            elif cmd == 'backlight':
+                set_backlight(bool(params.get('on',True)))
+        except Exception:
+            pass
+
+# ——— HID parse & broadcast loop ———
 
 def parse_report(rep: list):
-    """
-    rep: 4+ length list of ints
-    Returns (nav_evt, vol_evt, btn_evt, laser_pos)
-    """
-    nav_evt = None
-    vol_evt = None
-    btn_evt = None
+    nav_evt = vol_evt = btn_evt = None
     laser_pos = rep[2]
 
-    # nav wheel
     if rep[0] != 0:
-        delta = rep[0]
-        direction = 'clock' if delta < 0x80 else 'counter'
-        speed = delta if delta < 0x80 else 256 - delta
-        nav_evt = {'direction': direction, 'speed': speed}
-
-    # volume wheel
+        d = rep[0]
+        nav_evt = {
+            'direction': 'clock' if d < 0x80 else 'counter',
+            'speed':     d if d < 0x80 else 256-d
+        }
     if rep[1] != 0:
-        delta = rep[1]
-        direction = 'clock' if delta < 0x80 else 'counter'
-        speed = delta if delta < 0x80 else 256 - delta
-        vol_evt = {'direction': direction, 'speed': speed}
-
-    # button
+        d = rep[1]
+        vol_evt = {
+            'direction': 'clock' if d < 0x80 else 'counter',
+            'speed':     d if d < 0x80 else 256-d
+        }
     b = rep[3]
     if b in BTN_MAP:
         btn_evt = {'button': BTN_MAP[b]}
 
     return nav_evt, vol_evt, btn_evt, laser_pos
 
-def play_click():
-    """
-    Stub for click sound—fill in later with your HID write,
-    e.g. dev.write([0x41, 0x00])
-    """
-    pass
-
-# --- HID scan loop in thread --
-
-def scan_loop(loop: asyncio.AbstractEventLoop):
-    # find & open
+def scan_loop(loop):
+    global dev
     devices = hid.enumerate(VID, PID)
     if not devices:
-        print("BS5 not found (no HID device)") 
+        print("BS5 not found (no HID device)")
         sys.exit(1)
 
     dev = hid.device()
@@ -94,39 +126,33 @@ def scan_loop(loop: asyncio.AbstractEventLoop):
             rep = list(rpt)
             nav_evt, vol_evt, btn_evt, laser_pos = parse_report(rep)
 
-            # nav/vol/btn
             for evt_type, evt in (
-                ('nav', nav_evt),
+                ('nav',    nav_evt),
                 ('volume', vol_evt),
                 ('button', btn_evt),
             ):
                 if evt:
-                    # you can call play_click() here if you want per-wheel scroll
-                    msg = json.dumps({'type': evt_type, 'data': evt})
-                    asyncio.run_coroutine_threadsafe(broadcast(msg), loop)
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast(json.dumps({'type':evt_type,'data':evt})),
+                        loop
+                    )
 
-            # laser position
             if first or laser_pos != last_laser:
-                msg = json.dumps({'type': 'laser', 'data': {'position': laser_pos}})
-                asyncio.run_coroutine_threadsafe(broadcast(msg), loop)
-                last_laser = laser_pos
-                first = False
+                asyncio.run_coroutine_threadsafe(
+                    broadcast(json.dumps({'type':'laser','data':{'position':laser_pos}})),
+                    loop
+                )
+                last_laser, first = laser_pos, False
 
-        time.sleep(0.01)
+        time.sleep(0.001)
 
-# --- Main & WebSocket server ---
+# ——— Main & server start ———
 
 async def main():
-    # start WS server
-    server = await websockets.serve(handler, '0.0.0.0', 8765)
+    ws_srv = await websockets.serve(handler, '0.0.0.0', 8765)
     print("WebSocket server listening on ws://0.0.0.0:8765")
-    # launch HID scanner in background thread
-    threading.Thread(
-        target=scan_loop,
-        args=(asyncio.get_event_loop(),),
-        daemon=True
-    ).start()
-    await server.wait_closed()
+    threading.Thread(target=scan_loop, args=(asyncio.get_event_loop(),), daemon=True).start()
+    await ws_srv.wait_closed()
 
 if __name__ == '__main__':
     asyncio.run(main())
