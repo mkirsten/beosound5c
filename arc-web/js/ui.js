@@ -27,6 +27,15 @@ class UIStore {
             state: 'idle'
         };
         
+        // Apple TV media info
+        this.appleTVMediaInfo = {
+            title: '—',
+            artist: '—',
+            album: '—',
+            artwork: '',
+            state: 'unknown'
+        };
+        
         this.menuItems = [
             {title: 'STATUS', path: 'menu/status'},
             {title: 'SETTINGS', path: 'menu/settings'},
@@ -45,6 +54,20 @@ class UIStore {
             'menu': {
                 title: 'HOME',
                 content: ''
+            },
+            'menu/status': {
+                title: 'STATUS',
+                content: `
+                    <div id="status-page" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; text-align: center; background-color: rgba(0,0,0,0.4);">
+                        <div id="apple-tv-artwork-container" style="width: 60%; aspect-ratio: 1; margin: 20px; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
+                            <img id="apple-tv-artwork" src="" alt="Apple TV Media" style="width: 100%; height: 100%; object-fit: contain; transition: opacity 0.6s ease;">
+                        </div>
+                        <div id="apple-tv-media-info" style="width: 80%; padding: 10px;">
+                            <div id="apple-tv-media-title" style="font-size: 24px; font-weight: bold; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
+                            <div id="apple-tv-media-details" style="font-size: 18px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
+                            <div id="apple-tv-state">Unknown</span></div>
+                        </div>
+                    </div>`
             },
             'menu/music': {
                 title: 'N.RADIO',
@@ -128,12 +151,15 @@ class UIStore {
         // Start fetching media info
         this.fetchMediaInfo();
         this.setupMediaInfoRefresh();
+        
+        // Start fetching Apple TV media info
+        this.setupAppleTVMediaInfoRefresh();
     }
     
     // Fetch media information from Home Assistant
     async fetchMediaInfo() {
         try {
-            console.log(`Fetching media state from ${this.HA_URL}/api/states/${this.ENTITY}`);
+            //console.log(`Fetching media state from ${this.HA_URL}/api/states/${this.ENTITY}`);
             const response = await fetch(`${this.HA_URL}/api/states/${this.ENTITY}`, {
                 headers: { 'Authorization': 'Bearer ' + this.HA_TOKEN }
             });
@@ -161,7 +187,7 @@ class UIStore {
                 this.updateNowPlayingView();
             }
             
-            console.log('Media info updated:', this.mediaInfo);
+            //console.log('Media info updated:', this.mediaInfo);
         } catch (error) {
             console.error('Error fetching media info:', error);
         }
@@ -236,6 +262,120 @@ class UIStore {
         } catch (error) {
             console.error('Error sending media command:', error);
         }
+    }
+    
+    // Fetch Apple TV media information from Home Assistant
+    async fetchAppleTVMediaInfo() {
+        console.log("Starting Apple TV media fetch");
+        try {
+            console.log(`Fetching Apple TV state from ${this.HA_URL}/api/states/media_player.loft_apple_tv`);
+            const response = await fetch(`${this.HA_URL}/api/states/media_player.loft_apple_tv`, {
+                headers: { 'Authorization': 'Bearer ' + this.HA_TOKEN }
+            });
+            
+            if (!response.ok) {
+                console.error(`Error fetching Apple TV data: ${response.status} ${response.statusText}`);
+                return;
+            }
+            
+            const data = await response.json();
+            console.log("Apple TV data received:", data);
+            
+            const artworkUrl = data.attributes.entity_picture ? this.HA_URL + data.attributes.entity_picture : '';
+            
+            // Store the Apple TV media info
+            this.appleTVMediaInfo = {
+                title: data.attributes.media_title || '—',
+                friendly_name: data.attributes.friendly_name || '—',
+                app_name: data.attributes.app_name || '—',
+                artwork: artworkUrl,
+                state: data.state
+            };
+            
+            console.log("Apple TV info processed x:", this.appleTVMediaInfo);
+            
+            // Update the Apple TV media view if it's active
+            if (this.currentRoute === 'menu/status') {
+                console.log("Updating Apple TV view (current route is status)");
+                this.updateAppleTVMediaView();
+            } else {
+                console.log("Not updating view - current route is", this.currentRoute);
+            }
+        } catch (error) {
+            console.error('Error fetching Apple TV media info:', error);
+        }
+    }
+    
+    // Update the Apple TV media view with current info
+    updateAppleTVMediaView() {
+        console.log("Updating Apple TV media view");
+        const artworkEl = document.getElementById('apple-tv-artwork');
+        const titleEl = document.getElementById('apple-tv-media-title');
+        const detailsEl = document.getElementById('apple-tv-media-details');
+        const stateEl = document.getElementById('apple-tv-state');
+        
+        if (!artworkEl) {
+            console.error("Artwork element not found");
+            return;
+        }
+        if (!titleEl || !detailsEl) {
+            console.error("Media info elements not found");
+            return;
+        }
+        
+        if (!this.appleTVMediaInfo) {
+            console.error("No Apple TV media info available");
+            return;
+        }
+        
+        // Update text elements
+        if (titleEl) titleEl.textContent = this.appleTVMediaInfo.title || '—';
+        if (detailsEl) detailsEl.textContent = this.appleTVMediaInfo.app_name + " showing on " + this.appleTVMediaInfo.friendly_name || '—';
+        if (stateEl) stateEl.textContent = this.appleTVMediaInfo.state || 'Unknown';
+        
+        // Show a placeholder if no artwork
+        if (!this.appleTVMediaInfo.artwork) {
+            console.log("No artwork available, showing placeholder");
+            if (artworkEl) {
+                artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23222'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='20' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3ENo Artwork%3C/text%3E%3C/svg%3E";
+                artworkEl.style.opacity = 1;
+            }
+            return;
+        }
+        
+        // Update artwork with cross-fade
+        if (artworkEl && artworkEl.src !== this.appleTVMediaInfo.artwork) {
+            console.log("Updating artwork to:", this.appleTVMediaInfo.artwork);
+            
+            // Ensure the transition duration matches CSS
+            const transitionDuration = 600; // ms
+            
+            // Fade out
+            artworkEl.style.opacity = 0;
+            
+            // After fade out, update src and fade in
+            setTimeout(() => {
+                artworkEl.src = this.appleTVMediaInfo.artwork;
+                
+                // Force a repaint before fading in
+                setTimeout(() => {
+                    artworkEl.style.opacity = 1;
+                }, 20);
+            }, transitionDuration);
+        }
+    }
+    
+    // Set up periodic refresh of Apple TV media info
+    setupAppleTVMediaInfoRefresh() {
+        console.log("Setting up Apple TV media refresh");
+        // Initial fetch
+        this.fetchAppleTVMediaInfo();
+        
+        // Refresh every 5 seconds
+        setInterval(() => {
+            console.log("Periodic Apple TV refresh");
+            this.fetchAppleTVMediaInfo();
+        }, 5000);
     }
     
     // Initialize UI
@@ -518,6 +658,7 @@ class UIStore {
     updateView() {
         console.log('updateView called with currentRoute:', this.currentRoute);
         console.log('Available views:', Object.keys(this.views));
+        console.log('Views object:', this.views);
         
         const contentArea = document.getElementById('contentArea');
         if (!contentArea) {
@@ -536,10 +677,21 @@ class UIStore {
 
         // Update content while it's faded out
         contentArea.innerHTML = view.content;
+        console.log(`Updated content area for route: ${this.currentRoute}`);
         
         // If navigating to now playing view, update it with current media info
         if (this.currentRoute === 'menu/nowplaying') {
             this.updateNowPlayingView();
+        }
+        
+        // If navigating to status view, update it with Apple TV info
+        if (this.currentRoute === 'menu/status') {
+            console.log("Entered status view, fetching Apple TV data");
+            // Force a new fetch when entering the view
+            this.fetchAppleTVMediaInfo();
+            
+            // Also try to update with any existing data
+            this.updateAppleTVMediaView();
         }
         
         // If navigating to security view, set up the iframe
