@@ -36,13 +36,16 @@ class UIStore {
             state: 'unknown'
         };
         
+        // In-memory artwork cache
+        this.artworkCache = {};
+        
         this.menuItems = [
-            {title: 'STATUS', path: 'menu/status'},
+            {title: 'SHOWING', path: 'menu/showing'},
             {title: 'SETTINGS', path: 'menu/settings'},
             {title: 'SECURITY', path: 'menu/security'},
             {title: 'SCENES', path: 'menu/scenes'},
             {title: 'MUSIC', path: 'menu/music'},
-            {title: 'NOW PLAYING', path: 'menu/nowplaying'}
+            {title: 'PLAYING', path: 'menu/playing'}
         ];
 
         // Constants
@@ -55,8 +58,8 @@ class UIStore {
                 title: 'HOME',
                 content: ''
             },
-            'menu/status': {
-                title: 'STATUS',
+            'menu/showing': {
+                title: 'SHOWING',
                 content: `
                     <div id="status-page" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; text-align: center; background-color: rgba(0,0,0,0.4);">
                         <div id="apple-tv-artwork-container" style="width: 60%; aspect-ratio: 1; margin: 20px; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
@@ -70,7 +73,7 @@ class UIStore {
                     </div>`
             },
             'menu/music': {
-                title: 'N.RADIO',
+                title: 'Playlists',
                 content: `
                     <div class="arc-content-flow scrollable-content">
                         <div class="flow-items">
@@ -93,7 +96,7 @@ class UIStore {
                     </div>`
             },
             'menu/settings': {
-                title: 'N.MUSIC',
+                title: 'Settings',
                 content: `
                     <div class="arc-content-flow scrollable-content">
                         <div class="flow-items">
@@ -123,8 +126,8 @@ class UIStore {
                     </div>
                 `
             },
-            'menu/nowplaying': {
-                title: 'NOW PLAYING',
+            'menu/playing': {
+                title: 'PLAYING',
                 content: `
                     <div id="now-playing" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; text-align: center;">
                         <div id="artwork-container" style="width: 60%; aspect-ratio: 1; margin: 20px; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
@@ -134,6 +137,20 @@ class UIStore {
                             <div id="media-title" style="font-size: 24px; font-weight: bold; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
                             <div id="media-artist" style="font-size: 18px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
                             <div id="media-album" style="font-size: 16px; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
+                        </div>
+                    </div>`
+            },
+            'menu/nowshowing': {
+                title: 'NOW SHOWING',
+                content: `
+                    <div id="status-page" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; text-align: center; background-color: rgba(0,0,0,0.4);">
+                        <div id="apple-tv-artwork-container" style="width: 60%; aspect-ratio: 1; margin: 20px; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
+                            <img id="apple-tv-artwork" src="" alt="Apple TV Media" style="width: 100%; height: 100%; object-fit: contain; transition: opacity 0.6s ease;">
+                        </div>
+                        <div id="apple-tv-media-info" style="width: 80%; padding: 10px;">
+                            <div id="apple-tv-media-title" style="font-size: 24px; font-weight: bold; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
+                            <div id="apple-tv-media-details" style="font-size: 18px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
+                            <div id="apple-tv-state">Unknown</span></div>
                         </div>
                     </div>`
             }
@@ -156,6 +173,23 @@ class UIStore {
         this.setupAppleTVMediaInfoRefresh();
     }
     
+    // Helper to preload and cache images
+    preloadAndCacheImage(url) {
+        return new Promise((resolve, reject) => {
+            if (!url) return resolve(null);
+            if (this.artworkCache[url] && this.artworkCache[url].complete) {
+                return resolve(this.artworkCache[url]);
+            }
+            const img = new window.Image();
+            img.onload = () => {
+                this.artworkCache[url] = img;
+                resolve(img);
+            };
+            img.onerror = reject;
+            img.src = url;
+        });
+    }
+    
     // Fetch media information from Home Assistant
     async fetchMediaInfo() {
         try {
@@ -166,6 +200,9 @@ class UIStore {
             
             const data = await response.json();
             const artworkUrl = data.attributes.entity_picture ? this.HA_URL + data.attributes.entity_picture : '';
+            
+            // Preload and cache artwork
+            if (artworkUrl) this.preloadAndCacheImage(artworkUrl);
             
             // Update media info
             this.mediaInfo = {
@@ -183,7 +220,7 @@ class UIStore {
             }
             
             // Update the now playing view if it's active
-            if (this.currentRoute === 'menu/nowplaying') {
+            if (this.currentRoute === 'menu/playing') {
                 this.updateNowPlayingView();
             }
             
@@ -219,23 +256,27 @@ class UIStore {
             playPauseBtn.textContent = this.mediaInfo.state === 'playing' ? '⏸' : '▶️';
         }
         
-        // Update artwork with cross-fade
-        if (artworkEl.src !== this.mediaInfo.artwork && this.mediaInfo.artwork) {
-            // Ensure the transition duration matches CSS
-            const transitionDuration = 600; // ms
-            
-            // Fade out
-            artworkEl.style.opacity = 0;
-            
-            // After fade out, update src and fade in
-            setTimeout(() => {
-                artworkEl.src = this.mediaInfo.artwork;
-                
-                // Force a repaint before fading in
+        // Use cached image if available and loaded
+        const artworkUrl = this.mediaInfo.artwork;
+        if (artworkUrl && this.artworkCache[artworkUrl] && this.artworkCache[artworkUrl].complete) {
+            if (artworkEl.src !== this.artworkCache[artworkUrl].src) {
+                artworkEl.style.opacity = 0;
                 setTimeout(() => {
-                    artworkEl.style.opacity = 1;
-                }, 20);
-            }, transitionDuration);
+                    artworkEl.src = this.artworkCache[artworkUrl].src;
+                    setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
+                }, 100);
+            }
+        } else if (artworkUrl) {
+            // Preload and cache for next time
+            this.preloadAndCacheImage(artworkUrl).then(img => {
+                if (img && artworkEl.src !== img.src) {
+                    artworkEl.style.opacity = 0;
+                    setTimeout(() => {
+                        artworkEl.src = img.src;
+                        setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
+                    }, 100);
+                }
+            });
         }
     }
     
@@ -283,6 +324,9 @@ class UIStore {
             
             const artworkUrl = data.attributes.entity_picture ? this.HA_URL + data.attributes.entity_picture : '';
             
+            // Preload and cache artwork
+            if (artworkUrl) this.preloadAndCacheImage(artworkUrl);
+            
             // Store the Apple TV media info
             this.appleTVMediaInfo = {
                 title: data.attributes.media_title || '—',
@@ -295,8 +339,7 @@ class UIStore {
             console.log("Apple TV info processed x:", this.appleTVMediaInfo);
             
             // Update the Apple TV media view if it's active
-            if (this.currentRoute === 'menu/status') {
-                console.log("Updating Apple TV view (current route is status)");
+            if (this.currentRoute === 'menu/showing') {
                 this.updateAppleTVMediaView();
             } else {
                 console.log("Not updating view - current route is", this.currentRoute);
@@ -333,35 +376,31 @@ class UIStore {
         if (detailsEl) detailsEl.textContent = this.appleTVMediaInfo.app_name + " showing on " + this.appleTVMediaInfo.friendly_name || '—';
         if (stateEl) stateEl.textContent = this.appleTVMediaInfo.state || 'Unknown';
         
-        // Show a placeholder if no artwork
-        if (!this.appleTVMediaInfo.artwork) {
-            console.log("No artwork available, showing placeholder");
-            if (artworkEl) {
-                artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23222'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='20' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3ENo Artwork%3C/text%3E%3C/svg%3E";
-                artworkEl.style.opacity = 1;
-            }
-            return;
-        }
-        
-        // Update artwork with cross-fade
-        if (artworkEl && artworkEl.src !== this.appleTVMediaInfo.artwork) {
-            console.log("Updating artwork to:", this.appleTVMediaInfo.artwork);
-            
-            // Ensure the transition duration matches CSS
-            const transitionDuration = 600; // ms
-            
-            // Fade out
-            artworkEl.style.opacity = 0;
-            
-            // After fade out, update src and fade in
-            setTimeout(() => {
-                artworkEl.src = this.appleTVMediaInfo.artwork;
-                
-                // Force a repaint before fading in
+        // Use cached image if available and loaded
+        const artworkUrl = this.appleTVMediaInfo.artwork;
+        if (artworkUrl && this.artworkCache[artworkUrl] && this.artworkCache[artworkUrl].complete) {
+            if (artworkEl.src !== this.artworkCache[artworkUrl].src) {
+                artworkEl.style.opacity = 0;
                 setTimeout(() => {
-                    artworkEl.style.opacity = 1;
-                }, 20);
-            }, transitionDuration);
+                    artworkEl.src = this.artworkCache[artworkUrl].src;
+                    setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
+                }, 100);
+            }
+        } else if (artworkUrl) {
+            // Preload and cache for next time
+            this.preloadAndCacheImage(artworkUrl).then(img => {
+                if (img && artworkEl.src !== img.src) {
+                    artworkEl.style.opacity = 0;
+                    setTimeout(() => {
+                        artworkEl.src = img.src;
+                        setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
+                    }, 100);
+                }
+            });
+        } else {
+            // Show a placeholder if no artwork
+            artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23222'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='20' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3ENo Artwork%3C/text%3E%3C/svg%3E";
+            artworkEl.style.opacity = 1;
         }
     }
     
@@ -541,88 +580,18 @@ class UIStore {
     }
 
     handleWheelChange() {
-        // Check if we're viewing content that could be scrollable
-        const isInContentView = this.currentRoute !== 'menu' && 
-                               this.currentRoute !== 'menu/nowplaying' &&
-                               this.wheelPointerAngle >= 155 && 
-                               this.wheelPointerAngle <= 203;
-
-        if (isInContentView) {
-            // We're in a content view - use wheel for scrolling instead of menu navigation
-            if (this.topWheelPosition !== 0) {
-                // Find scrollable containers
-                const contentArea = document.getElementById('contentArea');
-                const scrollableContent = contentArea.querySelector('.arc-content-flow') || 
-                                         contentArea.querySelector('iframe') ||
-                                         contentArea;
-                
-                if (scrollableContent) {
-                    const scrollAmount = 40; // Adjust for scroll sensitivity
-                    
-                    if (this.topWheelPosition > 0) {
-                        // Scroll down
-                        if (scrollableContent.tagName === 'IFRAME') {
-                            // For iframes we need to send a wheel event
-                            try {
-                                scrollableContent.contentWindow.scrollBy({
-                                    top: scrollAmount,
-                                    behavior: 'smooth'
-                                });
-                            } catch (e) {
-                                console.log('Cannot scroll iframe due to cross-origin policy');
-                            }
-                        } else {
-                            scrollableContent.scrollBy({
-                                top: scrollAmount,
-                                behavior: 'smooth'
-                            });
-                        }
-                    } else {
-                        // Scroll up
-                        if (scrollableContent.tagName === 'IFRAME') {
-                            // For iframes we need to send a wheel event
-                            try {
-                                scrollableContent.contentWindow.scrollBy({
-                                    top: -scrollAmount,
-                                    behavior: 'smooth'
-                                });
-                            } catch (e) {
-                                console.log('Cannot scroll iframe due to cross-origin policy');
-                            }
-                        } else {
-                            scrollableContent.scrollBy({
-                                top: -scrollAmount,
-                                behavior: 'smooth'
-                            });
-                        }
-                    }
-                    
-                    // If we're handling scrolling, don't adjust the pointer angle
-                    this.updatePointer();
-                    this.topWheelPosition = 0;
-                    return;
-                }
-            }
-        }
-
-        // Original wheel navigation behavior for menu selection
-        if (this.topWheelPosition > 0) {
-            if (this.wheelPointerAngle <= 202) {
-                this.wheelPointerAngle += this.angleStep;
-            }
-        } else if (this.topWheelPosition < 0) {
-            if (this.wheelPointerAngle >= 158) {
-                this.wheelPointerAngle -= this.angleStep;
-            }
-        }
-
-        // Check for now playing overlay
-        if (this.wheelPointerAngle > 203 || this.wheelPointerAngle < 155) {
+        // Check for overlay at top or bottom
+        if (this.wheelPointerAngle > 203) { // bottom
             if (!this.isNowPlayingOverlayActive) {
                 this.isNowPlayingOverlayActive = true;
-                this.navigateToView('menu/nowplaying');
-                // Fetch the latest media info when entering now playing view
+                this.navigateToView('menu/playing');
                 this.fetchMediaInfo();
+            }
+        } else if (this.wheelPointerAngle < 155) { // top
+            if (!this.isNowPlayingOverlayActive) {
+                this.isNowPlayingOverlayActive = true;
+                this.navigateToView('menu/showing');
+                this.fetchAppleTVMediaInfo();
             }
         } else if (this.isNowPlayingOverlayActive) {
             this.isNowPlayingOverlayActive = false;
@@ -679,19 +648,15 @@ class UIStore {
         contentArea.innerHTML = view.content;
         console.log(`Updated content area for route: ${this.currentRoute}`);
         
-        // If navigating to now playing view, update it with current media info
-        if (this.currentRoute === 'menu/nowplaying') {
+        // Immediately update with cached info for playing view
+        if (this.currentRoute === 'menu/playing') {
             this.updateNowPlayingView();
+            this.fetchMediaInfo();
         }
-        
-        // If navigating to status view, update it with Apple TV info
-        if (this.currentRoute === 'menu/status') {
-            console.log("Entered status view, fetching Apple TV data");
-            // Force a new fetch when entering the view
-            this.fetchAppleTVMediaInfo();
-            
-            // Also try to update with any existing data
+        // Immediately update with cached info for showing view
+        else if (this.currentRoute === 'menu/showing') {
             this.updateAppleTVMediaView();
+            this.fetchAppleTVMediaInfo();
         }
         
         // If navigating to security view, set up the iframe
