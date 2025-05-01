@@ -48,3 +48,17 @@ http:
   use_x_frame_options: false
   trusted_proxies:
     - 127.0.0.1
+
+homeassistant:
+  auth_providers:
+    - type: trusted_networks
+      trusted_networks:
+        - 192.168.1.233
+        - 192.168.1.75
+      trusted_users:
+        192.168.1.233:
+          - fa968e59c60a41ada8617d51349fd341
+        192.168.1.75:
+          - fa968e59c60a41ada8617d51349fd341
+      allow_bypass_login: true
+    - type: homeassistant
