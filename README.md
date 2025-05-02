@@ -1,4 +1,5 @@
-## /boot/firmware/config.txt
+### /boot/firmware/config.txt
+## Test
 # — BeoSound 5 Panel (10.4" 1024×768 @ 60Hz) forced HDMI settings —
 hdmi_force_hotplug=1      # pretend HDMI is always connected
 disable_overscan=1        # remove any black borders
