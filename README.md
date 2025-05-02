@@ -11,6 +11,8 @@ hdmi_drive=2              # full HDMI (with audio), not DVI mode
 framebuffer_width=1024
 framebuffer_height=768
 
+# IR driver
+dtoverlay=gpio-ir,gpio_pin=18
 
 ## USB setup
 sudo tee /etc/udev/rules.d/99-bs5.rules <<'EOF'
@@ -30,6 +32,8 @@ sudo apt remove --purge python3-hid
 sudo apt install -y libhidapi-hidraw0 libhidapi-dev python3-dev
 sudo apt install libhidapi-hidraw0 python3-hidapi
 
+# Set up IR driver
+sudo apt install lirc
 
 ## HA configuration
 # Kiosk mode for nicer integration into iframe
