@@ -1,6 +1,5 @@
 ### /boot/firmware/config.txt
-## Test
-# — BeoSound 5 Panel (10.4" 1024×768 @ 60Hz) forced HDMI settings —
+#### — BeoSound 5 Panel (10.4" 1024×768 @ 60Hz) forced HDMI settings —
 hdmi_force_hotplug=1      # pretend HDMI is always connected
 disable_overscan=1        # remove any black borders
 
@@ -8,11 +7,11 @@ hdmi_group=2              # use DMT timings (computer monitor)
 hdmi_mode=16              # 1024x768 @ 60 Hz (DMT mode 16)
 hdmi_drive=2              # full HDMI (with audio), not DVI mode
 
-# framebuffer console to match panel
+#### framebuffer console to match panel
 framebuffer_width=1024
 framebuffer_height=768
 
-# IR driver
+#### IR driver
 dtoverlay=gpio-ir,gpio_pin=18
 
 ## USB setup
