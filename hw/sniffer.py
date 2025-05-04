@@ -141,6 +141,7 @@ class PC2Device:
         device_type_map = {
             0x00: "Video",
             0x01: "Audio",
+            0x05: "Vmem",
             0x1B: "Light"
         }
 
@@ -154,8 +155,7 @@ class PC2Device:
             0x1E: "up", 0x1F: "down",
             0x32: "left", 0x34: "right",
             0x35: "go", 0x36: "back",
-            0x60: "stop", 0x64: "play",
-            0x7F: "volup",  # Based on your log: Unknown(0x7f) is volup/voldown
+            0x60: "volup", 0x64: "voldown",
             0x80: "tv",
             0x81: "amem",  # Based on log: Unknown(0x81) is amem
             0x85: "vmem",
@@ -174,6 +174,7 @@ class PC2Device:
         key_name = key_map.get(keycode, f"Unknown(0x{keycode:02x})")
 
         print(f"[{timestamp}] {device_type} → {key_name}")
+        print(f"Raw data: {hex_data} | Device: {device_type} | Keycode: 0x{keycode:02X}")
 
         # If the key is unknown, log the data for future mapping
         if key_name.startswith("Unknown("):
