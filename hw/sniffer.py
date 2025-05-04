@@ -152,12 +152,50 @@ class PC2Device:
                 message_type = "Headphone State"
         
         # Log the message
-        print(f"[{timestamp}] RECEIVED {message_type}: {hex_data}")
+        if(data[2] == 0x02):
+            processBeo4Keycode(data)
+        else:
+            print(f"[{timestamp}] RECEIVED {message_type}: {hex_data}")
         
         # Save to log file
         with open("pc2_usb_log.txt", "a") as f:
             f.write(f"[{timestamp}] {message_type}: {hex_data}\n")
-    
+    def processBeo4Keycode(self, data):
+        """Process and display a received USB message"""
+        hex_data = " ".join([f"{x:02X}" for x in data])
+
+        # Default fallback
+        device_type = "Unknown"
+        key_name = "Unknown"
+
+        # Beo4 keycode messages start with 60 05 02 ...
+        if len(data) >= 8 and data[0] == 0x60 and data[2] == 0x02 and data[7] == 0x61:
+            mode = data[4]
+            keycode = data[6]
+
+            device_type_map = {
+                0x00: "Video",
+                0x01: "Audio",
+                0x1B: "Light"
+            }
+
+            key_map = {
+                0x00: "0", 0x01: "1", 0x02: "2", 0x03: "3", 0x04: "4",
+                0x05: "5", 0x06: "6", 0x07: "7", 0x08: "8", 0x09: "9",
+                0x1E: "up", 0x1F: "down", 0x32: "left", 0x34: "right",
+                0x35: "go", 0x36: "back", 0x60: "stop", 0x64: "play",
+                0x0D: "mute", 0x0C: "off", 0x85: "vmem", 0x86: "dvd",
+                0x8A: "dtv", 0xD4: "yellow", 0xD5: "green", 0xD8: "blue", 0xD9: "red",
+                0x91: "c", 0x92: "radio"
+            }
+
+            device_type = device_type_map.get(mode, f"Unknown({mode:#02x})")
+            key_name = key_map.get(keycode, f"Unknown({keycode:#02x})")
+
+            print(f"[{timestamp}] {device_type} → {key_name}")
+        else:
+            print(f"[{timestamp}] UNKNOWN MSG: {hex_data}")
+            
     def stop_sniffing(self):
         """Stop the USB sniffer"""
         self.running = False
