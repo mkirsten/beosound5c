@@ -152,16 +152,18 @@ class PC2Device:
             0x0C: "off",
             0x0D: "mute",
             0x0F: "alloff",
+            0x5C: "menu",
             0x1E: "up", 0x1F: "down",
             0x32: "left", 0x34: "right",
-            0x35: "go", 0x36: "back",
+            0x35: "go", 0x36: "stop", 0x7F: "back",
             0x60: "volup", 0x64: "voldown",
             0x80: "tv",
-            0x81: "amem",  # Based on log: Unknown(0x81) is amem
+            0x81: "radio",  # Based on log: Unknown(0x81) is amem
             0x85: "vmem",
             0x86: "dvd",
             0x8A: "dtv",
-            0x91: "cd",
+            0x91: "amem",
+            0x92: "cd",
             0x92: "radio",
             0xD4: "yellow", 0xD5: "green", 0xD8: "blue", 0xD9: "red"
         }
