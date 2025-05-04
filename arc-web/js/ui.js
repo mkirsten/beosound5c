@@ -15,7 +15,8 @@ class UIStore {
         
         // HA integration settings
         this.HA_URL = 'http://homeassistant.local:8123';
-        this.HA_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjMDY0NDFjNDRjOWM0YTQ3ODk1OWVmMjcwYzY2MTU2ZiIsImlhdCI6MTc0NTI2ODYzNywiZXhwIjoyMDYwNjI4NjM3fQ.ldZPYpESQgL_dQj026faUhBzqTgJBVH4oYSrXtWzfC0';
+        this.HA_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJlNTU1MjM0NmIzMTA0NTQxOWU4ZjczYmM3YjE4YzNiOSIsImlhdCI6MTc0NjA5ODMxMiwiZXhwIjoyMDYxNDU4MzEyfQ.ZDszs4w_8_bkcIy24cvwntEsyjCzy2VODjthZRpQvaQ';
+     
         this.ENTITY = 'media_player.medierum';
         
         // Media info
@@ -664,7 +665,7 @@ class UIStore {
             const securityIframe = document.getElementById('security-iframe');
             if (securityIframe) {
                 // Set the iframe source to the Home Assistant camera dashboard
-                securityIframe.src = `${this.HA_URL}/dashboard-cameras/home?auth=${this.HA_TOKEN}&kiosk`;
+                securityIframe.src = `${this.HA_URL}/dashboard-cameras/home&kiosk`;
                 
                 // Add a loading indicator if needed
                 securityIframe.onload = () => {
