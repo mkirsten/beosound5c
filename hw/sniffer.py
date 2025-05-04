@@ -4,7 +4,135 @@ import time
 import threading
 import queue
 import sys
+import json
+import websocket
+import requests
 from datetime import datetime
+from collections import defaultdict
+
+# Configuration variables
+# Home Assistant webhook and WebSocket URLs
+WEBHOOK_URL = "http://homeassistant.local:8123/api/webhook/beosound5c"
+WEBSOCKET_URL = "ws://localhost:8765"
+
+# Message processing settings
+MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
+DEDUP_COMMANDS = ["volup", "voldown", "left", "right"]  # Commands to deduplicate
+
+class MessageQueue:
+    """Thread-safe queue with lossy behavior and deduplication."""
+    def __init__(self, timeout=MESSAGE_TIMEOUT):
+        self.lock = threading.Lock()
+        self.queue = []
+        self.timeout = timeout
+        self.command_counts = defaultdict(int)  # For deduplication
+        self.last_message_time = {}  # Track the last message time for each command
+    
+    def add(self, message):
+        """Add a message to the queue with timestamp."""
+        with self.lock:
+            # Add timestamp to the message
+            message['timestamp'] = time.time()
+            
+            # Check if this message should be deduplicated
+            command = message.get('key_name')
+            if command in DEDUP_COMMANDS:
+                # If we already have this command, update its count
+                if command in self.last_message_time:
+                    # Check if the existing command is still valid (not timed out)
+                    if time.time() - self.last_message_time[command] < self.timeout:
+                        # Increment count instead of adding a new message
+                        self.command_counts[command] += 1
+                        # Find the existing message and update its count
+                        for existing_msg in self.queue:
+                            if existing_msg.get('key_name') == command:
+                                existing_msg['count'] = self.command_counts[command]
+                                # Update timestamp to prevent timeout
+                                existing_msg['timestamp'] = time.time()
+                                return
+                
+                # If we didn't find an existing message or it timed out, add a new one
+                self.last_message_time[command] = time.time()
+                self.command_counts[command] = 1
+                message['count'] = 1
+            
+            self.queue.append(message)
+    
+    def get(self):
+        """Get the next valid message from the queue."""
+        with self.lock:
+            # Discard messages older than timeout
+            now = time.time()
+            self.queue = [msg for msg in self.queue if now - msg['timestamp'] < self.timeout]
+            
+            # Return None if queue is empty
+            if not self.queue:
+                return None
+            
+            # Return the oldest message
+            message = self.queue.pop(0)
+            
+            # If this was a deduped command, clear its counter when removed
+            command = message.get('key_name')
+            if command in DEDUP_COMMANDS:
+                # Only clear if this was the last instance of this command
+                if all(msg.get('key_name') != command for msg in self.queue):
+                    self.command_counts[command] = 0
+                    self.last_message_time.pop(command, None)
+            
+            return message
+    
+    def size(self):
+        """Return the current size of the queue."""
+        with self.lock:
+            return len(self.queue)
+
+
+def shouldSendWebhook(data):
+    """Determine if a webhook should be sent for this data.
+    
+    Args:
+        data: The message data dictionary
+        
+    Returns:
+        bool: True if webhook should be sent, False otherwise
+    """
+    # Example: Only send webhooks for audio commands or button 9 in video mode
+    device_type = data.get('device_type')
+    key_name = data.get('key_name')
+    
+    # Send for all audio commands
+    if device_type == 'Audio':
+        return True
+    
+    # Send for button 9 in video mode
+    if device_type == 'Video' and key_name == '9':
+        return True
+    
+    # Add more conditions as needed
+    
+    return False
+
+
+def shouldSendWebsocket(data):
+    """Determine if a websocket message should be sent for this data.
+    
+    Args:
+        data: The message data dictionary
+        
+    Returns:
+        bool: True if websocket message should be sent, False otherwise
+    """
+    # Example: Send all commands except debug ones
+    key_name = data.get('key_name', '')
+    
+    # Skip unknown commands
+    if key_name.startswith('Unknown'):
+        return False
+    
+    # Send everything else
+    return True
+
 
 class PC2Device:
     # B&O PC2 device identifiers
@@ -23,8 +151,10 @@ class PC2Device:
     def __init__(self):
         self.dev = None
         self.running = False
-        self.message_queue = queue.Queue()
+        self.message_queue = MessageQueue()
         self.sniffer_thread = None
+        self.sender_thread = None
+        self.ws = None
 
     def open(self):
         """Find and open the PC2 device"""
@@ -81,15 +211,23 @@ class PC2Device:
             print("Error: Invalid address mask")
 
     def start_sniffing(self):
-        """Start sniffing USB messages"""
+        """Start sniffing USB messages and sending them via webhook/websocket"""
         self.running = True
+        
+        # Start the sniffer thread (reads USB and adds to queue)
         self.sniffer_thread = threading.Thread(target=self._sniff_loop)
         self.sniffer_thread.daemon = True
         self.sniffer_thread.start()
-        print("USB message sniffer started")
+        
+        # Start the sender thread (processes queue and sends messages)
+        self.sender_thread = threading.Thread(target=self._sender_loop)
+        self.sender_thread.daemon = True
+        self.sender_thread.start()
+        
+        print("USB message sniffer and sender threads started")
 
     def _sniff_loop(self):
-        """Background thread to continuously read USB messages"""
+        """Background thread to continuously read USB messages and add to queue"""
         timeout_count = 0
         last_timeout_message = time.time()
 
@@ -107,11 +245,12 @@ class PC2Device:
                     message = list(data)
                     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
-                    # Put message in queue
-                    self.message_queue.put((timestamp, message))
-
-                    # Process and display the message
-                    self._process_message(timestamp, message)
+                    # Process the message (only for Beo4 keycodes)
+                    if len(message) > 2 and message[2] == 0x02:
+                        msg_data = self.process_beo4_keycode(timestamp, message)
+                        if msg_data:
+                            # Add to queue for processing by sender thread
+                            self.message_queue.add(msg_data)
 
             except usb.core.USBTimeoutError:
                 # This specifically catches timeout errors
@@ -132,8 +271,126 @@ class PC2Device:
             except Exception as e:
                 print(f"Error in sniffing thread: {e}")
                 time.sleep(1)  # Even longer delay on unexpected errors
+    
+    def _sender_loop(self):
+        """Background thread to process messages from the queue and send them"""
+        # Connect to the WebSocket server
+        self._connect_websocket()
+        
+        while self.running:
+            try:
+                # Get a message from the queue
+                message = self.message_queue.get()
+                
+                # If we got a message, process it
+                if message:
+                    # Check if we should send via webhook
+                    if shouldSendWebhook(message):
+                        self._send_webhook(message)
+                    
+                    # Check if we should send via WebSocket
+                    if shouldSendWebsocket(message):
+                        self._send_websocket(message)
+                
+                # Short sleep to prevent tight loop
+                time.sleep(0.01)
+                
+            except Exception as e:
+                print(f"Error in sender thread: {e}")
+                time.sleep(0.5)
+    
+    def _connect_websocket(self):
+        """Connect to the WebSocket server"""
+        try:
+            # Close existing connection if any
+            if self.ws:
+                self.ws.close()
+            
+            # Connect to the WebSocket server
+            self.ws = websocket.WebSocket()
+            self.ws.connect(WEBSOCKET_URL)
+            print(f"Connected to WebSocket server at {WEBSOCKET_URL}")
+            
+        except Exception as e:
+            print(f"Error connecting to WebSocket server: {e}")
+            self.ws = None
+    
+    def _send_websocket(self, message):
+        """Send a message via WebSocket"""
+        try:
+            if not self.ws:
+                self._connect_websocket()
+                if not self.ws:
+                    return  # Connection failed
+            
+            # Convert key_name to the expected format for WebSocket
+            key_name = message.get('key_name', '')
+            device_type = message.get('device_type', '')
+            count = message.get('count', 1)
+            
+            # Map to websocket format
+            ws_data = {}
+            
+            # Handle special commands with count
+            if key_name == 'volup':
+                ws_type = 'volume'
+                ws_data = {'direction': 'clock', 'speed': min(count * 10, 80)}
+            elif key_name == 'voldown':
+                ws_type = 'volume'
+                ws_data = {'direction': 'counter', 'speed': min(count * 10, 80)}
+            elif key_name == 'left':
+                ws_type = 'button'
+                ws_data = {'button': 'left'}
+            elif key_name == 'right': 
+                ws_type = 'button'
+                ws_data = {'button': 'right'}
+            elif key_name == 'go':
+                ws_type = 'button'
+                ws_data = {'button': 'go'}
+            else:
+                # Default button handling
+                ws_type = 'button'
+                ws_data = {'button': key_name}
+            
+            # Prepare the WebSocket message
+            ws_message = {
+                'type': ws_type,
+                'data': ws_data
+            }
+            
+            # Send the message
+            self.ws.send(json.dumps(ws_message))
+            print(f"Sent WebSocket message: {ws_message}")
+            
+        except Exception as e:
+            print(f"Error sending WebSocket message: {e}")
+            self.ws = None  # Reset connection on error
+    
+    def _send_webhook(self, message):
+        """Send a message via webhook"""
+        try:
+            # Prepare webhook payload for Home Assistant
+            webhook_data = {
+                'device': 'beosound5c',
+                'action': message.get('key_name', ''),
+                'device_type': message.get('device_type', ''),
+                'count': message.get('count', 1),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # Send the webhook
+            response = requests.post(WEBHOOK_URL, json=webhook_data, timeout=2.0)
+            
+            # Check if successful
+            if response.status_code >= 200 and response.status_code < 300:
+                print(f"Webhook sent successfully: {webhook_data}")
+            else:
+                print(f"Error sending webhook: {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            print(f"Error sending webhook: {e}")
 
-    def processBeo4Keycode(self, timestamp, data):
+    def process_beo4_keycode(self, timestamp, data):
         """Process and display a received Beo4 keycode USB message"""
         hex_data = " ".join([f"{x:02X}" for x in data])
 
@@ -181,6 +438,15 @@ class PC2Device:
         # If the key is unknown, log the data for future mapping
         if key_name.startswith("Unknown("):
             print(f"[MISSING BUTTON] Raw data: {hex_data} | Device: {device_type} | Keycode: 0x{keycode:02X}")
+        
+        # Create and return the processed message data
+        return {
+            'timestamp_str': timestamp,
+            'device_type': device_type,
+            'key_name': key_name,
+            'keycode': f"0x{keycode:02X}",
+            'raw_data': hex_data
+        }
 
     def _process_message(self, timestamp, data):
         """Process and display a received USB message"""
@@ -202,7 +468,7 @@ class PC2Device:
 
         # Log the message
         if(data[2] == 0x02):
-            self.processBeo4Keycode(timestamp, data)
+            self.process_beo4_keycode(timestamp, data)
         else:
             print(f"[{timestamp}] RECEIVED {message_type}: {hex_data}")
 
@@ -215,6 +481,10 @@ class PC2Device:
         self.running = False
         if self.sniffer_thread:
             self.sniffer_thread.join(timeout=1.0)
+        if self.sender_thread:
+            self.sender_thread.join(timeout=1.0)
+        if self.ws:
+            self.ws.close()
 
     def close(self):
         """Close the device"""
@@ -268,7 +538,7 @@ if __name__ == "__main__":
                 time.sleep(1)
                 # Print a status message every 30 seconds
                 if int(elapsed) % 30 == 0 and int(elapsed) > 0:
-                    print(f"\rSniffing... Elapsed time: {int(elapsed)} seconds")
+                    print(f"\rSniffing... Elapsed time: {int(elapsed)} seconds | Queue size: {pc2.message_queue.size()}")
         except KeyboardInterrupt:
             raise
 
