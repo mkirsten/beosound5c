@@ -298,14 +298,23 @@ async def ws_worker():
         try:
             evt = await event_queue.get()
             d.debug(f"Processing event in ws_worker: {evt}")
-            if should_send_ws(evt):
-                d.debug(f"Sending event to WebSocket: {evt}")
+            
+            # Always send HID events
+            if evt.get('device_type') == 'HID':
+                d.debug(f"Sending HID event to WebSocket: {evt}")
+                await broadcast_ws(evt)
+            # For IR events, check if they should be sent
+            elif should_send_ws(evt):
+                d.debug(f"Sending IR event to WebSocket: {evt}")
                 await broadcast_ws(evt)
             else:
                 d.debug(f"Event not sent to WebSocket: {evt}")
+            
+            # Handle webhook if needed
             if should_send_webhook(evt):
                 d.debug(f"Queueing event for webhook: {evt}")
                 await webhook_queue.put(evt)
+            
             event_queue.task_done()
         except Exception as e:
             d.error(f"Error in ws_worker: {e}")
