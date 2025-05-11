@@ -55,6 +55,7 @@ async def ws_handler(request):
         await ws.prepare(request)
         ws_clients.add(ws)
         d.info(f"WebSocket client connected from {request.remote}")
+        d.info(f"Total WebSocket clients: {len(ws_clients)}")
         
         try:
             async for msg in ws:
@@ -94,6 +95,7 @@ async def ws_handler(request):
         finally:
             ws_clients.remove(ws)
             d.info(f"WebSocket client disconnected from {request.remote}")
+            d.info(f"Remaining WebSocket clients: {len(ws_clients)}")
         
         return ws
     except Exception as e:
@@ -296,17 +298,26 @@ async def ws_worker():
     d.info("Starting WebSocket worker")
     while True:
         try:
+            d.debug("Waiting for event in queue...")
             evt = await event_queue.get()
             d.debug(f"Processing event in ws_worker: {evt}")
             
             # Always send HID events
             if evt.get('device_type') == 'HID':
                 d.debug(f"Sending HID event to WebSocket: {evt}")
-                await broadcast_ws(evt)
+                if ws_clients:
+                    d.debug(f"Found {len(ws_clients)} WebSocket clients")
+                    await broadcast_ws(evt)
+                else:
+                    d.debug("No WebSocket clients connected")
             # For IR events, check if they should be sent
             elif should_send_ws(evt):
                 d.debug(f"Sending IR event to WebSocket: {evt}")
-                await broadcast_ws(evt)
+                if ws_clients:
+                    d.debug(f"Found {len(ws_clients)} WebSocket clients")
+                    await broadcast_ws(evt)
+                else:
+                    d.debug("No WebSocket clients connected")
             else:
                 d.debug(f"Event not sent to WebSocket: {evt}")
             
@@ -316,6 +327,7 @@ async def ws_worker():
                 await webhook_queue.put(evt)
             
             event_queue.task_done()
+            d.debug("Event processing completed")
         except Exception as e:
             d.error(f"Error in ws_worker: {e}")
             event_queue.task_done()
@@ -566,10 +578,12 @@ async def main():
     
     # Start background tasks
     workers = []
+    d.info("Starting background workers...")
     workers.append(asyncio.create_task(webhook_worker()))
     workers.append(asyncio.create_task(ws_worker()))
     workers.append(asyncio.create_task(hid_reader_loop()))
     workers.append(asyncio.create_task(ir_reader_loop()))
+    d.info("All background workers started")
     
     # Start web server
     runner = web.AppRunner(app)
