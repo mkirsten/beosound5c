@@ -43,7 +43,12 @@ fi
 while true; do
   echo "$(date) - Starting Chromium browser..." >> $LOGFILE
   
-  # Launch Chromium in kiosk mode
+  # Clear Chromium cache before starting
+  rm -rf ~/.cache/chromium/Default/Cache/*
+  rm -rf ~/.cache/chromium/Default/Code\ Cache/*
+  rm -rf ~/.cache/chromium/Default/Service\ Worker/*
+  
+  # Launch Chromium in kiosk mode with cache disabled
   chromium-browser \
     --noerrdialogs \
     --disable-infobars \
@@ -55,7 +60,18 @@ while true; do
     --no-first-run \
     --start-maximized \
     --kiosk \
-    "http://localhost:8000/index.html" &
+    --disable-application-cache \
+    --disable-cache \
+    --disable-offline-load-stale-cache \
+    --disk-cache-size=0 \
+    --media-cache-size=0 \
+    --disable-gpu-shader-disk-cache \
+    --aggressive-cache-discard \
+    --disable-software-rasterizer \
+    --disable-dev-shm-usage \
+    --disable-web-security \
+    --disable-site-isolation-trials \
+    "http://localhost:8000/index.html?t=$(date +%s)" &
   
   BROWSER_PID=$!
   echo "Browser started with PID $BROWSER_PID" >> $LOGFILE
