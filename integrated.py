@@ -331,6 +331,8 @@ async def ws_worker():
         except Exception as e:
             d.error(f"Error in ws_worker: {e}")
             event_queue.task_done()
+            # Add a small delay to prevent tight error loops
+            await asyncio.sleep(0.1)
 
 # ---- HID Reader -------------------------------------------------------------
 async def hid_reader_loop():
@@ -380,6 +382,11 @@ async def hid_reader_loop():
                             d.debug(f"Queueing nav event: {evt}")
                             await event_queue.put(evt)
                             d.info(f"HID event: {evt}")
+                            
+                            # DIRECT BROADCAST FOR DEBUGGING
+                            if ws_clients:
+                                d.debug(f"DIRECT BROADCAST: Sending nav event to {len(ws_clients)} clients")
+                                await broadcast_ws(evt)
                         
                         # Process volume events
                         if vol:
@@ -393,6 +400,11 @@ async def hid_reader_loop():
                             d.debug(f"Queueing volume event: {evt}")
                             await event_queue.put(evt)
                             d.info(f"HID event: {evt}")
+                            
+                            # DIRECT BROADCAST FOR DEBUGGING
+                            if ws_clients:
+                                d.debug(f"DIRECT BROADCAST: Sending volume event to {len(ws_clients)} clients")
+                                await broadcast_ws(evt)
                         
                         # Process button events
                         if btn:
@@ -406,6 +418,11 @@ async def hid_reader_loop():
                             d.debug(f"Queueing button event: {evt}")
                             await event_queue.put(evt)
                             d.info(f"HID event: {evt}")
+                            
+                            # DIRECT BROADCAST FOR DEBUGGING
+                            if ws_clients:
+                                d.debug(f"DIRECT BROADCAST: Sending button event to {len(ws_clients)} clients")
+                                await broadcast_ws(evt)
                         
                         # Process laser events - send on first read or when position changes
                         if first or laser != last_laser:
@@ -422,6 +439,10 @@ async def hid_reader_loop():
                             last_laser = laser
                             first = False
                             
+                            # DIRECT BROADCAST FOR DEBUGGING
+                            if ws_clients:
+                                d.debug(f"DIRECT BROADCAST: Sending laser event to {len(ws_clients)} clients")
+                                await broadcast_ws(evt)
                 except IOError as e:
                     consecutive_errors += 1
                     if consecutive_errors > 5:
@@ -579,10 +600,24 @@ async def main():
     # Start background tasks
     workers = []
     d.info("Starting background workers...")
-    workers.append(asyncio.create_task(webhook_worker()))
-    workers.append(asyncio.create_task(ws_worker()))
-    workers.append(asyncio.create_task(hid_reader_loop()))
-    workers.append(asyncio.create_task(ir_reader_loop()))
+    
+    # Create and start each worker with explicit logging
+    webhook_task = asyncio.create_task(webhook_worker())
+    d.info("Started webhook worker")
+    workers.append(webhook_task)
+    
+    ws_task = asyncio.create_task(ws_worker())
+    d.info("Started WebSocket worker")
+    workers.append(ws_task)
+    
+    hid_task = asyncio.create_task(hid_reader_loop())
+    d.info("Started HID reader worker")
+    workers.append(hid_task)
+    
+    ir_task = asyncio.create_task(ir_reader_loop())
+    d.info("Started IR reader worker")
+    workers.append(ir_task)
+    
     d.info("All background workers started")
     
     # Start web server
@@ -594,31 +629,58 @@ async def main():
     d.info("Server running at http://0.0.0.0:8765")
     d.info("WebSocket endpoint available at ws://beosound5.local:8765/ws")
     
-    # Setup cleanup handlers
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    except asyncio.CancelledError:
-        d.info("Shutting down gracefully...")
-    except KeyboardInterrupt:
-        d.info("Keyboard interrupt received, shutting down...")
-    finally:
-        # Cancel all background tasks
-        for task in workers:
-            task.cancel()
-        
-        # Shutdown web server
-        await runner.cleanup()
-        
-        # Close HID device if open
-        if hid_ctrl:
-            try:
-                hid_ctrl.close()
-                d.info("HID device closed")
-            except Exception as e:
-                d.error(f"Error closing HID device: {e}")
-        
-        d.info("Shutdown complete")
+    # Monitor worker tasks
+    while True:
+        try:
+            # Check if any workers have failed
+            for i, task in enumerate(workers):
+                if task.done():
+                    exc = task.exception()
+                    if exc:
+                        d.error(f"Worker {i} failed with error: {exc}")
+                        # Restart the failed worker
+                        if i == 0:  # webhook worker
+                            workers[i] = asyncio.create_task(webhook_worker())
+                            d.info("Restarted webhook worker")
+                        elif i == 1:  # ws worker
+                            workers[i] = asyncio.create_task(ws_worker())
+                            d.info("Restarted WebSocket worker")
+                        elif i == 2:  # hid worker
+                            workers[i] = asyncio.create_task(hid_reader_loop())
+                            d.info("Restarted HID reader worker")
+                        elif i == 3:  # ir worker
+                            workers[i] = asyncio.create_task(ir_reader_loop())
+                            d.info("Restarted IR reader worker")
+            
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            d.info("Shutting down gracefully...")
+            break
+        except KeyboardInterrupt:
+            d.info("Keyboard interrupt received, shutting down...")
+            break
+        except Exception as e:
+            d.error(f"Error in main loop: {e}")
+            await asyncio.sleep(1)
+    
+    # Cleanup
+    d.info("Starting cleanup...")
+    # Cancel all background tasks
+    for task in workers:
+        task.cancel()
+    
+    # Shutdown web server
+    await runner.cleanup()
+    
+    # Close HID device if open
+    if hid_ctrl:
+        try:
+            hid_ctrl.close()
+            d.info("HID device closed")
+        except Exception as e:
+            d.error(f"Error closing HID device: {e}")
+    
+    d.info("Shutdown complete")
 
 if __name__ == '__main__':
     asyncio.run(main())
