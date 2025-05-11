@@ -33,51 +33,72 @@ BEOSOUND5_BTN_MAP = {0x20: 'left', 0x10: 'right', 0x40: 'go', 0x80: 'power'}
 # ---- WebSocket Handler ------------------------------------------------------
 async def ws_handler(request):
     """WebSocket handler for client connections"""
-    ws = web.WebSocketResponse()
-    await ws.prepare(request)
-    ws_clients.add(ws)
-    d.info("WebSocket client connected")
-    
     try:
-        async for msg in ws:
-            if msg.type == web.WSMsgType.TEXT:
-                try:
-                    data = json.loads(msg.data)
-                    d.debug(f"Received WebSocket message: {data}")
-                    
-                    if data.get('type') == 'command':
-                        cmd = data.get('command')
-                        params = data.get('params', {})
-                        mode = params.get('mode', 'on')
+        ws = web.WebSocketResponse(heartbeat=30)
+        await ws.prepare(request)
+        ws_clients.add(ws)
+        d.info("WebSocket client connected")
+        
+        try:
+            async for msg in ws:
+                if msg.type == web.WSMsgType.TEXT:
+                    try:
+                        data = json.loads(msg.data)
+                        d.debug(f"Received WebSocket message: {data}")
                         
-                        if cmd == 'click':
-                            click()
-                            d.info("Executed click command")
-                        elif cmd == 'led':
-                            set_led(mode)  # supports on/off/blink
-                            d.info(f"Set LED mode to: {mode}")
-                        elif cmd == 'backlight':
-                            # Convert mode string to boolean for backlight
-                            set_backlight(mode == 'on')
-                            d.info(f"Set backlight to: {mode}")
-                        else:
-                            d.warning(f"Unknown command: {cmd}")
-                except json.JSONDecodeError:
-                    d.warning("Received invalid JSON in WebSocket message")
-                except Exception as e:
-                    d.error(f"Error processing WebSocket message: {e}")
-            elif msg.type == web.WSMsgType.ERROR:
-                d.warning(f"WebSocket connection closed with exception: {ws.exception()}")
-    finally:
-        ws_clients.remove(ws)
-        d.info("WebSocket client disconnected")
-    
-    return ws
+                        if data.get('type') == 'command':
+                            cmd = data.get('command')
+                            params = data.get('params', {})
+                            mode = params.get('mode', 'on')
+                            
+                            if cmd == 'click':
+                                click()
+                                d.info("Executed click command")
+                            elif cmd == 'led':
+                                set_led(mode)  # supports on/off/blink
+                                d.info(f"Set LED mode to: {mode}")
+                            elif cmd == 'backlight':
+                                # Convert mode string to boolean for backlight
+                                set_backlight(mode == 'on')
+                                d.info(f"Set backlight to: {mode}")
+                            else:
+                                d.warning(f"Unknown command: {cmd}")
+                    except json.JSONDecodeError:
+                        d.warning("Received invalid JSON in WebSocket message")
+                    except Exception as e:
+                        d.error(f"Error processing WebSocket message: {e}")
+                elif msg.type == web.WSMsgType.ERROR:
+                    d.warning(f"WebSocket connection closed with exception: {ws.exception()}")
+                elif msg.type == web.WSMsgType.CLOSE:
+                    d.info("WebSocket connection closed normally")
+                    break
+        except Exception as e:
+            d.error(f"Error in WebSocket connection: {e}")
+        finally:
+            ws_clients.remove(ws)
+            d.info("WebSocket client disconnected")
+        
+        return ws
+    except Exception as e:
+        d.error(f"Error setting up WebSocket connection: {e}")
+        return web.Response(status=500, text="Internal Server Error")
 
 # Aiohttp app and websocket clients
 app = web.Application()
 app.router.add_static('/', path='./web', show_index=True)
 app.router.add_get('/ws', ws_handler)
+
+# Add CORS middleware
+async def cors_middleware(app, handler):
+    async def middleware_handler(request):
+        response = await handler(request)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return response
+    return middleware_handler
+
+app.middlewares.append(cors_middleware)
 
 # Shared queues & clients
 event_queue   = asyncio.Queue()
@@ -274,7 +295,8 @@ async def hid_reader_loop():
                                 evt = {'timestamp': ts,'timestamp_epoch': now,
                                        'device_type':'HID','kind':kind,'data':data}
                                 await event_queue.put(evt)
-                                
+                                d.info(f"HID event: {evt}")
+                               
                         if first or laser != last_laser:
                             evt = {'timestamp': ts,'timestamp_epoch': now,
                                    'device_type':'HID','kind':'laser','data':{'position':laser}}
@@ -394,6 +416,7 @@ async def ir_reader_loop():
                                    'device_type': device_type,'key': key_name,
                                    'raw': " ".join(f"{b:02X}" for b in raw)}
                             await event_queue.put(evt)
+                            d.info(f"IR event: {evt}")
                 except usb.core.USBTimeoutError:
                     # Timeout is normal, just continue
                     pass
@@ -443,9 +466,9 @@ async def main():
     # Start web server
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8000)
+    site = web.TCPSite(runner, '0.0.0.0', 8765)
     await site.start()
-    d.info("Server running at http://0.0.0.0:8000")
+    d.info("Server running at http://0.0.0.0:8765")
     
     # Setup cleanup handlers
     try:
