@@ -1,12 +1,12 @@
 // Configuration
 const config = {
     showMouseCursor: true,  // Set to true to show the mouse cursor, false to hide it
-    wsUrl: 'ws://localhost:8765',
+    wsUrl: 'ws://beosound5.local:8765/ws',  // Updated to use the correct hostname
     skipFactor: 1,          // Process 1 out of every N events (higher = more skipping)
     disableTransitions: true, // Set to true to disable CSS transitions on the pointer
     bypassRAF: true,        // Bypass requestAnimationFrame for immediate updates
     useShadowPointer: false, // Use a shadow pointer for immediate visual feedback
-    showDebugOverlay: false, // Show the debug overlay
+    showDebugOverlay: true, // Show the debug overlay to help diagnose issues
     volumeProcessingDelay: 50 // Delay between volume updates processing in ms
 };
 
@@ -304,10 +304,14 @@ function initWebSocket() {
     ws.onmessage = event => {
         try {
             const message = JSON.parse(event.data);
-            const { type, data } = message;
+            console.log('Received WebSocket message:', message);  // Debug log
             
-            // Log to debug overlay if available (for non-laser events to avoid spam)
-            if (window.uiStore && window.uiStore.logWebsocketMessage && type !== 'laser') {
+            // Extract event type and data
+            const type = message.kind || message.type;  // Handle both formats
+            const data = message.data || message;
+            
+            // Log to debug overlay if available
+            if (window.uiStore && window.uiStore.logWebsocketMessage) {
                 window.uiStore.logWebsocketMessage(JSON.stringify(message));
             }
             
@@ -342,7 +346,7 @@ function initWebSocket() {
             }
             
             // Non-laser events are logged normally
-            console.log(`Received ${type} event:`, data);
+            console.log(`Processing ${type} event:`, data);
             
             // Get reference to UI store for other event types
             const uiStore = window.uiStore;
@@ -351,7 +355,7 @@ function initWebSocket() {
                 return;
             }
             
-            // Process non-laser events as before
+            // Process non-laser events
             switch (type) {
                 case 'nav':
                     handleNavEvent(uiStore, data);
@@ -367,6 +371,9 @@ function initWebSocket() {
             }
         } catch (error) {
             console.error('Error processing message:', error);
+            if (window.uiStore && window.uiStore.logWebsocketMessage) {
+                window.uiStore.logWebsocketMessage(`Error processing message: ${error}`);
+            }
         }
     };
 }
