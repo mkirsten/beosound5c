@@ -34,11 +34,21 @@ BEOSOUND5_BTN_MAP = {0x20: 'left', 0x10: 'right', 0x40: 'go', 0x80: 'power'}
 async def ws_handler(request):
     """WebSocket handler for client connections"""
     d.debug(f"WebSocket connection attempt from {request.remote}")
+    d.debug(f"Headers: {dict(request.headers)}")
     
     # Check if this is a WebSocket upgrade request
     if not request.headers.get('Upgrade', '').lower() == 'websocket':
         d.error("Not a WebSocket upgrade request")
         return web.Response(status=400, text="Expected WebSocket upgrade")
+    
+    # Check for required WebSocket headers
+    if not request.headers.get('Connection', '').lower() == 'upgrade':
+        d.error("Missing 'Connection: Upgrade' header")
+        return web.Response(status=400, text="Missing 'Connection: Upgrade' header")
+    
+    if not request.headers.get('Sec-WebSocket-Key'):
+        d.error("Missing 'Sec-WebSocket-Key' header")
+        return web.Response(status=400, text="Missing 'Sec-WebSocket-Key' header")
     
     try:
         ws = web.WebSocketResponse(heartbeat=30)
@@ -92,33 +102,33 @@ async def ws_handler(request):
 
 # Aiohttp app and websocket clients
 app = web.Application()
-app.router.add_static('/', path='./web', show_index=True)
-app.router.add_get('/ws', ws_handler)
 
-# Add CORS middleware
+# Add CORS middleware first
 async def cors_middleware(app, handler):
     async def middleware_handler(request):
         d.debug(f"Handling request from {request.remote}: {request.method} {request.path}")
+        d.debug(f"Request headers: {dict(request.headers)}")
+        
         if request.method == 'OPTIONS':
             response = web.Response()
         else:
             response = await handler(request)
+        
         # Allow connections from any origin
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = '*'
         response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['Access-Control-Allow-Private-Network'] = 'true'
         return response
     return middleware_handler
 
 app.middlewares.append(cors_middleware)
 
-# Add error handler
-async def error_handler(request):
-    d.error(f"404 Not Found: {request.path}")
-    return web.Response(status=404, text="Not Found")
-
-app.router.add_get('/{tail:.*}', error_handler)
+# Add routes in correct order
+app.router.add_get('/ws', ws_handler)  # WebSocket route first
+app.router.add_static('/', path='./web', show_index=True)  # Static files second
+app.router.add_get('/{tail:.*}', error_handler)  # Error handler last
 
 # Shared queues & clients
 event_queue   = asyncio.Queue()
