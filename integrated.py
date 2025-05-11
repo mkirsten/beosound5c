@@ -262,8 +262,11 @@ def should_send_ws(evt):
 
 # ---- WebSocket handlers -----------------------------------------------------
 async def broadcast_ws(evt):
-    if not ws_clients: return
+    if not ws_clients:
+        d.debug("No WebSocket clients connected to broadcast to")
+        return
     msg = json.dumps(evt)
+    d.debug(f"Broadcasting to {len(ws_clients)} clients: {msg}")
     await asyncio.gather(*(ws.send_str(msg) for ws in ws_clients), return_exceptions=True)
 
 # ---- Workers ----------------------------------------------------------------
@@ -281,8 +284,10 @@ async def webhook_worker():
             webhook_queue.task_done()
 
 async def ws_worker():
+    d.info("Starting WebSocket worker")
     while True:
         evt = await event_queue.get()
+        d.debug(f"Processing event in ws_worker: {evt}")
         if should_send_ws(evt):
             await broadcast_ws(evt)
         if should_send_webhook(evt):
