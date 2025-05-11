@@ -55,7 +55,7 @@ while true; do
     --no-first-run \
     --start-maximized \
     --kiosk \
-    "http://localhost:8000/" &
+    "http://localhost:8000/index.html" &
   
   BROWSER_PID=$!
   echo "Browser started with PID $BROWSER_PID" >> $LOGFILE
