@@ -252,12 +252,17 @@ def should_send_ws(evt):
     # IR events
     if 'key' in evt:
         key = evt.get('key', '')
-        return not key.startswith('Unknown')
+        should_send = not key.startswith('Unknown')
+        d.debug(f"IR event should_send_ws: {should_send} for key {key}")
+        return should_send
     
     # All HID events should be sent
     if evt.get('device_type') == 'HID':
-        return True
+        should_send = True
+        d.debug(f"HID event should_send_ws: {should_send} for event {evt}")
+        return should_send
     
+    d.debug(f"Event not sent to WebSocket: {evt}")
     return False
 
 # ---- WebSocket handlers -----------------------------------------------------
@@ -267,7 +272,11 @@ async def broadcast_ws(evt):
         return
     msg = json.dumps(evt)
     d.debug(f"Broadcasting to {len(ws_clients)} clients: {msg}")
-    await asyncio.gather(*(ws.send_str(msg) for ws in ws_clients), return_exceptions=True)
+    try:
+        await asyncio.gather(*(ws.send_str(msg) for ws in ws_clients), return_exceptions=True)
+        d.debug("Broadcast completed successfully")
+    except Exception as e:
+        d.error(f"Error broadcasting message: {e}")
 
 # ---- Workers ----------------------------------------------------------------
 async def webhook_worker():
@@ -286,13 +295,21 @@ async def webhook_worker():
 async def ws_worker():
     d.info("Starting WebSocket worker")
     while True:
-        evt = await event_queue.get()
-        d.debug(f"Processing event in ws_worker: {evt}")
-        if should_send_ws(evt):
-            await broadcast_ws(evt)
-        if should_send_webhook(evt):
-            await webhook_queue.put(evt)
-        event_queue.task_done()
+        try:
+            evt = await event_queue.get()
+            d.debug(f"Processing event in ws_worker: {evt}")
+            if should_send_ws(evt):
+                d.debug(f"Sending event to WebSocket: {evt}")
+                await broadcast_ws(evt)
+            else:
+                d.debug(f"Event not sent to WebSocket: {evt}")
+            if should_send_webhook(evt):
+                d.debug(f"Queueing event for webhook: {evt}")
+                await webhook_queue.put(evt)
+            event_queue.task_done()
+        except Exception as e:
+            d.error(f"Error in ws_worker: {e}")
+            event_queue.task_done()
 
 # ---- HID Reader -------------------------------------------------------------
 async def hid_reader_loop():
@@ -325,6 +342,7 @@ async def hid_reader_loop():
                     consecutive_errors = 0  # Reset error counter on success
                     
                     if rep:
+                        d.debug(f"Raw HID report: {list(rep)}")
                         nav, vol, btn, laser = parse_report(list(rep))
                         ts = datetime.utcnow().isoformat()
                         now = time.time()
@@ -338,6 +356,7 @@ async def hid_reader_loop():
                                 'kind': 'nav',
                                 'data': nav
                             }
+                            d.debug(f"Queueing nav event: {evt}")
                             await event_queue.put(evt)
                             d.info(f"HID event: {evt}")
                         
@@ -350,6 +369,7 @@ async def hid_reader_loop():
                                 'kind': 'volume',
                                 'data': vol
                             }
+                            d.debug(f"Queueing volume event: {evt}")
                             await event_queue.put(evt)
                             d.info(f"HID event: {evt}")
                         
@@ -362,6 +382,7 @@ async def hid_reader_loop():
                                 'kind': 'button',
                                 'data': btn
                             }
+                            d.debug(f"Queueing button event: {evt}")
                             await event_queue.put(evt)
                             d.info(f"HID event: {evt}")
                         
@@ -374,6 +395,7 @@ async def hid_reader_loop():
                                 'kind': 'laser',
                                 'data': {'position': laser}
                             }
+                            d.debug(f"Queueing laser event: {evt}")
                             await event_queue.put(evt)
                             d.info(f"HID event: {evt}")
                             last_laser = laser
