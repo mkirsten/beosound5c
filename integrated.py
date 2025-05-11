@@ -324,18 +324,56 @@ async def hid_reader_loop():
                         ts = datetime.utcnow().isoformat()
                         now = time.time()
                         
-                        for kind, data in (('nav', nav), ('volume', vol), ('button', btn)):
-                            if data:
-                                evt = {'timestamp': ts,'timestamp_epoch': now,
-                                       'device_type':'HID','kind':kind,'data':data}
-                                await event_queue.put(evt)
-                                d.info(f"HID event: {evt}")
-                               
-                        if first or laser != last_laser:
-                            evt = {'timestamp': ts,'timestamp_epoch': now,
-                                   'device_type':'HID','kind':'laser','data':{'position':laser}}
+                        # Process navigation events
+                        if nav:
+                            evt = {
+                                'timestamp': ts,
+                                'timestamp_epoch': now,
+                                'device_type': 'HID',
+                                'kind': 'nav',
+                                'data': nav
+                            }
                             await event_queue.put(evt)
-                            last_laser, first = laser, False
+                            d.info(f"HID event: {evt}")
+                        
+                        # Process volume events
+                        if vol:
+                            evt = {
+                                'timestamp': ts,
+                                'timestamp_epoch': now,
+                                'device_type': 'HID',
+                                'kind': 'volume',
+                                'data': vol
+                            }
+                            await event_queue.put(evt)
+                            d.info(f"HID event: {evt}")
+                        
+                        # Process button events
+                        if btn:
+                            evt = {
+                                'timestamp': ts,
+                                'timestamp_epoch': now,
+                                'device_type': 'HID',
+                                'kind': 'button',
+                                'data': btn
+                            }
+                            await event_queue.put(evt)
+                            d.info(f"HID event: {evt}")
+                        
+                        # Process laser events - send on first read or when position changes
+                        if first or laser != last_laser:
+                            evt = {
+                                'timestamp': ts,
+                                'timestamp_epoch': now,
+                                'device_type': 'HID',
+                                'kind': 'laser',
+                                'data': {'position': laser}
+                            }
+                            await event_queue.put(evt)
+                            d.info(f"HID event: {evt}")
+                            last_laser = laser
+                            first = False
+                            
                 except IOError as e:
                     consecutive_errors += 1
                     if consecutive_errors > 5:
