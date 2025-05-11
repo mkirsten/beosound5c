@@ -32,11 +32,6 @@ framebuffer_width=1024
 framebuffer_height=768
 ```
 
-### 📡 Enable IR Receiver on GPIO 18
-```ini
-dtoverlay=gpio-ir,gpio_pin=18
-```
-
 ---
 
 ## 🔌 USB Permissions (BeoSound 5 Rotary Encoder)
@@ -69,11 +64,6 @@ sudo apt remove --purge python3-hid
 ```bash
 sudo apt install -y libhidapi-hidraw0 libhidapi-dev python3-dev
 sudo apt install libhidapi-hidraw0 python3-hidapi
-```
-
-### 🛰 IR Driver
-```bash
-sudo apt install lirc
 ```
 
 ---

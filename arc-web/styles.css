@@ -51,7 +51,7 @@ html, body {
 
 /* SVG filters */
 #blurPointFilter {
-  filter: blur(5px);
+  filter: blur(2px);
 }
 
 #exposureFilter {
@@ -59,7 +59,7 @@ html, body {
 }
 
 #blurPointerFilter {
-  filter: blur(10px);
+  filter: blur(6px);
 }
 
 
@@ -112,7 +112,7 @@ html, body {
 
 .flow-item {
   position: absolute;
-  color: white;
+  color: rgb(255, 255, 255);
   font-size: 14px;
   width: 200px;
   height: 50px;
