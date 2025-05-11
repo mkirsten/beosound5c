@@ -275,24 +275,38 @@ async def broadcast_ws(evt):
     msg = json.dumps(evt)
     d.debug(f"Broadcasting to {len(ws_clients)} clients: {msg}")
     try:
-        await asyncio.gather(*(ws.send_str(msg) for ws in ws_clients), return_exceptions=True)
+        # Use gather with return_exceptions=True to prevent errors from stopping other sends
+        results = await asyncio.gather(*(ws.send_str(msg) for ws in ws_clients), return_exceptions=True)
+        # Log any exceptions that occurred
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                d.error(f"Error sending to client {i}: {result}")
         d.debug("Broadcast completed successfully")
     except Exception as e:
         d.error(f"Error broadcasting message: {e}")
 
 # ---- Workers ----------------------------------------------------------------
 async def webhook_worker():
-    async with aiohttp.ClientSession() as session:
-        while True:
-            evt = await webhook_queue.get()
-            if time.time() - evt['timestamp_epoch'] > 1.0:
-                webhook_queue.task_done()
-                continue
-            try:
-                await session.post(WEBHOOK_URL, json=evt, timeout=0.5)
-            except Exception as e:
-                d.warning(f"Webhook error: {e}")
-            webhook_queue.task_done()
+    d.info("Starting webhook worker")
+    try:
+        async with aiohttp.ClientSession() as session:
+            while True:
+                try:
+                    evt = await webhook_queue.get()
+                    if time.time() - evt['timestamp_epoch'] > 1.0:
+                        webhook_queue.task_done()
+                        continue
+                    try:
+                        await session.post(WEBHOOK_URL, json=evt, timeout=0.5)
+                    except Exception as e:
+                        d.warning(f"Webhook error: {e}")
+                    webhook_queue.task_done()
+                except Exception as e:
+                    d.error(f"Error in webhook_worker processing: {e}")
+                    await asyncio.sleep(0.1)
+    except Exception as e:
+        d.error(f"Fatal error in webhook_worker: {e}")
+        raise
 
 async def ws_worker():
     d.info("Starting WebSocket worker")
@@ -330,7 +344,13 @@ async def ws_worker():
             d.debug("Event processing completed")
         except Exception as e:
             d.error(f"Error in ws_worker: {e}")
-            event_queue.task_done()
+            # Don't call task_done() if we failed to process the event
+            # This could lead to "task_done() called too many times" errors
+            try:
+                event_queue.task_done()
+            except ValueError:
+                # This means task_done was already called
+                d.warning("Queue task already marked as done")
             # Add a small delay to prevent tight error loops
             await asyncio.sleep(0.1)
 
@@ -594,8 +614,20 @@ async def fetch_config():
             return await resp.json()
 
 async def main():
-    # cfg = await fetch_config()
-    # d.info(f"Loaded config: {cfg}")
+    # Clear the queues to ensure they're empty at startup
+    while not event_queue.empty():
+        try:
+            event_queue.get_nowait()
+            event_queue.task_done()
+        except asyncio.QueueEmpty:
+            break
+            
+    while not webhook_queue.empty():
+        try:
+            webhook_queue.get_nowait()
+            webhook_queue.task_done()
+        except asyncio.QueueEmpty:
+            break
     
     # Start background tasks
     workers = []
@@ -683,4 +715,13 @@ async def main():
     d.info("Shutdown complete")
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    # Create a single event loop for all workers to use
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        d.info("Keyboard interrupt received, shutting down...")
+    finally:
+        loop.close()
+        d.info("Event loop closed")
