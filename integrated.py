@@ -33,11 +33,18 @@ BEOSOUND5_BTN_MAP = {0x20: 'left', 0x10: 'right', 0x40: 'go', 0x80: 'power'}
 # ---- WebSocket Handler ------------------------------------------------------
 async def ws_handler(request):
     """WebSocket handler for client connections"""
+    d.debug(f"WebSocket connection attempt from {request.remote}")
+    
+    # Check if this is a WebSocket upgrade request
+    if not request.headers.get('Upgrade', '').lower() == 'websocket':
+        d.error("Not a WebSocket upgrade request")
+        return web.Response(status=400, text="Expected WebSocket upgrade")
+    
     try:
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
         ws_clients.add(ws)
-        d.info("WebSocket client connected")
+        d.info(f"WebSocket client connected from {request.remote}")
         
         try:
             async for msg in ws:
@@ -76,7 +83,7 @@ async def ws_handler(request):
             d.error(f"Error in WebSocket connection: {e}")
         finally:
             ws_clients.remove(ws)
-            d.info("WebSocket client disconnected")
+            d.info(f"WebSocket client disconnected from {request.remote}")
         
         return ws
     except Exception as e:
@@ -91,14 +98,27 @@ app.router.add_get('/ws', ws_handler)
 # Add CORS middleware
 async def cors_middleware(app, handler):
     async def middleware_handler(request):
-        response = await handler(request)
+        d.debug(f"Handling request from {request.remote}: {request.method} {request.path}")
+        if request.method == 'OPTIONS':
+            response = web.Response()
+        else:
+            response = await handler(request)
+        # Allow connections from any origin
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        response.headers['Access-Control-Allow-Headers'] = '*'
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
         return response
     return middleware_handler
 
 app.middlewares.append(cors_middleware)
+
+# Add error handler
+async def error_handler(request):
+    d.error(f"404 Not Found: {request.path}")
+    return web.Response(status=404, text="Not Found")
+
+app.router.add_get('/{tail:.*}', error_handler)
 
 # Shared queues & clients
 event_queue   = asyncio.Queue()
@@ -466,9 +486,11 @@ async def main():
     # Start web server
     runner = web.AppRunner(app)
     await runner.setup()
+    # Listen on all interfaces
     site = web.TCPSite(runner, '0.0.0.0', 8765)
     await site.start()
     d.info("Server running at http://0.0.0.0:8765")
+    d.info("WebSocket endpoint available at ws://beosound5.local:8765/ws")
     
     # Setup cleanup handlers
     try:
