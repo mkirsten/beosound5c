@@ -100,10 +100,12 @@ async def ws_handler(request):
         d.error(f"Error setting up WebSocket connection: {e}")
         return web.Response(status=500, text="Internal Server Error")
 
-# Aiohttp app and websocket clients
-app = web.Application()
+# Define error handler
+async def error_handler(request):
+    d.error(f"404 Not Found: {request.path}")
+    return web.Response(status=404, text="Not Found")
 
-# Add CORS middleware first
+# Define CORS middleware
 async def cors_middleware(app, handler):
     async def middleware_handler(request):
         d.debug(f"Handling request from {request.remote}: {request.method} {request.path}")
@@ -123,6 +125,8 @@ async def cors_middleware(app, handler):
         return response
     return middleware_handler
 
+# Initialize aiohttp app and websocket clients
+app = web.Application()
 app.middlewares.append(cors_middleware)
 
 # Add routes in correct order
