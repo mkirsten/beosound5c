@@ -146,11 +146,34 @@ KEY_CODE_MAP = {0x00: "0", 0x01: "1", 0x02: "2", 0x03: "3", 0x04: "4",
     0x92: "cd", 0xD4: "yellow", 0xD5: "green", 0xD8: "blue", 0xD9: "red"}
 
 def decode_beo4_keycode(raw_bytes):
-    mode = raw_bytes[4]
-    keycode = raw_bytes[6]
-    device_type = DEVICE_TYPE_MAP.get(mode, f"Unknown(0x{mode:02X})")
-    key_name = KEY_CODE_MAP.get(keycode, f"Unknown(0x{keycode:02X})")
-    return device_type, key_name
+    """Decode Beo4 keycode from raw USB data"""
+    # Debug log the raw data
+    d.debug(f"Raw IR data: {' '.join(f'{b:02X}' for b in raw_bytes)}")
+    
+    # Check if we have enough data for a basic message
+    if len(raw_bytes) < 3:
+        d.debug(f"Message too short: {len(raw_bytes)} bytes")
+        return None, None
+        
+    # Check message type
+    if raw_bytes[2] != 0x02:
+        d.debug(f"Not a Beo4 keycode message (type: 0x{raw_bytes[2]:02X})")
+        return None, None
+        
+    # For Beo4 keycodes, we need at least 7 bytes
+    if len(raw_bytes) < 7:
+        d.debug(f"Beo4 keycode message too short: {len(raw_bytes)} bytes")
+        return None, None
+        
+    try:
+        mode = raw_bytes[4]
+        keycode = raw_bytes[6]
+        device_type = DEVICE_TYPE_MAP.get(mode, f"Unknown(0x{mode:02X})")
+        key_name = KEY_CODE_MAP.get(keycode, f"Unknown(0x{keycode:02X})")
+        return device_type, key_name
+    except Exception as e:
+        d.error(f"Error decoding Beo4 keycode: {e}")
+        return None, None
 
 # ---- Predicates -------------------------------------------------------------
 
@@ -313,22 +336,43 @@ async def ir_reader_loop():
             # Send init messages
             def send_beolink_message(dev, message):
                 """Format and send message to IR device using proper protocol"""
-                telegram = [0x60, len(message)] + list(message) + [0x61]
-                dev.write(0x01, telegram, timeout=100)
+                try:
+                    telegram = [0x60, len(message)] + list(message) + [0x61]
+                    dev.write(0x01, telegram, timeout=100)
+                    d.debug(f"Sent message: {' '.join(f'{b:02X}' for b in telegram)}")
+                except Exception as e:
+                    d.error(f"Error sending message: {e}")
 
             def set_address_filter(dev, mode):
-                if mode == "ALL":
-                    send_beolink_message(dev, [0xf6, 0xc0, 0xc1, 0x80, 0x83, 0x05, 0x00, 0x00])
-                elif mode == "AUDIO_MASTER":
-                    send_beolink_message(dev, [0xf6, 0x10, 0xc1, 0x80, 0x83, 0x05, 0x00, 0x00])
-                elif mode == "BEOPORT":
-                    send_beolink_message(dev, [0xf6, 0x00, 0x82, 0x80, 0x83])
+                try:
+                    if mode == "ALL":
+                        send_beolink_message(dev, [0xf6, 0xc0, 0xc1, 0x80, 0x83, 0x05, 0x00, 0x00])
+                    elif mode == "AUDIO_MASTER":
+                        send_beolink_message(dev, [0xf6, 0x10, 0xc1, 0x80, 0x83, 0x05, 0x00, 0x00])
+                    elif mode == "BEOPORT":
+                        send_beolink_message(dev, [0xf6, 0x00, 0x82, 0x80, 0x83])
+                except Exception as e:
+                    d.error(f"Error setting address filter: {e}")
 
-            send_beolink_message(dev, [0xf1])
-            await asyncio.sleep(0.1)
-            send_beolink_message(dev, [0x80, 0x01, 0x00])
-            await asyncio.sleep(0.1)
-            set_address_filter(dev, "ALL")  # Set to promiscuous mode to capture all signals
+            # Initialize device with retries
+            init_success = False
+            for attempt in range(3):
+                try:
+                    send_beolink_message(dev, [0xf1])
+                    await asyncio.sleep(0.1)
+                    send_beolink_message(dev, [0x80, 0x01, 0x00])
+                    await asyncio.sleep(0.1)
+                    set_address_filter(dev, "ALL")  # Set to promiscuous mode to capture all signals
+                    init_success = True
+                    break
+                except Exception as e:
+                    d.warning(f"Init attempt {attempt + 1} failed: {e}")
+                    await asyncio.sleep(0.5)
+            
+            if not init_success:
+                d.error("Failed to initialize device after 3 attempts")
+                continue
+                
             EP_IN = 0x81
             d.info("Configured Beolink USB device")
             
@@ -336,18 +380,20 @@ async def ir_reader_loop():
             consecutive_errors = 0
             while True:
                 try:
-                    data = dev.read(EP_IN, 9, timeout=100)
+                    # Read with a larger buffer to handle any message size
+                    data = dev.read(EP_IN, 64, timeout=100)
                     consecutive_errors = 0  # Reset error counter on success
                     
                     if data:
                         raw = list(data)
                         device_type, key_name = decode_beo4_keycode(raw)
-                        ts = datetime.utcnow().isoformat()
-                        now = time.time()
-                        evt = {'timestamp': ts,'timestamp_epoch': now,
-                               'device_type': device_type,'key': key_name,
-                               'raw': " ".join(f"{b:02X}" for b in raw)}
-                        await event_queue.put(evt)
+                        if device_type and key_name:  # Only process if we got valid data
+                            ts = datetime.utcnow().isoformat()
+                            now = time.time()
+                            evt = {'timestamp': ts,'timestamp_epoch': now,
+                                   'device_type': device_type,'key': key_name,
+                                   'raw': " ".join(f"{b:02X}" for b in raw)}
+                            await event_queue.put(evt)
                 except usb.core.USBTimeoutError:
                     # Timeout is normal, just continue
                     pass
@@ -355,7 +401,6 @@ async def ir_reader_loop():
                     consecutive_errors += 1
                     if consecutive_errors > 5:
                         d.error(f"Multiple USB errors: {e}, reconnecting...")
-                        # Break out of inner loop to reconnect
                         break
                     d.warning(f"USB error: {e}, retrying...")
                     await asyncio.sleep(0.5)
