@@ -271,22 +271,25 @@ function updateViaStore(angle) {
 
 // WebSocket handling for all device events
 function initWebSocket() {
+    console.log('Attempting to connect to WebSocket at:', config.wsUrl);
+    
     const ws = new WebSocket(config.wsUrl);
     
     ws.onopen = () => {
-        console.log('WebSocket connected');
+        console.log('WebSocket connected successfully');
         // Log to debug overlay if available
         if (window.uiStore && window.uiStore.logWebsocketMessage) {
-            window.uiStore.logWebsocketMessage('WebSocket connected');
+            window.uiStore.logWebsocketMessage('WebSocket connected successfully');
         }
     };
     
-    ws.onclose = () => {
-        console.log('WebSocket disconnected, reconnecting in 1s...');
+    ws.onclose = (event) => {
+        console.log('WebSocket disconnected:', event.code, event.reason);
         // Log to debug overlay if available
         if (window.uiStore && window.uiStore.logWebsocketMessage) {
-            window.uiStore.logWebsocketMessage('WebSocket disconnected, reconnecting...');
+            window.uiStore.logWebsocketMessage(`WebSocket disconnected: ${event.code} ${event.reason}`);
         }
+        console.log('Reconnecting in 1s...');
         setTimeout(initWebSocket, 1000);
     };
     
@@ -303,8 +306,9 @@ function initWebSocket() {
     
     ws.onmessage = event => {
         try {
+            console.log('Raw WebSocket message received:', event.data);
             const message = JSON.parse(event.data);
-            console.log('Received WebSocket message:', message);  // Debug log
+            console.log('Parsed WebSocket message:', message);
             
             // Extract event type and data
             const type = message.kind || message.type;  // Handle both formats
@@ -312,11 +316,12 @@ function initWebSocket() {
             
             // Log to debug overlay if available
             if (window.uiStore && window.uiStore.logWebsocketMessage) {
-                window.uiStore.logWebsocketMessage(JSON.stringify(message));
+                window.uiStore.logWebsocketMessage(`Received ${type} event: ${JSON.stringify(data)}`);
             }
             
             // Special handling for laser events
             if (type === 'laser') {
+                console.log('Processing laser event:', data);
                 // Increment the received counter
                 eventsReceived++;
                 
@@ -358,12 +363,15 @@ function initWebSocket() {
             // Process non-laser events
             switch (type) {
                 case 'nav':
+                    console.log('Handling nav event:', data);
                     handleNavEvent(uiStore, data);
                     break;
                 case 'volume':
+                    console.log('Handling volume event:', data);
                     handleVolumeEvent(uiStore, data);
                     break;
                 case 'button':
+                    console.log('Handling button event:', data);
                     handleButtonEvent(uiStore, data);
                     break;
                 default:
