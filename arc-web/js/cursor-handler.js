@@ -65,19 +65,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Create style for disabling transitions if needed
     updateTransitionStyles();
     
-    // Create debug overlay
-    createDebugOverlay();
-    
     // Initialize WebSocket for cursor and controls
     initWebSocket();
     
     // Start the animation frame loop for processing laser events
     processLaserEvents();
-    
-    // NOTE: The following two calls are likely unnecessary as the pointer elements
-    // are directly referenced by ID in UIStore.updatePointer() method
-    findPointerElements();
-    setupMutationObserver();
     
     // Create shadow pointer for visual feedback
     createShadowPointer();
@@ -130,30 +122,6 @@ function updateShadowPointer(angle) {
     shadowPointer.style.display = 'block';
 }
 
-// Function to find pointer elements more efficiently
-function findPointerElements() {
-    // NOTE: This function appears to be unnecessary in the current implementation.
-    // The pointer elements (pointerDot, pointerLine) are already directly manipulated
-    // in the UIStore.updatePointer() method, making this discovery process redundant.
-    
-    // If needed, we can directly target the specific elements we know about
-    const pointerDot = document.getElementById('pointerDot');
-    const pointerLine = document.getElementById('pointerLine');
-    
-    if (pointerDot && !pointerElements.includes(pointerDot)) pointerElements.push(pointerDot);
-    if (pointerLine && !pointerElements.includes(pointerLine)) pointerElements.push(pointerLine);
-    
-    // Log number of elements found
-    console.log(`Using ${pointerElements.length} known pointer elements`);
-}
-
-// Optional - we can also simplify the mutation observer setup
-function setupMutationObserver() {
-    // NOTE: This observer may also be unnecessary if we're directly targeting
-    // known elements by ID. It's kept for compatibility but could be removed.
-    console.log("Mutation observer setup skipped - not needed with direct element targeting");
-}
-
 // Function to update transition styles
 function updateTransitionStyles() {
     // Remove existing transition style if present
@@ -203,79 +171,6 @@ function updateTransitionStyles() {
     } else {
         console.log("Enabled transitions on pointer elements");
     }
-}
-
-// Create debug overlay to show stats
-function createDebugOverlay() {
-    // Skip creating our own debug overlay if UIStore's debug is enabled
-    if (window.uiStore && window.uiStore.debugEnabled) {
-        console.log("Using UIStore's debug overlay instead");
-        return;
-    }
-    
-    const overlay = document.createElement('div');
-    overlay.id = 'cursor-debug-overlay'; // Changed to avoid ID conflicts
-    overlay.style.cssText = `
-        position: fixed;
-        top: 10px;
-        left: 10px;
-        background: rgba(0,0,0,0.7);
-        color: #00ff00;
-        padding: 10px;
-        border-radius: 5px;
-        font-family: monospace;
-        font-size: 12px;
-        z-index: 9999;
-        pointer-events: none;
-        display: ${config.showDebugOverlay ? 'block' : 'none'};
-    `;
-    document.body.appendChild(overlay);
-    
-    // Update the debug overlay every 300ms
-    setInterval(updateDebugOverlay, 300);
-}
-
-// Toggle debug overlay visibility
-function toggleDebugOverlay() {
-    // Use UIStore's debug overlay if available
-    if (window.uiStore && window.uiStore.debugEnabled && document.getElementById('debug-overlay')) {
-        // Use the UIStore's toggle method if available
-        if (typeof window.uiStore.toggleDebugOverlay === 'function') {
-            window.uiStore.toggleDebugOverlay();
-            return;
-        }
-        
-        // Fallback to direct toggling
-        const uiDebugOverlay = document.getElementById('debug-overlay');
-        uiDebugOverlay.style.display = 
-            uiDebugOverlay.style.display === 'none' ? 'block' : 'none';
-        console.log(`UIStore debug overlay ${uiDebugOverlay.style.display === 'none' ? 'hidden' : 'shown'}`);
-        return;
-    }
-    
-    // Fall back to cursor debug overlay
-    config.showDebugOverlay = !config.showDebugOverlay;
-    const overlay = document.getElementById('cursor-debug-overlay');
-    if (overlay) {
-        overlay.style.display = config.showDebugOverlay ? 'block' : 'none';
-    }
-    console.log(`Debug overlay ${config.showDebugOverlay ? 'shown' : 'hidden'}`);
-}
-
-// Update the debug overlay with current stats
-function updateDebugOverlay() {
-    // Skip if using UIStore's debug overlay
-    if (window.uiStore && window.uiStore.debugEnabled) return;
-    
-    const overlay = document.getElementById('cursor-debug-overlay');
-    if (!overlay || !config.showDebugOverlay) return;
-    
-    overlay.innerHTML = `
-        <div>Events: ${eventsReceived} recv, ${eventsProcessed} proc, ${skippedEvents} skip</div>
-        <div>Settings: Skip=${config.skipFactor}, Trans=${config.disableTransitions ? 'OFF' : 'ON'}</div>
-        <div>FPS: ${(1000 / frameTimeAvg).toFixed(1)}, RAF: ${config.bypassRAF ? 'BYPASS' : 'USED'}</div>
-        <div>Controls: -/+ = skip, T = trans, R = RAF, S = shadow, H = hide</div>
-    `;
 }
 
 // Animation frame loop to process laser events
@@ -475,40 +370,6 @@ function initWebSocket() {
         }
     };
 }
-
-// Add key controls for adjusting settings
-document.addEventListener('keydown', (e) => {
-    if ((e.key === '-' || e.key === '_') && config.skipFactor > 1) {
-        // Decrease skip factor (process more events)
-        config.skipFactor--;
-        console.log(`Skip factor: ${config.skipFactor}`);
-    } else if (e.key === '+' || e.key === '=' || e.key === 'ArrowUp') {
-        // Increase skip factor (process fewer events)
-        config.skipFactor++;
-        console.log(`Skip factor: ${config.skipFactor}`);
-    } else if (e.key === 't' || e.key === 'T') {
-        // Toggle transitions
-        config.disableTransitions = !config.disableTransitions;
-        console.log(`Transitions ${config.disableTransitions ? 'disabled' : 'enabled'}`);
-        updateTransitionStyles();
-    } else if (e.key === 'r' || e.key === 'R') {
-        // Toggle RAF bypass
-        config.bypassRAF = !config.bypassRAF;
-        console.log(`RAF bypass ${config.bypassRAF ? 'enabled' : 'disabled'}`);
-    } else if (e.key === 's' || e.key === 'S') {
-        // Toggle shadow pointer
-        config.useShadowPointer = !config.useShadowPointer;
-        console.log(`Shadow pointer ${config.useShadowPointer ? 'enabled' : 'disabled'}`);
-        if (shadowPointer) {
-            shadowPointer.style.display = config.useShadowPointer ? 'block' : 'none';
-        } else {
-            createShadowPointer();
-        }
-    } else if (e.key === 'h' || e.key === 'H') {
-        // Toggle debug overlay
-        toggleDebugOverlay();
-    }
-});
 
 // Handle navigation wheel events
 function handleNavEvent(uiStore, data) {
