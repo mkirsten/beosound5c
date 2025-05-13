@@ -19,6 +19,8 @@ WEBSOCKET_URL = "ws://localhost:8765"
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
 DEDUP_COMMANDS = ["volup", "voldown", "left", "right"]  # Commands to deduplicate
 
+sys.stdout.reconfigure(line_buffering=True)
+
 class MessageQueue:
     """Thread-safe queue with lossy behavior and deduplication."""
     def __init__(self, timeout=MESSAGE_TIMEOUT):

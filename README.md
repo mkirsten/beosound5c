@@ -57,6 +57,7 @@ sudo udevadm trigger
 ```bash
 sudo apt update
 sudo apt install -y libhidapi-hidraw0 libhidapi-dev python3-dev python3-hidapi python3-hid python3-websockets python3-websocket unclutter-xfixes
+sudo apt install --no-install-recommends xserver-xorg x11-xserver-utils xinit openbox chromium-browser
 ```
 
 ---

@@ -7,7 +7,8 @@ xset s off
 xset s noblank
 
 # Hide mouse cursor after idle time
-(sleep 5 && unclutter-xfixes -idle 0.5) &
+pkill unclutter-xfixes
+(sleep 3 && DISPLAY=:0 unclutter-xfixes -idle 0.5) &
 
 # Clear Chromium cache before starting
 rm -rf ~/.cache/chromium/Default/Cache/*
