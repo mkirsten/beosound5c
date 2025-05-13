@@ -89,50 +89,10 @@ class MessageQueue:
 
 
 def shouldSendWebhook(data):
-    """Determine if a webhook should be sent for this data.
-    
-    Args:
-        data: The message data dictionary
-        
-    Returns:
-        bool: True if webhook should be sent, False otherwise
-    """
-    # Example: Only send webhooks for audio commands or button 9 in video mode
-    device_type = data.get('device_type')
-    key_name = data.get('key_name')
-    
-    # Send for all audio commands
-    if device_type == 'Audio':
-        return True
-    
-    # Send for button 9 in video mode
-    if device_type == 'Video' and key_name == '9':
-        return True
-    
-    # Add more conditions as needed
-    
-    return False
-
-
-def shouldSendWebsocket(data):
-    """Determine if a websocket message should be sent for this data.
-    
-    Args:
-        data: The message data dictionary
-        
-    Returns:
-        bool: True if websocket message should be sent, False otherwise
-    """
-    # Example: Send all commands except debug ones
-    key_name = data.get('key_name', '')
-    
-    # Skip unknown commands
-    if key_name.startswith('Unknown'):
-        return False
-    
-    # Send everything else
     return True
 
+def shouldSendWebsocket(data):
+    return True
 
 class PC2Device:
     # B&O PC2 device identifiers
