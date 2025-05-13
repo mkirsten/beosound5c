@@ -28,10 +28,14 @@ while true; do
   clear
   echo -e "${blue}===== RPI SYSTEM STATUS =====${reset}"
 
-  echo -e "\n${blue}Wi-Fi Info:${reset}"
-  SSID=$(iw wlan1 info | awk '/ssid/ {print $2}')
-  BSSID=$(iw wlan1 link | awk '/Connected to/ {print $3}')
-  SIGNAL=$(iw wlan1 link | awk '/signal:/ {print $2}')
+  echo -e "\n${blue}Hostname and Network Interfaces:${reset}"
+  hostname
+  ip -4 addr show | grep -v ' lo' | awk '/inet / {print $2, "on", $NF}'
+
+  echo -e "\n${blue}Wi-Fi Info (wlan1):${reset}"
+  SSID=$(iw wlan1 info 2>/dev/null | awk '/ssid/ {print $2}')
+  BSSID=$(iw wlan1 link 2>/dev/null | awk '/Connected to/ {print $3}')
+  SIGNAL=$(iw wlan1 link 2>/dev/null | awk '/signal:/ {print $2}')
   echo "SSID: $SSID"
   echo "BSSID: $BSSID"
   echo -n "Signal: "
