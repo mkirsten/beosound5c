@@ -1,7 +1,7 @@
 // Configuration
 const config = {
     showMouseCursor: true,  // Set to true to show the mouse cursor, false to hide it
-    wsUrl: 'ws://beosound5.local:8765/ws',  // Updated to use the correct hostname
+    wsUrl: 'ws://localhost:8765/ws',  // Updated to use the correct hostname
     skipFactor: 1,          // Process 1 out of every N events (higher = more skipping)
     disableTransitions: true, // Set to true to disable CSS transitions on the pointer
     bypassRAF: true,        // Bypass requestAnimationFrame for immediate updates
