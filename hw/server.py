@@ -8,6 +8,7 @@ clients = set()
 
 # ——— track current "byte1" state (LED/backlight bits) ———
 state_byte1 = 0x00
+backlight_on = True  # Track backlight state
 
 def bs5_send(data: bytes):
     """Low-level HID write."""
@@ -37,12 +38,17 @@ def set_led(mode: str):
 
 def set_backlight(on: bool):
     """Turn backlight bit on/off."""
-    global state_byte1
+    global state_byte1, backlight_on
+    backlight_on = on
     if on:
         state_byte1 |= 0x40
     else:
         state_byte1 &= ~0x40
     bs5_send_cmd(state_byte1)
+
+def toggle_backlight():
+    """Toggle backlight state."""
+    set_backlight(not backlight_on)
 
 # ——— WebSocket boilerplate ———
 
@@ -102,6 +108,9 @@ def parse_report(rep: list):
     b = rep[3]
     if b in BTN_MAP:
         btn_evt = {'button': BTN_MAP[b]}
+        # Handle power button press by toggling backlight
+        if BTN_MAP[b] == 'power':
+            toggle_backlight()
 
     return nav_evt, vol_evt, btn_evt, laser_pos
 
