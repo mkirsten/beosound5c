@@ -56,7 +56,7 @@ sudo udevadm trigger
 ### 🧼 Install correct Python packages
 ```bash
 sudo apt update
-sudo apt install -y libhidapi-hidraw0 libhidapi-dev python3-dev python3-hidapi unclutter python3-hid python3-websockets python3-websocket
+sudo apt install -y libhidapi-hidraw0 libhidapi-dev python3-dev python3-hidapi python3-hid python3-websockets python3-websocket unclutter-xfixes
 ```
 
 ---
