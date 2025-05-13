@@ -56,14 +56,7 @@ sudo udevadm trigger
 ### 🧼 Remove Conflicting Python `hid` Bindings
 ```bash
 sudo apt update
-pip3 uninstall -y hid
-sudo apt remove --purge python3-hid
-```
-
-### ✅ Install True `hidapi` Backend
-```bash
-sudo apt install -y libhidapi-hidraw0 libhidapi-dev python3-dev
-sudo apt install libhidapi-hidraw0 python3-hidapi
+sudo apt install -y libhidapi-hidraw0 libhidapi-dev python3-dev python3-hidapi unclutter python3-hid python3-websockets
 ```
 
 ---
