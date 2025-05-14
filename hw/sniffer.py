@@ -14,27 +14,31 @@ from collections import defaultdict
 # Configuration variables
 # Home Assistant webhook and WebSocket URLs
 WEBHOOK_URL = "http://homeassistant.local:8123/api/webhook/beosound5c"
+DIRECT_WEBHOOK_URL = "http://localhost:8765/webhook"  # Set to None to disable
 WEBSOCKET_URL = "ws://localhost:8765"
 
 # Message processing settings
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
-DEDUP_COMMANDS = ["volup", "voldown", "left", "right"]  # Commands to deduplicate
+DEDUP_COMMANDS = []  # Removed deduplication for time-sensitive commands
 WEBHOOK_INTERVAL = 0.2  # Send webhook at least every 0.2 seconds for deduped commands
-MAX_WEBHOOK_RETRIES = 1  # Reduced to single retry for faster processing
-WEBHOOK_RETRY_DELAY = 0.05  # Shorter delay between retries
+MAX_WEBHOOK_RETRIES = 0  # No retries - just send once and log failures
+WEBHOOK_TIMEOUT = 0.2  # Shorter timeout for webhooks
 MAX_QUEUE_SIZE = 10  # Maximum number of messages to keep in queue
+
+# Time-sensitive commands that should use direct webhook if available
+FAST_COMMANDS = ["volup", "voldown", "left", "right"]
+
+# Add debug flag
+DEBUG_NETWORK = True  # Set to True to enable detailed network debugging
 
 sys.stdout.reconfigure(line_buffering=True)
 
 class MessageQueue:
-    """Thread-safe queue with lossy behavior and deduplication."""
+    """Thread-safe queue with lossy behavior."""
     def __init__(self, timeout=MESSAGE_TIMEOUT):
         self.lock = threading.Lock()
         self.queue = []
         self.timeout = timeout
-        self.command_counts = defaultdict(int)  # For deduplication
-        self.last_message_time = {}  # Track the last message time for each command
-        self.last_webhook_time = {}  # Track the last webhook time for each command
     
     def add(self, message):
         """Add a message to the queue with timestamp."""
@@ -43,44 +47,10 @@ class MessageQueue:
             now = time.time()
             message['timestamp'] = now
             
-            # Check if this message should be deduplicated
-            command = message.get('key_name')
-            if command in DEDUP_COMMANDS:
-                # If we already have this command, update its count
-                if command in self.last_message_time:
-                    # Check if the existing command is still valid (not timed out)
-                    if now - self.last_message_time[command] < self.timeout:
-                        # Increment count instead of adding a new message
-                        self.command_counts[command] += 1
-                        
-                        # Check if we should send a webhook now based on time interval
-                        send_webhook_now = False
-                        if command not in self.last_webhook_time or (now - self.last_webhook_time[command] >= WEBHOOK_INTERVAL):
-                            send_webhook_now = True
-                            self.last_webhook_time[command] = now
-                        
-                        # Find the existing message and update its count
-                        for existing_msg in self.queue:
-                            if existing_msg.get('key_name') == command:
-                                existing_msg['count'] = self.command_counts[command]
-                                # Update timestamp to prevent timeout
-                                existing_msg['timestamp'] = now
-                                
-                                # If we need to send a webhook now, duplicate the message with current count
-                                if send_webhook_now:
-                                    webhook_msg = existing_msg.copy()
-                                    webhook_msg['force_webhook'] = True
-                                    webhook_msg['priority'] = True  # Mark as priority
-                                    self.queue.append(webhook_msg)
-                                
-                                return
-                
-                # If we didn't find an existing message or it timed out, add a new one
-                self.last_message_time[command] = now
-                self.last_webhook_time[command] = now
-                self.command_counts[command] = 1
-                message['count'] = 1
+            # Ensure count is set to 1 for all messages
+            message['count'] = 1
             
+            # Add message to queue
             self.queue.append(message)
             
             # Limit queue size to prevent memory issues
@@ -109,15 +79,6 @@ class MessageQueue:
             
             # Return the oldest message
             message = self.queue.pop(0)
-            
-            # If this was a deduped command, clear its counter when removed
-            command = message.get('key_name')
-            if command in DEDUP_COMMANDS:
-                # Only clear if this was the last instance of this command
-                if all(msg.get('key_name') != command for msg in self.queue):
-                    self.command_counts[command] = 0
-                    self.last_message_time.pop(command, None)
-            
             return message
     
     def size(self):
@@ -127,6 +88,7 @@ class MessageQueue:
 
 
 def shouldSendWebhook(data):
+    """Always send webhooks for all messages - no filtering."""
     return True
 
 def shouldSendWebsocket(data):
@@ -155,6 +117,7 @@ class PC2Device:
         self.ws = None
         self.session = None
         self.loop = None
+        self.start_time = time.time()
 
     def open(self):
         """Find and open the PC2 device"""
@@ -233,6 +196,9 @@ class PC2Device:
         """Background thread to continuously read USB messages and add to queue"""
         timeout_count = 0
         last_timeout_message = time.time()
+        usb_errors = 0
+        last_usb_error = None
+        last_successful_read = time.time()
 
         while self.running:
             try:
@@ -243,32 +209,52 @@ class PC2Device:
                 if data and len(data) > 0:
                     # Reset timeout counter when we get data
                     timeout_count = 0
+                    usb_errors = 0
+                    last_successful_read = time.time()
 
                     # Convert data to a list of bytes
                     message = list(data)
                     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
-                    # Process the message (only for Beo4 keycodes)
-                    if len(message) > 2 and message[2] == 0x02:
-                        msg_data = self.process_beo4_keycode(timestamp, message)
-                        if msg_data:
-                            # Add to queue for processing by sender thread
-                            self.message_queue.add(msg_data)
+                    # Process the message
+                    self._process_message(timestamp, message)
+                else:
+                    # Increment timeout counter
+                    timeout_count += 1
+                    
+                    # Only log timeouts occasionally to avoid flooding the console
+                    now = time.time()
+                    if now - last_timeout_message > 10:  # Log every 10 seconds at most
+                        print(f"No data received for {int(now - last_successful_read)} seconds (timeout count: {timeout_count})")
+                        last_timeout_message = now
 
-            except usb.core.USBTimeoutError:
-                # This specifically catches timeout errors
-                timeout_count += 1
-
-                # Only print a timeout message occasionally to reduce spam
-                if time.time() - last_timeout_message > 10:  # Show timeout message at most once per 10 seconds
-                    # print(f"No data received for a while ({timeout_count} timeouts)")
-                    last_timeout_message = time.time()
-
-                time.sleep(0.1)  # Short delay to prevent tight loop
+                    # Short delay to prevent tight loop
+                    time.sleep(0.1)  # Short delay to prevent tight loop
 
             except usb.core.USBError as e:
-                # Handle other USB errors (not timeouts)
-                print(f"USB Error: {e}")
+                # Handle USB errors
+                usb_errors += 1
+                last_usb_error = str(e)
+                
+                # Log USB errors with increasing detail based on frequency
+                if usb_errors == 1:
+                    print(f"USB Error: {e}")
+                elif usb_errors % 10 == 0:  # Log every 10 errors
+                    print(f"USB Error count: {usb_errors}, last error: {last_usb_error}")
+                    
+                    # Check if we need to reconnect
+                    if usb_errors > 50:
+                        print("Too many USB errors, attempting to reconnect...")
+                        try:
+                            # Try to re-initialize the device
+                            self.dev = None
+                            self.open()
+                            self.init()
+                            print("USB device reconnected successfully")
+                            usb_errors = 0
+                        except Exception as re:
+                            print(f"Failed to reconnect USB device: {re}")
+                
                 time.sleep(0.5)  # Longer delay on actual errors
 
             except Exception as e:
@@ -282,27 +268,33 @@ class PC2Device:
         self.loop.run_until_complete(self._async_sender_loop())
     
     async def _init_session(self):
-        """Initialize aiohttp session with optimized settings"""
-        # Configure TCP connector with keepalive and limits
+        """Initialize the aiohttp session with optimized settings"""
+        # Create a TCP connector with optimized settings
         connector = aiohttp.TCPConnector(
-            limit=10,  # Limit number of simultaneous connections
-            ttl_dns_cache=300,  # Cache DNS results for 5 minutes
-            keepalive_timeout=60,  # Keep connections alive for 60 seconds
-            force_close=False,  # Don't force close connections
+            limit=10,  # Limit total number of connections
+            limit_per_host=5,  # Limit connections per host
+            force_close=True,  # Don't keep connections alive
+            enable_cleanup_closed=True,  # Clean up closed connections
+            ttl_dns_cache=300  # Cache DNS results for 5 minutes
         )
         
-        # Create session with the connector
+        # Create the session with the connector
         self.session = aiohttp.ClientSession(
             connector=connector,
-            timeout=aiohttp.ClientTimeout(total=1.0),  # Default timeout
-            headers={"User-Agent": "BeosoundSniffer/1.0"}
+            timeout=aiohttp.ClientTimeout(total=WEBHOOK_TIMEOUT),
+            raise_for_status=False  # We'll handle status codes manually
         )
+        
         print("Initialized aiohttp session with optimized settings")
     
     async def _async_sender_loop(self):
         """Asynchronous background thread to process messages from the queue and send them"""
         # Connect to the WebSocket server
         self._connect_websocket()
+        
+        # Track processing statistics
+        processed_count = 0
+        last_stats_time = time.time()
         
         while self.running:
             try:
@@ -311,29 +303,35 @@ class PC2Device:
                 
                 # If we got a message, process it
                 if message:
-                    tasks = []
+                    processed_count += 1
                     
-                    # Check if we should send via webhook
+                    # Check if we should send via webhook (prioritize this)
                     if shouldSendWebhook(message) or message.get('force_webhook', False):
-                        tasks.append(self._send_webhook_async(message))
+                        await self._send_webhook_async(message)
                     
-                    # Check if we should send via WebSocket
+                    # Check if we should send via WebSocket (lower priority)
                     if shouldSendWebsocket(message):
                         self._send_websocket(message)
                     
-                    # Run webhook tasks concurrently
-                    if tasks:
-                        await asyncio.gather(*tasks, return_exceptions=True)
+                    # No sleep when processing messages to minimize latency
+                else:
+                    # Short sleep only when queue is empty
+                    await asyncio.sleep(0.001)
                 
-                # Short sleep to prevent tight loop
-                await asyncio.sleep(0.001)  # Much shorter sleep for faster processing
+                # Print stats every 60 seconds
+                now = time.time()
+                if now - last_stats_time > 60:
+                    queue_size = self.message_queue.size()
+                    print(f"Sniffing... Elapsed time: {int(now - self.start_time)} seconds | Queue size: {queue_size} | Processed: {processed_count} messages")
+                    last_stats_time = now
+                    processed_count = 0
                 
             except Exception as e:
                 print(f"Error in sender thread: {e}")
                 await asyncio.sleep(0.1)
     
     async def _send_webhook_async(self, message):
-        """Send a message via webhook asynchronously with retry logic"""
+        """Send a message via webhook asynchronously with no retries"""
         # Prepare webhook payload for Home Assistant
         webhook_data = {
             'device': 'beosound5c',
@@ -343,42 +341,54 @@ class PC2Device:
             'timestamp': datetime.now().isoformat()
         }
         
-        # Implement retry logic
-        retries = 0
-        while retries <= MAX_WEBHOOK_RETRIES:
-            try:
-                # Send the webhook asynchronously
-                if self.session:
-                    async with self.session.post(
-                        WEBHOOK_URL, 
-                        json=webhook_data, 
-                        timeout=aiohttp.ClientTimeout(total=0.3),  # Even shorter timeout for faster failure
-                        raise_for_status=True  # Raise exception for non-2xx responses
-                    ) as response:
-                        # This will only execute if status is 2xx due to raise_for_status
+        # Determine if this is a time-sensitive command
+        action = webhook_data['action']
+        use_direct = DIRECT_WEBHOOK_URL and action in FAST_COMMANDS
+        
+        # Simple send with no retries
+        try:
+            # Send the webhook asynchronously
+            if self.session:
+                start_time = time.time()
+                async with self.session.post(
+                    WEBHOOK_URL, 
+                    json=webhook_data, 
+                    timeout=aiohttp.ClientTimeout(total=WEBHOOK_TIMEOUT),
+                    raise_for_status=True  # Raise exception for non-2xx responses
+                ) as response:
+                    # This will only execute if status is 2xx due to raise_for_status
+                    if DEBUG_NETWORK:
                         print(f"Webhook sent successfully: {webhook_data}")
-                        return True
-                else:
-                    print("No aiohttp session available")
-                    return False
-                
-            except asyncio.TimeoutError:
-                print(f"Webhook timeout (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1})")
-            except aiohttp.ClientResponseError as e:
-                print(f"Webhook response error (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): {e.status}")
-            except aiohttp.ClientError as e:
-                print(f"Webhook client error (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): {str(e)}")
-            except Exception as e:
-                print(f"Unexpected webhook error (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): {str(e)}")
-            
-            # If we get here, the request failed - increment retries and wait before trying again
-            retries += 1
-            if retries <= MAX_WEBHOOK_RETRIES:
-                await asyncio.sleep(WEBHOOK_RETRY_DELAY)  # Fixed delay, no exponential backoff
+                    else:
+                        print(f"Webhook sent: {webhook_data['action']}")
+                    return True
             else:
-                # Only print failure message on final attempt
-                print(f"Failed to send webhook after {MAX_WEBHOOK_RETRIES+1} attempts: {webhook_data['action']}")
+                print("No aiohttp session available")
                 return False
+            
+        except asyncio.TimeoutError:
+            print(f"⚠️ Webhook timeout for {webhook_data['action']} - server might be busy")
+            # Add network diagnostics
+            try:
+                import socket
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(0.5)
+                host = url.split('://')[1].split('/')[0].split(':')[0]
+                port = 8123 if "homeassistant" in host else 8765
+                result = s.connect_ex((host, port))
+                if result == 0:
+                    print(f"✓ Connection to {host}:{port} succeeded, but request timed out")
+                else:
+                    print(f"✗ Connection to {host}:{port} failed with error {result}")
+                s.close()
+            except Exception as e:
+                print(f"Network diagnostic error: {str(e)}")
+        except aiohttp.ClientResponseError as e:
+            print(f"⚠️ Webhook server error: {e.status} - {e.message}")
+        except aiohttp.ClientError as e:
+            print(f"⚠️ Webhook client error: {str(e)}")
+        except Exception as e:
+            print(f"⚠️ Unexpected webhook error: {str(e)}")
         
         return False
     
