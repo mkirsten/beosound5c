@@ -19,6 +19,7 @@ WEBSOCKET_URL = "ws://localhost:8765"
 # Message processing settings
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
 DEDUP_COMMANDS = ["volup", "voldown", "left", "right"]  # Commands to deduplicate
+WEBHOOK_INTERVAL = 0.2  # Send webhook at least every 0.2 seconds for deduped commands
 
 sys.stdout.reconfigure(line_buffering=True)
 
@@ -30,12 +31,14 @@ class MessageQueue:
         self.timeout = timeout
         self.command_counts = defaultdict(int)  # For deduplication
         self.last_message_time = {}  # Track the last message time for each command
+        self.last_webhook_time = {}  # Track the last webhook time for each command
     
     def add(self, message):
         """Add a message to the queue with timestamp."""
         with self.lock:
             # Add timestamp to the message
-            message['timestamp'] = time.time()
+            now = time.time()
+            message['timestamp'] = now
             
             # Check if this message should be deduplicated
             command = message.get('key_name')
@@ -43,19 +46,34 @@ class MessageQueue:
                 # If we already have this command, update its count
                 if command in self.last_message_time:
                     # Check if the existing command is still valid (not timed out)
-                    if time.time() - self.last_message_time[command] < self.timeout:
+                    if now - self.last_message_time[command] < self.timeout:
                         # Increment count instead of adding a new message
                         self.command_counts[command] += 1
+                        
+                        # Check if we should send a webhook now based on time interval
+                        send_webhook_now = False
+                        if command not in self.last_webhook_time or (now - self.last_webhook_time[command] >= WEBHOOK_INTERVAL):
+                            send_webhook_now = True
+                            self.last_webhook_time[command] = now
+                        
                         # Find the existing message and update its count
                         for existing_msg in self.queue:
                             if existing_msg.get('key_name') == command:
                                 existing_msg['count'] = self.command_counts[command]
                                 # Update timestamp to prevent timeout
-                                existing_msg['timestamp'] = time.time()
+                                existing_msg['timestamp'] = now
+                                
+                                # If we need to send a webhook now, duplicate the message with current count
+                                if send_webhook_now:
+                                    webhook_msg = existing_msg.copy()
+                                    webhook_msg['force_webhook'] = True
+                                    self.queue.append(webhook_msg)
+                                
                                 return
                 
                 # If we didn't find an existing message or it timed out, add a new one
-                self.last_message_time[command] = time.time()
+                self.last_message_time[command] = now
+                self.last_webhook_time[command] = now
                 self.command_counts[command] = 1
                 message['count'] = 1
             
@@ -263,7 +281,7 @@ class PC2Device:
                 # If we got a message, process it
                 if message:
                     # Check if we should send via webhook
-                    if shouldSendWebhook(message):
+                    if shouldSendWebhook(message) or message.get('force_webhook', False):
                         await self._send_webhook_async(message)
                     
                     # Check if we should send via WebSocket
