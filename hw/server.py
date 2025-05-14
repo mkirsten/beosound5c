@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import asyncio, threading, json, time, sys
 import hid, websockets
+import subprocess  # Add subprocess for xset commands
+import os  # For path operations
 
 VID, PID = 0x0cd4, 0x1112
 BTN_MAP = {0x20:'left', 0x10:'right', 0x40:'go', 0x80:'power'}
@@ -36,6 +38,105 @@ def set_led(mode: str):
         state_byte1 |= 0x10
     bs5_send_cmd(state_byte1)
 
+def control_screen(on: bool):
+    do_click()
+    
+    """Control screen power using multiple methods for better compatibility."""
+    action = "on" if on else "off"
+    print(f"[SCREEN] Attempting to turn screen {action}")
+    
+    # Set LED state inverse to screen state
+    if on:
+        # Screen on -> LED off
+        set_led("off")
+    else:
+        # Screen off -> LED on
+        set_led("on")
+    
+    # Track which methods succeeded
+    success_methods = []
+    
+    try:
+        if on:
+            # Try multiple methods to turn on screen
+            # 1. DPMS method
+            try:
+                subprocess.run(["xset", "dpms", "force", "on"], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, timeout=2)
+                success_methods.append("DPMS")
+            except subprocess.SubprocessError as e:
+                print(f"[SCREEN] DPMS on failed: {str(e)}")
+            
+            # 2. xrandr method - enable all connected outputs
+            try:
+                subprocess.run(["xrandr", "--auto"], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, timeout=2)
+                success_methods.append("xrandr")
+            except subprocess.SubprocessError as e:
+                print(f"[SCREEN] xrandr auto failed: {str(e)}")
+            
+            # 3. Try direct backlight control if available
+            for backlight_dir in ["/sys/class/backlight/intel_backlight", "/sys/class/backlight/acpi_video0"]:
+                if os.path.exists(backlight_dir):
+                    try:
+                        max_brightness_file = os.path.join(backlight_dir, "max_brightness")
+                        with open(max_brightness_file, "r") as f:
+                            max_brightness = int(f.read().strip())
+                            target = max(1, max_brightness // 2)  # 50% brightness or at least 1
+                            
+                        brightness_file = os.path.join(backlight_dir, "brightness")
+                        with open(brightness_file, "w") as f_write:
+                            f_write.write(str(target))
+                        success_methods.append(f"backlight({os.path.basename(backlight_dir)})")
+                    except (IOError, PermissionError) as e:
+                        print(f"[SCREEN] Backlight control failed for {backlight_dir}: {str(e)}")
+        else:
+            # Try multiple methods to turn off screen
+            # 1. DPMS method
+            try:
+                subprocess.run(["xset", "dpms", "force", "off"], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, timeout=2)
+                success_methods.append("DPMS")
+            except subprocess.SubprocessError as e:
+                print(f"[SCREEN] DPMS off failed: {str(e)}")
+            
+            # 2. xrandr method - disable all outputs
+            try:
+                # Get list of connected outputs
+                result = subprocess.run(["xrandr", "--query"], capture_output=True, text=True, timeout=2)
+                outputs = []
+                for line in result.stdout.splitlines():
+                    if " connected " in line:
+                        output_name = line.split()[0]
+                        outputs.append(output_name)
+                
+                # Turn off each output
+                for output in outputs:
+                    subprocess.run(["xrandr", "--output", output, "--off"], 
+                                stderr=subprocess.PIPE, stdout=subprocess.PIPE, timeout=2)
+                if outputs:
+                    success_methods.append("xrandr")
+            except subprocess.SubprocessError as e:
+                print(f"[SCREEN] xrandr off failed: {str(e)}")
+            
+            # 3. Try direct backlight control if available
+            for backlight_dir in ["/sys/class/backlight/intel_backlight", "/sys/class/backlight/acpi_video0"]:
+                if os.path.exists(backlight_dir):
+                    try:
+                        brightness_file = os.path.join(backlight_dir, "brightness")
+                        with open(brightness_file, "w") as f:
+                            f.write("0")
+                        success_methods.append(f"backlight({os.path.basename(backlight_dir)})")
+                    except (IOError, PermissionError) as e:
+                        print(f"[SCREEN] Backlight control failed for {backlight_dir}: {str(e)}")
+        
+        if success_methods:
+            print(f"[SCREEN] Successfully turned screen {action} using: {', '.join(success_methods)}")
+        else:
+            print(f"[SCREEN] WARNING: All methods to turn screen {action} failed")
+            
+    except Exception as e:
+        print(f"[SCREEN] Unexpected error controlling screen: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
 def set_backlight(on: bool):
     """Turn backlight bit on/off."""
     global state_byte1, backlight_on
@@ -45,6 +146,9 @@ def set_backlight(on: bool):
     else:
         state_byte1 &= ~0x40
     bs5_send_cmd(state_byte1)
+    
+    # Control screen separately
+    control_screen(on)
 
 def toggle_backlight():
     """Toggle backlight state."""
