@@ -11,6 +11,8 @@ clients = set()
 # ——— track current "byte1" state (LED/backlight bits) ———
 state_byte1 = 0x00
 backlight_on = True  # Track backlight state
+last_power_press_time = 0  # For debouncing power button
+POWER_DEBOUNCE_TIME = 1.0  # Seconds to ignore repeated power button presses
 
 def bs5_send(data: bytes):
     """Low-level HID write."""
@@ -74,6 +76,13 @@ def control_screen(on: bool):
 def set_backlight(on: bool):
     """Turn backlight bit on/off."""
     global state_byte1, backlight_on
+    
+    # Skip if already in the desired state
+    if on == backlight_on:
+        print(f"[BACKLIGHT] Already {('on' if on else 'off')}, skipping")
+        return
+    
+    # Update state
     backlight_on = on
     if on:
         state_byte1 |= 0x40
@@ -86,7 +95,11 @@ def set_backlight(on: bool):
 
 def toggle_backlight():
     """Toggle backlight state."""
-    set_backlight(not backlight_on)
+    global backlight_on
+    # Get the current state and toggle it
+    new_state = not backlight_on
+    print(f"[BACKLIGHT] Toggling from {backlight_on} to {new_state}")
+    set_backlight(new_state)
 
 # ——— WebSocket boilerplate ———
 
@@ -128,6 +141,7 @@ async def receive_commands(ws):
 # ——— HID parse & broadcast loop ———
 
 def parse_report(rep: list):
+    global last_power_press_time
     nav_evt = vol_evt = btn_evt = None
     laser_pos = rep[2]
 
@@ -146,9 +160,17 @@ def parse_report(rep: list):
     b = rep[3]
     if b in BTN_MAP:
         btn_evt = {'button': BTN_MAP[b]}
-        # Handle power button press by toggling backlight
+        # Handle power button press by toggling backlight, with debounce
         if BTN_MAP[b] == 'power':
-            toggle_backlight()
+            current_time = time.time()
+            # Only process the power button if enough time has passed since last press
+            if current_time - last_power_press_time > POWER_DEBOUNCE_TIME:
+                toggle_backlight()
+                last_power_press_time = current_time
+            else:
+                print(f"[BUTTON] Power button debounced (pressed too soon)")
+                # Don't report this button press to clients
+                btn_evt = None
 
     return nav_evt, vol_evt, btn_evt, laser_pos
 
