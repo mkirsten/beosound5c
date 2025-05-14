@@ -440,7 +440,14 @@ class PC2Device:
                             coordinator.previous()
                             print(f"Sonos previous track (via {coordinator.player_name})")
                             soco_handled = True
-                            
+                        
+                        elif action == "off":
+                            # Toggle play/pause - send to coordinator
+                            state = coordinator.get_current_transport_info()['current_transport_state']
+                            coordinator.pause()
+                            print(f"Sonos paused (via {coordinator.player_name})")
+                            soco_handled = True    
+                        
                         elif action == "go":
                             # Toggle play/pause - send to coordinator
                             state = coordinator.get_current_transport_info()['current_transport_state']
