@@ -20,8 +20,9 @@ WEBSOCKET_URL = "ws://localhost:8765"
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
 DEDUP_COMMANDS = ["volup", "voldown", "left", "right"]  # Commands to deduplicate
 WEBHOOK_INTERVAL = 0.2  # Send webhook at least every 0.2 seconds for deduped commands
-MAX_WEBHOOK_RETRIES = 3  # Maximum number of webhook retry attempts
-WEBHOOK_RETRY_DELAY = 0.1  # Delay between webhook retries in seconds
+MAX_WEBHOOK_RETRIES = 1  # Reduced to single retry for faster processing
+WEBHOOK_RETRY_DELAY = 0.05  # Shorter delay between retries
+MAX_QUEUE_SIZE = 10  # Maximum number of messages to keep in queue
 
 sys.stdout.reconfigure(line_buffering=True)
 
@@ -69,6 +70,7 @@ class MessageQueue:
                                 if send_webhook_now:
                                     webhook_msg = existing_msg.copy()
                                     webhook_msg['force_webhook'] = True
+                                    webhook_msg['priority'] = True  # Mark as priority
                                     self.queue.append(webhook_msg)
                                 
                                 return
@@ -80,6 +82,19 @@ class MessageQueue:
                 message['count'] = 1
             
             self.queue.append(message)
+            
+            # Limit queue size to prevent memory issues
+            if len(self.queue) > MAX_QUEUE_SIZE:
+                # Keep priority messages and remove oldest non-priority ones
+                priority_msgs = [msg for msg in self.queue if msg.get('priority', False)]
+                non_priority_msgs = [msg for msg in self.queue if not msg.get('priority', False)]
+                
+                # Sort non-priority by timestamp and keep only newest ones
+                non_priority_msgs.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+                keep_count = max(0, MAX_QUEUE_SIZE - len(priority_msgs))
+                
+                # Rebuild queue with all priority messages and newest non-priority ones
+                self.queue = priority_msgs + non_priority_msgs[:keep_count]
     
     def get(self):
         """Get the next valid message from the queue."""
@@ -273,12 +288,13 @@ class PC2Device:
             limit=10,  # Limit number of simultaneous connections
             ttl_dns_cache=300,  # Cache DNS results for 5 minutes
             keepalive_timeout=60,  # Keep connections alive for 60 seconds
+            force_close=False,  # Don't force close connections
         )
         
         # Create session with the connector
         self.session = aiohttp.ClientSession(
             connector=connector,
-            timeout=aiohttp.ClientTimeout(total=2.0),
+            timeout=aiohttp.ClientTimeout(total=1.0),  # Default timeout
             headers={"User-Agent": "BeosoundSniffer/1.0"}
         )
         print("Initialized aiohttp session with optimized settings")
@@ -295,13 +311,19 @@ class PC2Device:
                 
                 # If we got a message, process it
                 if message:
+                    tasks = []
+                    
                     # Check if we should send via webhook
                     if shouldSendWebhook(message) or message.get('force_webhook', False):
-                        await self._send_webhook_async(message)
+                        tasks.append(self._send_webhook_async(message))
                     
                     # Check if we should send via WebSocket
                     if shouldSendWebsocket(message):
                         self._send_websocket(message)
+                    
+                    # Run webhook tasks concurrently
+                    if tasks:
+                        await asyncio.gather(*tasks, return_exceptions=True)
                 
                 # Short sleep to prevent tight loop
                 await asyncio.sleep(0.001)  # Much shorter sleep for faster processing
@@ -330,20 +352,20 @@ class PC2Device:
                     async with self.session.post(
                         WEBHOOK_URL, 
                         json=webhook_data, 
-                        timeout=aiohttp.ClientTimeout(total=0.5)  # Shorter timeout for faster failure
+                        timeout=aiohttp.ClientTimeout(total=0.3),  # Even shorter timeout for faster failure
+                        raise_for_status=True  # Raise exception for non-2xx responses
                     ) as response:
-                        if response.status >= 200 and response.status < 300:
-                            print(f"Webhook sent successfully: {webhook_data}")
-                            return True
-                        else:
-                            error_text = await response.text()
-                            print(f"Error sending webhook (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): Status {response.status}")
+                        # This will only execute if status is 2xx due to raise_for_status
+                        print(f"Webhook sent successfully: {webhook_data}")
+                        return True
                 else:
                     print("No aiohttp session available")
                     return False
                 
             except asyncio.TimeoutError:
                 print(f"Webhook timeout (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1})")
+            except aiohttp.ClientResponseError as e:
+                print(f"Webhook response error (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): {e.status}")
             except aiohttp.ClientError as e:
                 print(f"Webhook client error (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): {str(e)}")
             except Exception as e:
@@ -352,8 +374,9 @@ class PC2Device:
             # If we get here, the request failed - increment retries and wait before trying again
             retries += 1
             if retries <= MAX_WEBHOOK_RETRIES:
-                await asyncio.sleep(WEBHOOK_RETRY_DELAY * retries)  # Exponential backoff
+                await asyncio.sleep(WEBHOOK_RETRY_DELAY)  # Fixed delay, no exponential backoff
             else:
+                # Only print failure message on final attempt
                 print(f"Failed to send webhook after {MAX_WEBHOOK_RETRIES+1} attempts: {webhook_data['action']}")
                 return False
         
@@ -508,10 +531,6 @@ class PC2Device:
         else:
             print(f"[{timestamp}] RECEIVED {message_type}: {hex_data}")
 
-        # Save to log file
-        with open("pc2_usb_log.txt", "a") as f:
-            f.write(f"[{timestamp}] {message_type}: {hex_data}\n")
-
     def stop_sniffing(self):
         """Stop the USB sniffer"""
         self.running = False
@@ -592,4 +611,5 @@ if __name__ == "__main__":
         if 'pc2' in locals():
             pc2.close()
 
-        print("\nLog file saved as pc2_usb_log.txt")
+        # Remove reference to log file
+        print("\nExiting sniffer")
