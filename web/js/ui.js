@@ -158,7 +158,7 @@ class UIStore {
         };
 
         // Set initial route
-        this.currentRoute = 'menu';
+        this.currentRoute = 'menu/playing';
         this.currentView = null;
 
         // Initialize UI
@@ -234,7 +234,7 @@ class UIStore {
     // Set up periodic refresh of media info
     setupMediaInfoRefresh() {
         // Refresh every 5 seconds
-        setInterval(() => this.fetchMediaInfo(), 5000);
+        setInterval(() => this.fetchMediaInfo(), 1000);
     }
     
     // Update the now playing view with current media info
@@ -512,8 +512,32 @@ class UIStore {
         if (isSelected && this.selectedMenuItem !== index) {
             this.selectedMenuItem = index;
             this.navigateToView(this.menuItems[index].path);
+            
+            // Send click message to server
+            this.sendClickCommand();
         }
         return isSelected;
+    }
+
+    // Send click command to server
+    sendClickCommand() {
+        try {
+            const ws = new WebSocket('ws://localhost:8765/ws');
+            ws.onopen = () => {
+                const message = {
+                    type: 'button',
+                    data: { button: 'click' }
+                };
+                ws.send(JSON.stringify(message));
+                console.log('Sent click command to server');
+                ws.close();
+            };
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        } catch (error) {
+            console.error('Error sending click command:', error);
+        }
     }
 
     setupEventListeners() {
@@ -577,6 +601,9 @@ class UIStore {
             this.wheelPointerAngle = itemAngle;
             this.isSelectedItem(index);
             this.handleWheelChange();
+            
+            // Send click command to server
+            this.sendClickCommand();
         });
     }
 
@@ -754,4 +781,16 @@ class UIStore {
     setLaserPosition(position) {
         this.laserPosition = position;
     }
-} 
+}
+
+// Make sendClickCommand globally accessible
+document.addEventListener('DOMContentLoaded', () => {
+    // Make the sendClickCommand function globally accessible
+    window.sendClickCommand = () => {
+        if (window.uiStore) {
+            window.uiStore.sendClickCommand();
+        } else {
+            console.error('UIStore not initialized yet');
+        }
+    };
+}); 
