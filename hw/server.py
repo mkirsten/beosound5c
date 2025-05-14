@@ -39,9 +39,9 @@ def set_led(mode: str):
     bs5_send_cmd(state_byte1)
 
 def control_screen(on: bool):
+    """Control screen power using multiple methods for better compatibility."""
     do_click()
     
-    """Control screen power using multiple methods for better compatibility."""
     action = "on" if on else "off"
     print(f"[SCREEN] Attempting to turn screen {action}")
     
@@ -56,25 +56,93 @@ def control_screen(on: bool):
     # Track which methods succeeded
     success_methods = []
     
+    # Set up environment for X11 commands
+    env = os.environ.copy()
+    # Make sure DISPLAY is set
+    if 'DISPLAY' not in env:
+        env['DISPLAY'] = ':0'
+    
     try:
         if on:
             # Try multiple methods to turn on screen
-            # 1. DPMS method
+            # 1. DPMS method with proper environment
             try:
-                subprocess.run(["xset", "dpms", "force", "on"], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, timeout=2)
-                success_methods.append("DPMS")
+                subprocess.run(
+                    ["xset", "dpms", "force", "on"], 
+                    env=env,
+                    stderr=subprocess.PIPE, 
+                    stdout=subprocess.PIPE, 
+                    check=False,  # Don't raise exception on non-zero exit
+                    timeout=2
+                )
+                # Check if screen is on by querying DPMS state
+                result = subprocess.run(
+                    ["xset", "q"], 
+                    env=env,
+                    capture_output=True, 
+                    text=True, 
+                    check=False,
+                    timeout=2
+                )
+                if "Monitor is On" in result.stdout:
+                    success_methods.append("DPMS")
             except subprocess.SubprocessError as e:
                 print(f"[SCREEN] DPMS on failed: {str(e)}")
             
             # 2. xrandr method - enable all connected outputs
             try:
-                subprocess.run(["xrandr", "--auto"], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, timeout=2)
-                success_methods.append("xrandr")
+                # First query available outputs
+                result = subprocess.run(
+                    ["xrandr", "--query"], 
+                    env=env,
+                    capture_output=True, 
+                    text=True, 
+                    check=False,
+                    timeout=2
+                )
+                
+                # Find connected outputs
+                outputs = []
+                for line in result.stdout.splitlines():
+                    if " connected " in line:
+                        output_name = line.split()[0]
+                        outputs.append(output_name)
+                
+                # Try to enable each output individually
+                for output in outputs:
+                    try:
+                        subprocess.run(
+                            ["xrandr", "--output", output, "--auto"], 
+                            env=env,
+                            stderr=subprocess.PIPE, 
+                            stdout=subprocess.PIPE, 
+                            check=False,
+                            timeout=2
+                        )
+                    except Exception as e:
+                        print(f"[SCREEN] Failed to enable output {output}: {str(e)}")
+                
+                if outputs:
+                    success_methods.append("xrandr")
             except subprocess.SubprocessError as e:
                 print(f"[SCREEN] xrandr auto failed: {str(e)}")
             
-            # 3. Try direct backlight control if available
-            for backlight_dir in ["/sys/class/backlight/intel_backlight", "/sys/class/backlight/acpi_video0"]:
+            # 3. Try using vcgencmd for Raspberry Pi
+            try:
+                subprocess.run(
+                    ["vcgencmd", "display_power", "1"], 
+                    stderr=subprocess.PIPE, 
+                    stdout=subprocess.PIPE, 
+                    check=False,
+                    timeout=2
+                )
+                success_methods.append("vcgencmd")
+            except (subprocess.SubprocessError, FileNotFoundError) as e:
+                # This is expected to fail on non-Raspberry Pi systems
+                pass
+            
+            # 4. Try direct backlight control if available
+            for backlight_dir in ["/sys/class/backlight/intel_backlight", "/sys/class/backlight/acpi_video0", "/sys/class/backlight/rpi_backlight"]:
                 if os.path.exists(backlight_dir):
                     try:
                         max_brightness_file = os.path.join(backlight_dir, "max_brightness")
@@ -90,9 +158,16 @@ def control_screen(on: bool):
                         print(f"[SCREEN] Backlight control failed for {backlight_dir}: {str(e)}")
         else:
             # Try multiple methods to turn off screen
-            # 1. DPMS method
+            # 1. DPMS method with proper environment
             try:
-                subprocess.run(["xset", "dpms", "force", "off"], stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True, timeout=2)
+                subprocess.run(
+                    ["xset", "dpms", "force", "off"], 
+                    env=env,
+                    stderr=subprocess.PIPE, 
+                    stdout=subprocess.PIPE, 
+                    check=False,  # Don't raise exception on non-zero exit
+                    timeout=2
+                )
                 success_methods.append("DPMS")
             except subprocess.SubprocessError as e:
                 print(f"[SCREEN] DPMS off failed: {str(e)}")
@@ -100,7 +175,14 @@ def control_screen(on: bool):
             # 2. xrandr method - disable all outputs
             try:
                 # Get list of connected outputs
-                result = subprocess.run(["xrandr", "--query"], capture_output=True, text=True, timeout=2)
+                result = subprocess.run(
+                    ["xrandr", "--query"], 
+                    env=env,
+                    capture_output=True, 
+                    text=True, 
+                    check=False,
+                    timeout=2
+                )
                 outputs = []
                 for line in result.stdout.splitlines():
                     if " connected " in line:
@@ -109,15 +191,35 @@ def control_screen(on: bool):
                 
                 # Turn off each output
                 for output in outputs:
-                    subprocess.run(["xrandr", "--output", output, "--off"], 
-                                stderr=subprocess.PIPE, stdout=subprocess.PIPE, timeout=2)
+                    subprocess.run(
+                        ["xrandr", "--output", output, "--off"], 
+                        env=env,
+                        stderr=subprocess.PIPE, 
+                        stdout=subprocess.PIPE, 
+                        check=False,
+                        timeout=2
+                    )
                 if outputs:
                     success_methods.append("xrandr")
             except subprocess.SubprocessError as e:
                 print(f"[SCREEN] xrandr off failed: {str(e)}")
             
-            # 3. Try direct backlight control if available
-            for backlight_dir in ["/sys/class/backlight/intel_backlight", "/sys/class/backlight/acpi_video0"]:
+            # 3. Try using vcgencmd for Raspberry Pi
+            try:
+                subprocess.run(
+                    ["vcgencmd", "display_power", "0"], 
+                    stderr=subprocess.PIPE, 
+                    stdout=subprocess.PIPE, 
+                    check=False,
+                    timeout=2
+                )
+                success_methods.append("vcgencmd")
+            except (subprocess.SubprocessError, FileNotFoundError) as e:
+                # This is expected to fail on non-Raspberry Pi systems
+                pass
+            
+            # 4. Try direct backlight control if available
+            for backlight_dir in ["/sys/class/backlight/intel_backlight", "/sys/class/backlight/acpi_video0", "/sys/class/backlight/rpi_backlight"]:
                 if os.path.exists(backlight_dir):
                     try:
                         brightness_file = os.path.join(backlight_dir, "brightness")
