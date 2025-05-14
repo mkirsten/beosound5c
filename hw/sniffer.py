@@ -379,6 +379,84 @@ class PC2Device:
             'timestamp': datetime.now().isoformat()
         }
         
+        # Check if this is an Audio command that we should handle directly with Sonos
+        action = webhook_data['action']
+        device_type = webhook_data['device_type']
+        
+        # Direct Sonos control for audio commands
+        if device_type == "Audio" and action in ["volup", "voldown", "left", "right", "go", "mute"]:
+            try:
+                # Import SoCo here to avoid dependency issues if not installed
+                import soco
+                
+                # Static Sonos configuration
+                SONOS_IP = "192.168.0.116"
+                VOLUME_STEP = 2
+                
+                # Get or create Sonos speaker instance (cached in class)
+                if not hasattr(self, 'sonos_speaker') or self.sonos_speaker is None:
+                    try:
+                        self.sonos_speaker = soco.SoCo(SONOS_IP)
+                        print(f"Connected to Sonos at {SONOS_IP}")
+                    except Exception as e:
+                        print(f"Failed to connect to Sonos: {e}")
+                        # Fall back to regular webhook if Sonos connection fails
+                        pass
+                
+                # If we have a valid speaker, control it directly
+                if hasattr(self, 'sonos_speaker') and self.sonos_speaker is not None:
+                    if action == "volup":
+                        # Get current volume and increase it
+                        current_vol = self.sonos_speaker.volume
+                        new_vol = min(100, current_vol + VOLUME_STEP)
+                        self.sonos_speaker.volume = new_vol
+                        print(f"Sonos volume up: {current_vol} → {new_vol}")
+                        return True
+                        
+                    elif action == "voldown":
+                        # Get current volume and decrease it
+                        current_vol = self.sonos_speaker.volume
+                        new_vol = max(0, current_vol - VOLUME_STEP)
+                        self.sonos_speaker.volume = new_vol
+                        print(f"Sonos volume down: {current_vol} → {new_vol}")
+                        return True
+                        
+                    elif action == "right":
+                        # Next track
+                        self.sonos_speaker.next()
+                        print("Sonos next track")
+                        return True
+                        
+                    elif action == "left":
+                        # Previous track
+                        self.sonos_speaker.previous()
+                        print("Sonos previous track")
+                        return True
+                        
+                    elif action == "go":
+                        # Toggle play/pause
+                        state = self.sonos_speaker.get_current_transport_info()['current_transport_state']
+                        if state == 'PLAYING':
+                            self.sonos_speaker.pause()
+                            print("Sonos paused")
+                        else:
+                            self.sonos_speaker.play()
+                            print("Sonos playing")
+                        return True
+                        
+                    elif action == "mute":
+                        # Toggle mute
+                        self.sonos_speaker.mute = not self.sonos_speaker.mute
+                        print(f"Sonos mute: {self.sonos_speaker.mute}")
+                        return True
+            
+            except ImportError:
+                print("SoCo library not available. Install with: pip install soco")
+            except Exception as e:
+                print(f"Error controlling Sonos: {e}")
+                # Reset speaker connection on error
+                self.sonos_speaker = None
+        
         # DIAGNOSTIC: Print webhook attempt
         print(f"🔍 DEBUG: Attempting to send webhook: {webhook_data['action']} to {WEBHOOK_URL}")
         
