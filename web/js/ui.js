@@ -233,8 +233,8 @@ class UIStore {
     
     // Set up periodic refresh of media info
     setupMediaInfoRefresh() {
-        // Refresh every 5 seconds
-        setInterval(() => this.fetchMediaInfo(), 5000);
+        // Refresh every 1 second instead of 5 seconds
+        setInterval(() => this.fetchMediaInfo(), 1000);
     }
     
     // Update the now playing view with current media info
@@ -308,9 +308,8 @@ class UIStore {
     
     // Fetch Apple TV media information from Home Assistant
     async fetchAppleTVMediaInfo() {
-        console.log("Starting Apple TV media fetch");
+        // console.log("Starting Apple TV media fetch");
         try {
-            console.log(`Fetching Apple TV state from ${this.HA_URL}/api/states/media_player.loft_apple_tv`);
             const response = await fetch(`${this.HA_URL}/api/states/media_player.loft_apple_tv`, {
                 headers: { 'Authorization': 'Bearer ' + this.HA_TOKEN }
             });
@@ -367,10 +366,7 @@ class UIStore {
             return;
         }
         
-        if (!this.appleTVMediaInfo) {
-            console.error("No Apple TV media info available");
-            return;
-        }
+        if (!this.appleTVMediaInfo) return;
         
         // Update text elements
         if (titleEl) titleEl.textContent = this.appleTVMediaInfo.title || '—';
@@ -407,15 +403,11 @@ class UIStore {
     
     // Set up periodic refresh of Apple TV media info
     setupAppleTVMediaInfoRefresh() {
-        console.log("Setting up Apple TV media refresh");
         // Initial fetch
         this.fetchAppleTVMediaInfo();
         
         // Refresh every 5 seconds
-        setInterval(() => {
-            console.log("Periodic Apple TV refresh");
-            this.fetchAppleTVMediaInfo();
-        }, 5000);
+        setInterval(() => this.fetchAppleTVMediaInfo(), 5000);
     }
     
     // Initialize UI
