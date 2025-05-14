@@ -113,7 +113,7 @@ def shouldSendWebhook(data):
     return True
 
 def shouldSendWebsocket(data):
-    return True
+    return False
 
 class PC2Device:
     # B&O PC2 device identifiers
