@@ -8,6 +8,7 @@ import json
 import websocket
 import aiohttp
 import asyncio
+import soco
 from datetime import datetime
 from collections import defaultdict
 
@@ -22,8 +23,6 @@ DEDUP_COMMANDS = ["volup", "voldown", "left", "right"]  # Commands to deduplicat
 WEBHOOK_INTERVAL = 0.2  # Send webhook at least every 0.2 seconds for deduped commands
 MAX_WEBHOOK_RETRIES = 1  # Reduced to single retry for faster processing
 WEBHOOK_RETRY_DELAY = 0.05  # Shorter delay between retries
-MAX_QUEUE_SIZE = 10  # Maximum number of messages to keep in queue
-
 sys.stdout.reconfigure(line_buffering=True)
 
 class MessageQueue:
@@ -384,11 +383,9 @@ class PC2Device:
         device_type = webhook_data['device_type']
         
         # Direct Sonos control for audio commands
-        if device_type == "Audio" and action in ["volup", "voldown", "left", "right", "go", "mute"]:
+        soco_handled = False
+        if device_type == "Audio" and action in ["volup", "voldown", "left", "right", "go", "mute", "up", "down"]:
             try:
-                # Import SoCo here to avoid dependency issues if not installed
-                import soco
-                
                 # Static Sonos configuration
                 SONOS_IP = "192.168.0.116"
                 VOLUME_STEP = 2
@@ -411,7 +408,7 @@ class PC2Device:
                         new_vol = min(100, current_vol + VOLUME_STEP)
                         self.sonos_speaker.volume = new_vol
                         print(f"Sonos volume up: {current_vol} → {new_vol}")
-                        return True
+                        soco_handled = True
                         
                     elif action == "voldown":
                         # Get current volume and decrease it
@@ -419,19 +416,19 @@ class PC2Device:
                         new_vol = max(0, current_vol - VOLUME_STEP)
                         self.sonos_speaker.volume = new_vol
                         print(f"Sonos volume down: {current_vol} → {new_vol}")
-                        return True
+                        soco_handled = True
                         
                     elif action == "right":
                         # Next track
                         self.sonos_speaker.next()
                         print("Sonos next track")
-                        return True
+                        soco_handled = True
                         
                     elif action == "left":
                         # Previous track
                         self.sonos_speaker.previous()
                         print("Sonos previous track")
-                        return True
+                        soco_handled = True
                         
                     elif action == "go":
                         # Toggle play/pause
@@ -442,13 +439,25 @@ class PC2Device:
                         else:
                             self.sonos_speaker.play()
                             print("Sonos playing")
-                        return True
+                        soco_handled = True
                         
                     elif action == "mute":
                         # Toggle mute
                         self.sonos_speaker.mute = not self.sonos_speaker.mute
                         print(f"Sonos mute: {self.sonos_speaker.mute}")
-                        return True
+                        soco_handled = True
+                        
+                    elif action == "up":
+                        # Handle up button - navigate up in Sonos menu
+                        print("Sonos up button pressed")
+                        # Add Sonos-specific functionality here if needed
+                        soco_handled = True
+                        
+                    elif action == "down":
+                        # Handle down button - navigate down in Sonos menu
+                        print("Sonos down button pressed")
+                        # Add Sonos-specific functionality here if needed
+                        soco_handled = True
             
             except ImportError:
                 print("SoCo library not available. Install with: pip install soco")
@@ -457,6 +466,11 @@ class PC2Device:
                 # Reset speaker connection on error
                 self.sonos_speaker = None
         
+        # If SoCo handled the command and we don't want to send a webhook as well, return
+        if soco_handled and not shouldSendWebhook(message):
+            return True
+            
+        # Otherwise, continue with sending the webhook
         # DIAGNOSTIC: Print webhook attempt
         print(f"🔍 DEBUG: Attempting to send webhook: {webhook_data['action']} to {WEBHOOK_URL}")
         
@@ -470,7 +484,7 @@ class PC2Device:
                     async with self.session.post(
                         WEBHOOK_URL, 
                         json=webhook_data, 
-                        timeout=aiohttp.ClientTimeout(total=0.3),  # Even shorter timeout for faster failure
+                        timeout=aiohttp.ClientTimeout(total=0.5),  # Increased timeout for more reliability
                         raise_for_status=True  # Raise exception for non-2xx responses
                     ) as response:
                         # This will only execute if status is 2xx due to raise_for_status
@@ -574,7 +588,7 @@ class PC2Device:
         except Exception as e:
             print(f"Error sending WebSocket message: {e}")
             self.ws = None  # Reset connection on error
-    
+
     def process_beo4_keycode(self, timestamp, data):
         """Process and display a received Beo4 keycode USB message"""
         hex_data = " ".join([f"{x:02X}" for x in data])
