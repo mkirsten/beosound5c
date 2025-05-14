@@ -12,7 +12,9 @@ clients = set()
 state_byte1 = 0x00
 backlight_on = True  # Track backlight state
 last_power_press_time = 0  # For debouncing power button
-POWER_DEBOUNCE_TIME = 1.0  # Seconds to ignore repeated power button presses
+POWER_DEBOUNCE_TIME = 2.0  # Seconds to ignore repeated power button presses
+power_button_state = 0  # 0 = released, 1 = pressed
+screen_control_lock = threading.Lock()  # Lock for screen control operations
 
 def bs5_send(data: bytes):
     """Low-level HID write."""
@@ -42,36 +44,51 @@ def set_led(mode: str):
 
 def control_screen(on: bool):
     """Control screen power using vcgencmd on Raspberry Pi."""
-    do_click()
+    global screen_control_lock
     
-    action = "on" if on else "off"
-    print(f"[SCREEN] Turning screen {action}")
-    
-    # Set LED state inverse to screen state
-    if on:
-        # Screen on -> LED off
-        set_led("off")
-    else:
-        # Screen off -> LED on
-        set_led("on")
+    # Try to acquire the lock with a timeout to prevent deadlocks
+    if not screen_control_lock.acquire(timeout=0.5):
+        print("[SCREEN] Control operation already in progress, skipping")
+        return False
     
     try:
-        # Use vcgencmd for Raspberry Pi
-        value = "1" if on else "0"
-        subprocess.run(
-            ["vcgencmd", "display_power", value], 
-            stderr=subprocess.PIPE, 
-            stdout=subprocess.PIPE, 
-            check=False,
-            timeout=2
-        )
-        print(f"[SCREEN] Screen {action} command sent successfully")
+        # Check if we're already in the desired state to avoid redundant operations
+        if (on and backlight_on) or (not on and not backlight_on):
+            print(f"[SCREEN] Screen already {'on' if on else 'off'}, skipping")
+            return True
+            
+        do_click()
         
-    except Exception as e:
-        print(f"[SCREEN] Error controlling screen: {str(e)}")
+        action = "on" if on else "off"
+        print(f"[SCREEN] Turning screen {action}")
         
-    # Always return success since we know this works on this system
-    return True
+        # Set LED state inverse to screen state
+        if on:
+            # Screen on -> LED off
+            set_led("off")
+        else:
+            # Screen off -> LED on
+            set_led("on")
+        
+        try:
+            # Use vcgencmd for Raspberry Pi
+            value = "1" if on else "0"
+            subprocess.run(
+                ["vcgencmd", "display_power", value], 
+                stderr=subprocess.PIPE, 
+                stdout=subprocess.PIPE, 
+                check=False,
+                timeout=2
+            )
+            print(f"[SCREEN] Screen {action} command sent successfully")
+            return True
+            
+        except Exception as e:
+            print(f"[SCREEN] Error controlling screen: {str(e)}")
+            return False
+    finally:
+        # Always release the lock
+        screen_control_lock.release()
 
 def set_backlight(on: bool):
     """Turn backlight bit on/off."""
@@ -141,7 +158,7 @@ async def receive_commands(ws):
 # ——— HID parse & broadcast loop ———
 
 def parse_report(rep: list):
-    global last_power_press_time
+    global last_power_press_time, power_button_state
     nav_evt = vol_evt = btn_evt = None
     laser_pos = rep[2]
 
@@ -157,20 +174,37 @@ def parse_report(rep: list):
             'direction': 'clock' if d < 0x80 else 'counter',
             'speed':     d if d < 0x80 else 256-d
         }
+    
+    # Handle power button with state machine
     b = rep[3]
-    if b in BTN_MAP:
+    is_power_pressed = (b == 0x80)  # Check if power button is currently pressed
+    
+    # Only create button events for non-power buttons
+    if b in BTN_MAP and b != 0x80:
         btn_evt = {'button': BTN_MAP[b]}
-        # Handle power button press by toggling backlight, with debounce
-        if BTN_MAP[b] == 'power':
+    
+    # State machine for power button
+    if is_power_pressed:
+        # Button is pressed
+        if power_button_state == 0:  # Was released before
+            power_button_state = 1  # Now pressed
+            print("[BUTTON] Power button pressed")
+    else:
+        # Button is released
+        if power_button_state == 1:  # Was pressed before
+            power_button_state = 0  # Now released
+            print("[BUTTON] Power button released")
+            
+            # Check debounce time
             current_time = time.time()
-            # Only process the power button if enough time has passed since last press
             if current_time - last_power_press_time > POWER_DEBOUNCE_TIME:
+                print("[BUTTON] Power button action triggered")
                 toggle_backlight()
                 last_power_press_time = current_time
+                # Create button event for power button release
+                btn_evt = {'button': 'power'}
             else:
                 print(f"[BUTTON] Power button debounced (pressed too soon)")
-                # Don't report this button press to clients
-                btn_evt = None
 
     return nav_evt, vol_evt, btn_evt, laser_pos
 
