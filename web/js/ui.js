@@ -695,7 +695,7 @@ class UIStore {
             const securityIframe = document.getElementById('security-iframe');
             if (securityIframe) {
                 // Set the iframe source to the Home Assistant camera dashboard
-                securityIframe.src = `${this.HA_URL}/dashboard-cameras/home&kiosk`;
+                securityIframe.src = `${this.HA_URL}/dashboard-cameras/home?auth_callback=1&kiosk`;
                 
                 // Add a loading indicator if needed
                 securityIframe.onload = () => {
