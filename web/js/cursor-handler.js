@@ -59,6 +59,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize WebSocket for cursor and controls
     initWebSocket();
     
+    // Process the initial laser position immediately
+    if (lastLaserEvent && lastLaserEvent.position) {
+        console.log("Processing initial laser position:", lastLaserEvent.position);
+        processLaserEvent(lastLaserEvent);
+    }
+    
     // Start the animation frame loop for processing laser events
     processLaserEvents();
     

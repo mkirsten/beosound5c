@@ -6,12 +6,14 @@ class UIStore {
         this.isNowPlayingOverlayActive = false;
         this.selectedMenuItem = -1;
         
+        // Initialize laser position to 93 (matches cursor-handler.js)
+        this.laserPosition = 93;
+        
         // Debug info
         this.debugEnabled = true;
         this.debugVisible = false;
         this.wsMessages = [];
         this.maxWsMessages = 50;
-        this.laserPosition = 0;
         
         // HA integration settings
         this.HA_URL = 'http://homeassistant.local:8123';
@@ -513,7 +515,7 @@ class UIStore {
             this.selectedMenuItem = index;
             this.navigateToView(this.menuItems[index].path);
             
-            // Send click message to server
+            // Send click command to server
             this.sendClickCommand();
         }
         return isSelected;
@@ -525,8 +527,9 @@ class UIStore {
             const ws = new WebSocket('ws://localhost:8765/ws');
             ws.onopen = () => {
                 const message = {
-                    type: 'button',
-                    data: { button: 'click' }
+                    type: 'command',
+                    command: 'click',
+                    params: {}
                 };
                 ws.send(JSON.stringify(message));
                 console.log('Sent click command to server');
