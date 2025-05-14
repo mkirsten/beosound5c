@@ -157,8 +157,8 @@ class UIStore {
             }
         };
 
-        // Set initial route
-        this.currentRoute = 'menu';
+        // Set initial route to "now playing" page
+        this.currentRoute = 'menu/playing';
         this.currentView = null;
 
         // Initialize UI
@@ -598,31 +598,42 @@ class UIStore {
             this.isNowPlayingOverlayActive = false;
             this.navigateToView(this.menuItems[this.selectedMenuItem]?.path || 'menu');
         }
-
-        this.updatePointer();
-        this.renderMenuItems();
+        
+        // Get the current selected item
+        const currentItem = this.selectedMenuItem;
+        
+        // Calculate the new selected item based on wheel position
+        let newSelectedItem = currentItem;
+        
+        if (this.topWheelPosition > 0) {
+            // Move down (clockwise)
+            newSelectedItem = Math.min(this.menuItems.length - 1, currentItem + 1);
+        } else if (this.topWheelPosition < 0) {
+            // Move up (counter-clockwise)
+            newSelectedItem = Math.max(0, currentItem - 1);
+        }
+        
+        // Reset wheel position
         this.topWheelPosition = 0;
+        
+        // If the selection changed, update the UI
+        if (newSelectedItem !== currentItem) {
+            this.selectedMenuItem = newSelectedItem;
+            this.updatePointer();
+        }
     }
 
     navigateToView(path) {
-        console.log('Navigating to path:', path);
-        console.log('Available views:', Object.keys(this.views));
-        
-        // First fade out content
-        const contentArea = document.getElementById('contentArea');
-        if (contentArea) {
-            contentArea.style.opacity = 0;
-            
-            // Wait for fade-out animation to complete before changing route
-            setTimeout(() => {
-                this.currentRoute = path;
-                this.updateView();
-            }, 250); // Match the transition duration in CSS
-        } else {
-            // No content area found, just update immediately
-            this.currentRoute = path;
-            this.updateView();
+        // Send a click command to the server when a menu item is selected
+        if (window.sendClickCommand) {
+            window.sendClickCommand();
         }
+        
+        // Set the current route
+        this.currentRoute = path;
+        
+        // Update the view
+        this.updateView();
     }
 
     updateView() {

@@ -1,13 +1,14 @@
 // Configuration
 const config = {
-    showMouseCursor: true,  // Set to true to show the mouse cursor, false to hide it
-    wsUrl: 'ws://localhost:8765/ws',  // Updated to use the correct hostname
+    showMouseCursor: false,  // Set to false to hide the mouse cursor by default
+    wsUrl: 'ws://localhost:8765',  // Updated to match server.py WebSocket URL
     skipFactor: 1,          // Process 1 out of every N events (higher = more skipping)
     disableTransitions: true, // Set to true to disable CSS transitions on the pointer
     bypassRAF: true,        // Bypass requestAnimationFrame for immediate updates
     useShadowPointer: false, // Use a shadow pointer for immediate visual feedback
     showDebugOverlay: true, // Show the debug overlay to help diagnose issues
-    volumeProcessingDelay: 50 // Delay between volume updates processing in ms
+    volumeProcessingDelay: 50, // Delay between volume updates processing in ms
+    cursorIdleTimeout: 2000 // Hide cursor after 2 seconds of inactivity
 };
 
 // Global variables for laser event optimization
@@ -16,6 +17,10 @@ let isAnimationRunning = false;
 let lastVolumeUpdate = 0;
 let volumeUpdatePending = false;
 let pendingVolumeData = null;
+
+// Mouse cursor variables
+let cursorIdleTimer = null;
+let forceMouseHide = false;
 
 // Volume adjustment variables
 let requestVolumeChangeNotStarted = 0;
@@ -46,19 +51,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add a style element for cursor control
     const style = document.createElement('style');
     
-    if (config.showMouseCursor) {
-        // Explicitly override any existing cursor: none styles
-        style.textContent = `
-            body, div, svg, path, ellipse, * { cursor: auto !important; }
-            #viewport { cursor: auto !important; }
-            .list-item { cursor: pointer !important; }
-            .flow-item { cursor: pointer !important; }
-        `;
-        console.log("Setting cursor to visible");
-    } else {
-        style.textContent = '* { cursor: none !important; }';
-        console.log("Setting cursor to hidden");
-    }
+    // Initially hide the cursor
+    style.textContent = '* { cursor: none !important; }';
+    console.log("Setting cursor to initially hidden");
     
     document.head.appendChild(style);
     
@@ -76,7 +71,71 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Start the volume processor loop
     startVolumeProcessor();
+    
+    // Setup mouse movement detection
+    setupMouseMovementTracking();
 });
+
+// Setup mouse movement tracking
+function setupMouseMovementTracking() {
+    document.addEventListener('mousemove', handleMouseMovement);
+    document.addEventListener('mousedown', handleMouseMovement);
+    
+    // Initially hide the cursor
+    document.body.style.cursor = 'none';
+}
+
+// Handle mouse movement
+function handleMouseMovement() {
+    if (!forceMouseHide) {
+        // Show the cursor
+        document.body.style.cursor = '';
+        
+        // Clear any existing timer
+        clearTimeout(cursorIdleTimer);
+        
+        // Set a new timer to hide the cursor after the idle timeout
+        cursorIdleTimer = setTimeout(() => {
+            document.body.style.cursor = 'none';
+            forceMouseHide = true;
+            
+            // Reset forceMouseHide after a short delay to allow showing cursor again on next movement
+            setTimeout(() => {
+                forceMouseHide = false;
+            }, 200);
+        }, config.cursorIdleTimeout);
+    }
+}
+
+// Function to send a websocket message
+function sendWebSocketMessage(type, data) {
+    const ws = new WebSocket(config.wsUrl);
+    
+    ws.onopen = () => {
+        const message = {
+            type: type,
+            data: data
+        };
+        
+        console.log('Sending WebSocket message:', message);
+        ws.send(JSON.stringify(message));
+        ws.close();
+    };
+    
+    ws.onerror = (error) => {
+        console.error('Error sending WebSocket message:', error);
+    };
+}
+
+// Send a click command to the server
+function sendClickCommand() {
+    sendWebSocketMessage('command', {
+        command: 'click'
+    });
+}
+
+// Expose the sendClickCommand function globally
+window.sendClickCommand = sendClickCommand;
 
 // Create shadow pointer for immediate visual feedback
 function createShadowPointer() {
