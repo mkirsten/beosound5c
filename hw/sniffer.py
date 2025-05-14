@@ -277,44 +277,77 @@ class PC2Device:
     
     def _sender_loop_wrapper(self):
         """Wrapper to run the async sender loop in its own thread"""
-        asyncio.set_event_loop(self.loop)
-        self.loop.run_until_complete(self._init_session())
-        self.loop.run_until_complete(self._async_sender_loop())
+        print("🔍 DEBUG: _sender_loop_wrapper started")
+        try:
+            asyncio.set_event_loop(self.loop)
+            print("🔍 DEBUG: Set event loop")
+            self.loop.run_until_complete(self._init_session())
+            print("🔍 DEBUG: Session initialized")
+            self.loop.run_until_complete(self._async_sender_loop())
+            print("🔍 DEBUG: Sender loop completed")
+        except Exception as e:
+            print(f"🔍 DEBUG: Error in _sender_loop_wrapper: {type(e).__name__}: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     async def _init_session(self):
         """Initialize aiohttp session with optimized settings"""
-        # Configure TCP connector with keepalive and limits
-        connector = aiohttp.TCPConnector(
-            limit=10,  # Limit number of simultaneous connections
-            ttl_dns_cache=300,  # Cache DNS results for 5 minutes
-            keepalive_timeout=60,  # Keep connections alive for 60 seconds
-            force_close=False,  # Don't force close connections
-        )
-        
-        # Create session with the connector
-        self.session = aiohttp.ClientSession(
-            connector=connector,
-            timeout=aiohttp.ClientTimeout(total=1.0),  # Default timeout
-            headers={"User-Agent": "BeosoundSniffer/1.0"}
-        )
+        print("🔍 DEBUG: Initializing aiohttp session")
+        try:
+            # Configure TCP connector with keepalive and limits
+            connector = aiohttp.TCPConnector(
+                limit=10,  # Limit number of simultaneous connections
+                ttl_dns_cache=300,  # Cache DNS results for 5 minutes
+                keepalive_timeout=60,  # Keep connections alive for 60 seconds
+                force_close=False,  # Don't force close connections
+            )
+            
+            # Create session with the connector
+            self.session = aiohttp.ClientSession(
+                connector=connector,
+                timeout=aiohttp.ClientTimeout(total=1.0),  # Default timeout
+                headers={"User-Agent": "BeosoundSniffer/1.0"}
+            )
+            print("🔍 DEBUG: aiohttp session created successfully")
+        except Exception as e:
+            print(f"🔍 DEBUG: Error creating aiohttp session: {type(e).__name__}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
         print("Initialized aiohttp session with optimized settings")
     
     async def _async_sender_loop(self):
         """Asynchronous background thread to process messages from the queue and send them"""
+        print("🔍 DEBUG: _async_sender_loop started")
+        
         # Connect to the WebSocket server
         self._connect_websocket()
+        
+        message_count = 0
+        last_debug_time = time.time()
         
         while self.running:
             try:
                 # Get a message from the queue
                 message = self.message_queue.get()
                 
+                # Debug output every 10 seconds
+                now = time.time()
+                if now - last_debug_time > 10:
+                    print(f"🔍 DEBUG: Sender loop alive, processed {message_count} messages since last debug")
+                    print(f"🔍 DEBUG: Queue size: {self.message_queue.size()}, Session exists: {self.session is not None}")
+                    message_count = 0
+                    last_debug_time = now
+                
                 # If we got a message, process it
                 if message:
+                    message_count += 1
+                    print(f"🔍 DEBUG: Processing message: {message.get('key_name', 'unknown')}")
                     tasks = []
                     
                     # Check if we should send via webhook
                     if shouldSendWebhook(message) or message.get('force_webhook', False):
+                        print(f"🔍 DEBUG: Should send webhook for {message.get('key_name', 'unknown')}")
                         tasks.append(self._send_webhook_async(message))
                     
                     # Check if we should send via WebSocket
@@ -323,13 +356,16 @@ class PC2Device:
                     
                     # Run webhook tasks concurrently
                     if tasks:
+                        print(f"🔍 DEBUG: Running {len(tasks)} webhook tasks")
                         await asyncio.gather(*tasks, return_exceptions=True)
                 
                 # Short sleep to prevent tight loop
                 await asyncio.sleep(0.001)  # Much shorter sleep for faster processing
                 
             except Exception as e:
-                print(f"Error in sender thread: {e}")
+                print(f"🔍 DEBUG: Error in _async_sender_loop: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 await asyncio.sleep(0.1)
     
     async def _send_webhook_async(self, message):
@@ -343,12 +379,16 @@ class PC2Device:
             'timestamp': datetime.now().isoformat()
         }
         
+        # DIAGNOSTIC: Print webhook attempt
+        print(f"🔍 DEBUG: Attempting to send webhook: {webhook_data['action']} to {WEBHOOK_URL}")
+        
         # Implement retry logic
         retries = 0
         while retries <= MAX_WEBHOOK_RETRIES:
             try:
                 # Send the webhook asynchronously
                 if self.session:
+                    print(f"🔍 DEBUG: Session exists, sending POST request")
                     async with self.session.post(
                         WEBHOOK_URL, 
                         json=webhook_data, 
@@ -359,7 +399,13 @@ class PC2Device:
                         print(f"Webhook sent successfully: {webhook_data}")
                         return True
                 else:
-                    print("No aiohttp session available")
+                    print("🔍 DEBUG: No aiohttp session available - this is the problem!")
+                    # Try to recreate the session
+                    try:
+                        await self._init_session()
+                        print("🔍 DEBUG: Created new session")
+                    except Exception as se:
+                        print(f"🔍 DEBUG: Failed to create session: {se}")
                     return False
                 
             except asyncio.TimeoutError:
@@ -369,7 +415,9 @@ class PC2Device:
             except aiohttp.ClientError as e:
                 print(f"Webhook client error (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): {str(e)}")
             except Exception as e:
-                print(f"Unexpected webhook error (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): {str(e)}")
+                print(f"🔍 DEBUG: Unexpected webhook error: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
             
             # If we get here, the request failed - increment retries and wait before trying again
             retries += 1
@@ -498,14 +546,18 @@ class PC2Device:
         if key_name.startswith("Unknown("):
             print(f"[MISSING BUTTON] Raw data: {hex_data} | Device: {device_type} | Keycode: 0x{keycode:02X}")
         
-        # Create and return the processed message data
-        return {
+        # Create the processed message data
+        msg_data = {
             'timestamp_str': timestamp,
             'device_type': device_type,
             'key_name': key_name,
             'keycode': f"0x{keycode:02X}",
             'raw_data': hex_data
         }
+        
+        print(f"🔍 DEBUG: Created message for queue: {key_name}")
+        
+        return msg_data
 
     def _process_message(self, timestamp, data):
         """Process and display a received USB message"""
@@ -527,7 +579,12 @@ class PC2Device:
 
         # Log the message
         if(data[2] == 0x02):
-            self.process_beo4_keycode(timestamp, data)
+            print(f"🔍 DEBUG: Processing Beo4 keycode")
+            msg_data = self.process_beo4_keycode(timestamp, data)
+            if msg_data:
+                print(f"🔍 DEBUG: Adding message to queue: {msg_data.get('key_name')}")
+                self.message_queue.add(msg_data)
+                print(f"🔍 DEBUG: Queue size after add: {self.message_queue.size()}")
         else:
             print(f"[{timestamp}] RECEIVED {message_type}: {hex_data}")
 
