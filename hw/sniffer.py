@@ -396,7 +396,7 @@ class PC2Device:
         
         # Direct Sonos control for audio commands
         soco_handled = False
-        if device_type == "Audio" and action in ["volup", "voldown", "left", "right", "go", "mute", "up", "down"]:
+        if device_type == "Audio" and action in ["off", "volup", "voldown", "left", "right", "go", "mute", "up", "down"]:
             try:
                 # If we have a valid speaker, control it directly
                 if self.sonos_speaker is not None:
