@@ -401,7 +401,7 @@ class PC2Device:
                 # If we have a valid speaker, control it directly
                 if self.sonos_speaker is not None:
                     if action == "volup":
-                        # Get current volume and increase it
+                        # Volume is always controlled locally for each speaker
                         current_vol = self.sonos_speaker.volume
                         new_vol = min(100, current_vol + self.VOLUME_STEP)
                         self.sonos_speaker.volume = new_vol
@@ -409,41 +409,48 @@ class PC2Device:
                         soco_handled = True
                         
                     elif action == "voldown":
-                        # Get current volume and decrease it
+                        # Volume is always controlled locally for each speaker
                         current_vol = self.sonos_speaker.volume
                         new_vol = max(0, current_vol - self.VOLUME_STEP)
                         self.sonos_speaker.volume = new_vol
                         print(f"Sonos volume down: {current_vol} → {new_vol}")
                         soco_handled = True
-                        
-                    elif action == "up" or action == "right":
-                        # Next track
-                        self.sonos_speaker.next()
-                        print("Sonos next track")
-                        soco_handled = True
-                        
-                    elif action == "down" or action == "left":
-                        # Previous track
-                        self.sonos_speaker.previous()
-                        print("Sonos previous track")
-                        soco_handled = True
-                        
-                    elif action == "go":
-                        # Toggle play/pause
-                        state = self.sonos_speaker.get_current_transport_info()['current_transport_state']
-                        if state == 'PLAYING':
-                            self.sonos_speaker.pause()
-                            print("Sonos paused")
-                        else:
-                            self.sonos_speaker.play()
-                            print("Sonos playing")
-                        soco_handled = True
-                        
+                    
                     elif action == "mute":
-                        # Toggle mute
+                        # Toggle mute - local to each speaker
                         self.sonos_speaker.mute = not self.sonos_speaker.mute
                         print(f"Sonos mute: {self.sonos_speaker.mute}")
                         soco_handled = True
+                    
+                    else:
+                        # For transport controls, use the coordinator
+                        coordinator = self.sonos_speaker
+                        if not self.sonos_speaker.is_coordinator:
+                            coordinator = self.sonos_speaker.group.coordinator
+                            print(f"Using coordinator {coordinator.player_name} instead of {self.sonos_speaker.player_name}")
+                        
+                        if action == "up" or action == "right":
+                            # Next track - send to coordinator
+                            coordinator.next()
+                            print(f"Sonos next track (via {coordinator.player_name})")
+                            soco_handled = True
+                            
+                        elif action == "down" or action == "left":
+                            # Previous track - send to coordinator
+                            coordinator.previous()
+                            print(f"Sonos previous track (via {coordinator.player_name})")
+                            soco_handled = True
+                            
+                        elif action == "go":
+                            # Toggle play/pause - send to coordinator
+                            state = coordinator.get_current_transport_info()['current_transport_state']
+                            if state == 'PLAYING':
+                                coordinator.pause()
+                                print(f"Sonos paused (via {coordinator.player_name})")
+                            else:
+                                coordinator.play()
+                                print(f"Sonos playing (via {coordinator.player_name})")
+                            soco_handled = True
             
             except Exception as e:
                 print(f"Error controlling Sonos: {e}")
