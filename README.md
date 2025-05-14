@@ -1,5 +1,5 @@
 # Beosound 5c Recreated
-
+ 
 This guide covers configuration for:
 
 - 10.4" 1024×768 display via HDMI
