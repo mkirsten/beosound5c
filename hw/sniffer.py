@@ -72,7 +72,6 @@ class MessageQueue:
                                     webhook_msg['force_webhook'] = True
                                     webhook_msg['priority'] = True  # Mark as priority
                                     self.queue.append(webhook_msg)
-                                    print(f"🔍 DEBUG: Added duplicate webhook message for {command} with count {self.command_counts[command]}")
                                 
                                 return
                 
@@ -83,7 +82,6 @@ class MessageQueue:
                 message['count'] = 1
             
             self.queue.append(message)
-            print(f"🔍 DEBUG: Added message to queue: {message.get('key_name')}, queue size: {len(self.queue)}")
             
             # Limit queue size to prevent memory issues
             if len(self.queue) > MAX_QUEUE_SIZE:
@@ -96,19 +94,14 @@ class MessageQueue:
                 keep_count = max(0, MAX_QUEUE_SIZE - len(priority_msgs))
                 
                 # Rebuild queue with all priority messages and newest non-priority ones
-                old_size = len(self.queue)
                 self.queue = priority_msgs + non_priority_msgs[:keep_count]
-                print(f"🔍 DEBUG: Queue size limited from {old_size} to {len(self.queue)}")
     
     def get(self):
         """Get the next valid message from the queue."""
         with self.lock:
             # Discard messages older than timeout
             now = time.time()
-            old_size = len(self.queue)
             self.queue = [msg for msg in self.queue if now - msg['timestamp'] < self.timeout]
-            if old_size != len(self.queue):
-                print(f"🔍 DEBUG: Discarded {old_size - len(self.queue)} expired messages")
             
             # Return None if queue is empty
             if not self.queue:
@@ -125,7 +118,6 @@ class MessageQueue:
                     self.command_counts[command] = 0
                     self.last_message_time.pop(command, None)
             
-            print(f"🔍 DEBUG: Retrieved message from queue: {message.get('key_name')}, remaining: {len(self.queue)}")
             return message
     
     def size(self):
@@ -632,37 +624,6 @@ class PC2Device:
             except Exception as e:
                 print(f"Error closing device: {e}")
 
-    def test_webhook(self):
-        """Test webhook functionality by sending a test message"""
-        print("🔍 DEBUG: Testing webhook functionality")
-        
-        # Create a test message
-        test_message = {
-            'key_name': 'test_button',
-            'device_type': 'Test',
-            'count': 1,
-            'timestamp': time.time(),
-            'force_webhook': True
-        }
-        
-        # Add to queue
-        self.message_queue.add(test_message)
-        print(f"🔍 DEBUG: Added test message to queue, size: {self.message_queue.size()}")
-        
-        # Also try direct webhook sending
-        if self.loop and self.session:
-            print("🔍 DEBUG: Attempting direct webhook test")
-            async def test_direct():
-                try:
-                    result = await self._send_webhook_async(test_message)
-                    print(f"🔍 DEBUG: Direct webhook test result: {result}")
-                except Exception as e:
-                    print(f"🔍 DEBUG: Direct webhook test error: {e}")
-            
-            asyncio.run_coroutine_threadsafe(test_direct(), self.loop)
-        else:
-            print("🔍 DEBUG: Cannot test direct webhook - no loop or session")
-
 
 # Example usage
 if __name__ == "__main__":
@@ -682,11 +643,6 @@ if __name__ == "__main__":
         print("\n=== Setting address filter ===")
         pc2.set_address_filter(PC2Device.ADDRESS_MASK_PROMISC)  # Use promiscuous mode to capture all messages
 
-        # Test webhook functionality
-        print("\n=== Testing webhook functionality ===")
-        time.sleep(2)  # Give time for session to initialize
-        pc2.test_webhook()
-
         # Keep the program running to allow for communication
         print("\n=== Device initialized. Sniffing USB messages... ===")
         print("Press Ctrl+C to exit.")
@@ -700,9 +656,6 @@ if __name__ == "__main__":
                 # Print a status message every 30 seconds
                 if int(elapsed) % 30 == 0 and int(elapsed) > 0:
                     print(f"\rSniffing... Elapsed time: {int(elapsed)} seconds | Queue size: {pc2.message_queue.size()}")
-                    # Test webhook every 60 seconds
-                    if int(elapsed) % 60 == 0:
-                        pc2.test_webhook()
         except KeyboardInterrupt:
             raise
 
