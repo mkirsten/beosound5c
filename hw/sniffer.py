@@ -416,13 +416,13 @@ class PC2Device:
                         print(f"Sonos volume down: {current_vol} → {new_vol}")
                         soco_handled = True
                         
-                    elif action == "right":
+                    elif action == "up" or action == "right":
                         # Next track
                         self.sonos_speaker.next()
                         print("Sonos next track")
                         soco_handled = True
                         
-                    elif action == "left":
+                    elif action == "down" or action == "left":
                         # Previous track
                         self.sonos_speaker.previous()
                         print("Sonos previous track")
@@ -443,18 +443,6 @@ class PC2Device:
                         # Toggle mute
                         self.sonos_speaker.mute = not self.sonos_speaker.mute
                         print(f"Sonos mute: {self.sonos_speaker.mute}")
-                        soco_handled = True
-                        
-                    elif action == "up":
-                        # Handle up button - navigate up in Sonos menu
-                        print("Sonos up button pressed")
-                        # Add Sonos-specific functionality here if needed
-                        soco_handled = True
-                        
-                    elif action == "down":
-                        # Handle down button - navigate down in Sonos menu
-                        print("Sonos down button pressed")
-                        # Add Sonos-specific functionality here if needed
                         soco_handled = True
             
             except Exception as e:
