@@ -6,7 +6,8 @@ import queue
 import sys
 import json
 import websocket
-import requests
+import aiohttp
+import asyncio
 from datetime import datetime
 from collections import defaultdict
 
@@ -117,6 +118,8 @@ class PC2Device:
         self.sniffer_thread = None
         self.sender_thread = None
         self.ws = None
+        self.session = None
+        self.loop = None
 
     def open(self):
         """Find and open the PC2 device"""
@@ -176,13 +179,16 @@ class PC2Device:
         """Start sniffing USB messages and sending them via webhook/websocket"""
         self.running = True
         
+        # Create an event loop for the sender thread
+        self.loop = asyncio.new_event_loop()
+        
         # Start the sniffer thread (reads USB and adds to queue)
         self.sniffer_thread = threading.Thread(target=self._sniff_loop)
         self.sniffer_thread.daemon = True
         self.sniffer_thread.start()
         
         # Start the sender thread (processes queue and sends messages)
-        self.sender_thread = threading.Thread(target=self._sender_loop)
+        self.sender_thread = threading.Thread(target=self._sender_loop_wrapper)
         self.sender_thread.daemon = True
         self.sender_thread.start()
         
@@ -234,8 +240,18 @@ class PC2Device:
                 print(f"Error in sniffing thread: {e}")
                 time.sleep(1)  # Even longer delay on unexpected errors
     
-    def _sender_loop(self):
-        """Background thread to process messages from the queue and send them"""
+    def _sender_loop_wrapper(self):
+        """Wrapper to run the async sender loop in its own thread"""
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_until_complete(self._init_session())
+        self.loop.run_until_complete(self._async_sender_loop())
+    
+    async def _init_session(self):
+        """Initialize aiohttp session"""
+        self.session = aiohttp.ClientSession()
+    
+    async def _async_sender_loop(self):
+        """Asynchronous background thread to process messages from the queue and send them"""
         # Connect to the WebSocket server
         self._connect_websocket()
         
@@ -248,18 +264,41 @@ class PC2Device:
                 if message:
                     # Check if we should send via webhook
                     if shouldSendWebhook(message):
-                        self._send_webhook(message)
+                        await self._send_webhook_async(message)
                     
                     # Check if we should send via WebSocket
                     if shouldSendWebsocket(message):
                         self._send_websocket(message)
                 
                 # Short sleep to prevent tight loop
-                time.sleep(0.01)
+                await asyncio.sleep(0.001)  # Much shorter sleep for faster processing
                 
             except Exception as e:
                 print(f"Error in sender thread: {e}")
-                time.sleep(0.5)
+                await asyncio.sleep(0.1)
+    
+    async def _send_webhook_async(self, message):
+        """Send a message via webhook asynchronously"""
+        try:
+            # Prepare webhook payload for Home Assistant
+            webhook_data = {
+                'device': 'beosound5c',
+                'action': message.get('key_name', ''),
+                'device_type': message.get('device_type', ''),
+                'count': message.get('count', 1),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # Send the webhook asynchronously
+            if self.session:
+                async with self.session.post(WEBHOOK_URL, json=webhook_data, timeout=aiohttp.ClientTimeout(total=1.0)) as response:
+                    if response.status >= 200 and response.status < 300:
+                        print(f"Webhook sent successfully: {webhook_data}")
+                    else:
+                        print(f"Error sending webhook: {response.status} - {await response.text()}")
+                
+        except Exception as e:
+            print(f"Error sending webhook: {e}")
     
     def _connect_websocket(self):
         """Connect to the WebSocket server"""
@@ -328,30 +367,6 @@ class PC2Device:
             print(f"Error sending WebSocket message: {e}")
             self.ws = None  # Reset connection on error
     
-    def _send_webhook(self, message):
-        """Send a message via webhook"""
-        try:
-            # Prepare webhook payload for Home Assistant
-            webhook_data = {
-                'device': 'beosound5c',
-                'action': message.get('key_name', ''),
-                'device_type': message.get('device_type', ''),
-                'count': message.get('count', 1),
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            # Send the webhook
-            response = requests.post(WEBHOOK_URL, json=webhook_data, timeout=2.0)
-            
-            # Check if successful
-            if response.status_code >= 200 and response.status_code < 300:
-                print(f"Webhook sent successfully: {webhook_data}")
-            else:
-                print(f"Error sending webhook: {response.status_code} - {response.text}")
-                
-        except Exception as e:
-            print(f"Error sending webhook: {e}")
-
     def process_beo4_keycode(self, timestamp, data):
         """Process and display a received Beo4 keycode USB message"""
         hex_data = " ".join([f"{x:02X}" for x in data])
@@ -441,6 +456,11 @@ class PC2Device:
     def stop_sniffing(self):
         """Stop the USB sniffer"""
         self.running = False
+        
+        # Close the aiohttp session
+        if self.session and self.loop:
+            asyncio.run_coroutine_threadsafe(self.session.close(), self.loop)
+        
         if self.sniffer_thread:
             self.sniffer_thread.join(timeout=1.0)
         if self.sender_thread:
