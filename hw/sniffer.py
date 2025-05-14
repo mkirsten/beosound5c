@@ -21,8 +21,9 @@ WEBSOCKET_URL = "ws://localhost:8765"
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
 DEDUP_COMMANDS = ["volup", "voldown", "left", "right"]  # Commands to deduplicate
 WEBHOOK_INTERVAL = 0.2  # Send webhook at least every 0.2 seconds for deduped commands
-MAX_WEBHOOK_RETRIES = 1  # Reduced to single retry for faster processing
-WEBHOOK_RETRY_DELAY = 0.05  # Shorter delay between retries
+MAX_WEBHOOK_RETRIES = 1  # Single retry for faster processing
+WEBHOOK_RETRY_DELAY = 0.1  # Delay between retries
+MAX_QUEUE_SIZE = 10  # Maximum number of messages to keep in queue
 sys.stdout.reconfigure(line_buffering=True)
 
 class MessageQueue:
@@ -154,6 +155,17 @@ class PC2Device:
         self.ws = None
         self.session = None
         self.loop = None
+        
+        # Initialize Sonos speaker
+        try:
+            # Static Sonos configuration
+            SONOS_IP = "192.168.0.116"
+            self.sonos_speaker = soco.SoCo(SONOS_IP)
+            print(f"Connected to Sonos at {SONOS_IP}")
+            self.VOLUME_STEP = 2
+        except Exception as e:
+            print(f"Failed to initialize Sonos: {e}")
+            self.sonos_speaker = None
 
     def open(self):
         """Find and open the PC2 device"""
@@ -304,7 +316,7 @@ class PC2Device:
             # Create session with the connector
             self.session = aiohttp.ClientSession(
                 connector=connector,
-                timeout=aiohttp.ClientTimeout(total=1.0),  # Default timeout
+                timeout=aiohttp.ClientTimeout(total=2.0),  # Increased default timeout
                 headers={"User-Agent": "BeosoundSniffer/1.0"}
             )
             print("🔍 DEBUG: aiohttp session created successfully")
@@ -386,26 +398,12 @@ class PC2Device:
         soco_handled = False
         if device_type == "Audio" and action in ["volup", "voldown", "left", "right", "go", "mute", "up", "down"]:
             try:
-                # Static Sonos configuration
-                SONOS_IP = "192.168.0.116"
-                VOLUME_STEP = 2
-                
-                # Get or create Sonos speaker instance (cached in class)
-                if not hasattr(self, 'sonos_speaker') or self.sonos_speaker is None:
-                    try:
-                        self.sonos_speaker = soco.SoCo(SONOS_IP)
-                        print(f"Connected to Sonos at {SONOS_IP}")
-                    except Exception as e:
-                        print(f"Failed to connect to Sonos: {e}")
-                        # Fall back to regular webhook if Sonos connection fails
-                        pass
-                
                 # If we have a valid speaker, control it directly
-                if hasattr(self, 'sonos_speaker') and self.sonos_speaker is not None:
+                if self.sonos_speaker is not None:
                     if action == "volup":
                         # Get current volume and increase it
                         current_vol = self.sonos_speaker.volume
-                        new_vol = min(100, current_vol + VOLUME_STEP)
+                        new_vol = min(100, current_vol + self.VOLUME_STEP)
                         self.sonos_speaker.volume = new_vol
                         print(f"Sonos volume up: {current_vol} → {new_vol}")
                         soco_handled = True
@@ -413,7 +411,7 @@ class PC2Device:
                     elif action == "voldown":
                         # Get current volume and decrease it
                         current_vol = self.sonos_speaker.volume
-                        new_vol = max(0, current_vol - VOLUME_STEP)
+                        new_vol = max(0, current_vol - self.VOLUME_STEP)
                         self.sonos_speaker.volume = new_vol
                         print(f"Sonos volume down: {current_vol} → {new_vol}")
                         soco_handled = True
@@ -459,14 +457,18 @@ class PC2Device:
                         # Add Sonos-specific functionality here if needed
                         soco_handled = True
             
-            except ImportError:
-                print("SoCo library not available. Install with: pip install soco")
             except Exception as e:
                 print(f"Error controlling Sonos: {e}")
                 # Reset speaker connection on error
-                self.sonos_speaker = None
+                try:
+                    # Try to reconnect
+                    SONOS_IP = "192.168.0.116"
+                    self.sonos_speaker = soco.SoCo(SONOS_IP)
+                    print(f"Reconnected to Sonos at {SONOS_IP}")
+                except Exception:
+                    self.sonos_speaker = None
         
-        # If SoCo handled the command and we don't want to send a webhook as well, return
+        # If SoCo handled the command, return without sending webhook
         if soco_handled:
             return True
             
