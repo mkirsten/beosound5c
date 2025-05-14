@@ -20,6 +20,8 @@ WEBSOCKET_URL = "ws://localhost:8765"
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
 DEDUP_COMMANDS = ["volup", "voldown", "left", "right"]  # Commands to deduplicate
 WEBHOOK_INTERVAL = 0.2  # Send webhook at least every 0.2 seconds for deduped commands
+MAX_WEBHOOK_RETRIES = 3  # Maximum number of webhook retry attempts
+WEBHOOK_RETRY_DELAY = 0.1  # Delay between webhook retries in seconds
 
 sys.stdout.reconfigure(line_buffering=True)
 
@@ -265,8 +267,21 @@ class PC2Device:
         self.loop.run_until_complete(self._async_sender_loop())
     
     async def _init_session(self):
-        """Initialize aiohttp session"""
-        self.session = aiohttp.ClientSession()
+        """Initialize aiohttp session with optimized settings"""
+        # Configure TCP connector with keepalive and limits
+        connector = aiohttp.TCPConnector(
+            limit=10,  # Limit number of simultaneous connections
+            ttl_dns_cache=300,  # Cache DNS results for 5 minutes
+            keepalive_timeout=60,  # Keep connections alive for 60 seconds
+        )
+        
+        # Create session with the connector
+        self.session = aiohttp.ClientSession(
+            connector=connector,
+            timeout=aiohttp.ClientTimeout(total=2.0),
+            headers={"User-Agent": "BeosoundSniffer/1.0"}
+        )
+        print("Initialized aiohttp session with optimized settings")
     
     async def _async_sender_loop(self):
         """Asynchronous background thread to process messages from the queue and send them"""
@@ -296,27 +311,53 @@ class PC2Device:
                 await asyncio.sleep(0.1)
     
     async def _send_webhook_async(self, message):
-        """Send a message via webhook asynchronously"""
-        try:
-            # Prepare webhook payload for Home Assistant
-            webhook_data = {
-                'device': 'beosound5c',
-                'action': message.get('key_name', ''),
-                'device_type': message.get('device_type', ''),
-                'count': message.get('count', 1),
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            # Send the webhook asynchronously
-            if self.session:
-                async with self.session.post(WEBHOOK_URL, json=webhook_data, timeout=aiohttp.ClientTimeout(total=1.0)) as response:
-                    if response.status >= 200 and response.status < 300:
-                        print(f"Webhook sent successfully: {webhook_data}")
-                    else:
-                        print(f"Error sending webhook: {response.status} - {await response.text()}")
+        """Send a message via webhook asynchronously with retry logic"""
+        # Prepare webhook payload for Home Assistant
+        webhook_data = {
+            'device': 'beosound5c',
+            'action': message.get('key_name', ''),
+            'device_type': message.get('device_type', ''),
+            'count': message.get('count', 1),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Implement retry logic
+        retries = 0
+        while retries <= MAX_WEBHOOK_RETRIES:
+            try:
+                # Send the webhook asynchronously
+                if self.session:
+                    async with self.session.post(
+                        WEBHOOK_URL, 
+                        json=webhook_data, 
+                        timeout=aiohttp.ClientTimeout(total=0.5)  # Shorter timeout for faster failure
+                    ) as response:
+                        if response.status >= 200 and response.status < 300:
+                            print(f"Webhook sent successfully: {webhook_data}")
+                            return True
+                        else:
+                            error_text = await response.text()
+                            print(f"Error sending webhook (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): Status {response.status}")
+                else:
+                    print("No aiohttp session available")
+                    return False
                 
-        except Exception as e:
-            print(f"Error sending webhook: {e}")
+            except asyncio.TimeoutError:
+                print(f"Webhook timeout (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1})")
+            except aiohttp.ClientError as e:
+                print(f"Webhook client error (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): {str(e)}")
+            except Exception as e:
+                print(f"Unexpected webhook error (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): {str(e)}")
+            
+            # If we get here, the request failed - increment retries and wait before trying again
+            retries += 1
+            if retries <= MAX_WEBHOOK_RETRIES:
+                await asyncio.sleep(WEBHOOK_RETRY_DELAY * retries)  # Exponential backoff
+            else:
+                print(f"Failed to send webhook after {MAX_WEBHOOK_RETRIES+1} attempts: {webhook_data['action']}")
+                return False
+        
+        return False
     
     def _connect_websocket(self):
         """Connect to the WebSocket server"""
