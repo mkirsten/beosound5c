@@ -1,21 +1,23 @@
 // Configuration
 const config = {
-    showMouseCursor: true,  // Set to true to show the mouse cursor, false to hide it
+    showMouseCursor: false,  // Set to false to hide the mouse cursor by default
     wsUrl: 'ws://localhost:8765/ws',  // Updated to use the correct hostname
     skipFactor: 1,          // Process 1 out of every N events (higher = more skipping)
     disableTransitions: true, // Set to true to disable CSS transitions on the pointer
     bypassRAF: true,        // Bypass requestAnimationFrame for immediate updates
     useShadowPointer: false, // Use a shadow pointer for immediate visual feedback
     showDebugOverlay: true, // Show the debug overlay to help diagnose issues
-    volumeProcessingDelay: 50 // Delay between volume updates processing in ms
+    volumeProcessingDelay: 50, // Delay between volume updates processing in ms
+    cursorHideDelay: 2000   // Delay in ms before hiding cursor after inactivity
 };
 
 // Global variables for laser event optimization
-let lastLaserEvent = null;
+let lastLaserEvent = { position: 93 };  // Initialize with position 93
 let isAnimationRunning = false;
 let lastVolumeUpdate = 0;
 let volumeUpdatePending = false;
 let pendingVolumeData = null;
+let cursorHideTimeout = null;
 
 // Volume adjustment variables
 let requestVolumeChangeNotStarted = 0;
@@ -45,21 +47,10 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Add a style element for cursor control
     const style = document.createElement('style');
+    style.id = 'cursor-style';
     
-    if (config.showMouseCursor) {
-        // Explicitly override any existing cursor: none styles
-        style.textContent = `
-            body, div, svg, path, ellipse, * { cursor: auto !important; }
-            #viewport { cursor: auto !important; }
-            .list-item { cursor: pointer !important; }
-            .flow-item { cursor: pointer !important; }
-        `;
-        console.log("Setting cursor to visible");
-    } else {
-        style.textContent = '* { cursor: none !important; }';
-        console.log("Setting cursor to hidden");
-    }
-    
+    // Initially hide the cursor
+    style.textContent = '* { cursor: none !important; }';
     document.head.appendChild(style);
     
     // Create style for disabling transitions if needed
@@ -76,7 +67,41 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Start the volume processor loop
     startVolumeProcessor();
+    
+    // Add mousemove event listener to show cursor when moved
+    document.addEventListener('mousemove', () => {
+        showCursor();
+        
+        // Clear any existing timeout
+        if (cursorHideTimeout) {
+            clearTimeout(cursorHideTimeout);
+        }
+        
+        // Set a new timeout to hide the cursor after delay
+        cursorHideTimeout = setTimeout(hideCursor, config.cursorHideDelay);
+    });
 });
+
+// Function to show the cursor
+function showCursor() {
+    const cursorStyle = document.getElementById('cursor-style');
+    if (cursorStyle) {
+        cursorStyle.textContent = `
+            body, div, svg, path, ellipse { cursor: auto !important; }
+            #viewport { cursor: auto !important; }
+            .list-item { cursor: pointer !important; }
+            .flow-item { cursor: pointer !important; }
+        `;
+    }
+}
+
+// Function to hide the cursor
+function hideCursor() {
+    const cursorStyle = document.getElementById('cursor-style');
+    if (cursorStyle) {
+        cursorStyle.textContent = '* { cursor: none !important; }';
+    }
+}
 
 // Create shadow pointer for immediate visual feedback
 function createShadowPointer() {
