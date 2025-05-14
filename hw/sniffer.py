@@ -18,6 +18,7 @@ WEBHOOK_URL = "http://homeassistant.local:8123/api/webhook/beosound5c"
 WEBSOCKET_URL = "ws://localhost:8765"
 
 # Message processing settings
+BEOSOUND_DEVICE_NAME = "Kitchen"
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
 DEDUP_COMMANDS = ["volup", "voldown", "left", "right"]  # Commands to deduplicate
 WEBHOOK_INTERVAL = 0.2  # Send webhook at least every 0.2 seconds for deduped commands
@@ -383,7 +384,7 @@ class PC2Device:
         """Send a message via webhook asynchronously with retry logic"""
         # Prepare webhook payload for Home Assistant
         webhook_data = {
-            'device': 'beosound5c',
+            'device_name': BEOSOUND_DEVICE_NAME,
             'action': message.get('key_name', ''),
             'device_type': message.get('device_type', ''),
             'count': message.get('count', 1),
@@ -612,10 +613,11 @@ class PC2Device:
             0x0C: "off",
             0x0D: "mute",
             0x0F: "alloff",
-            0x5C: "menu",
+            0x5C: "menu", # Display on Beo1
             0x1E: "up", 0x1F: "down",
             0x32: "left", 0x34: "right",
             0x35: "go", 0x36: "stop", 0x7F: "back",
+            0x37: "record",
             0x58: "list",
             0x60: "volup", 0x64: "voldown",
             0x80: "tv",
