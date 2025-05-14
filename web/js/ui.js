@@ -157,8 +157,8 @@ class UIStore {
             }
         };
 
-        // Set initial route to "now playing" page
-        this.currentRoute = 'menu/playing';
+        // Set initial route
+        this.currentRoute = 'menu';
         this.currentView = null;
 
         // Initialize UI
@@ -233,8 +233,8 @@ class UIStore {
     
     // Set up periodic refresh of media info
     setupMediaInfoRefresh() {
-        // Refresh every 1 second instead of 5 seconds
-        setInterval(() => this.fetchMediaInfo(), 1000);
+        // Refresh every 5 seconds
+        setInterval(() => this.fetchMediaInfo(), 5000);
     }
     
     // Update the now playing view with current media info
@@ -308,8 +308,9 @@ class UIStore {
     
     // Fetch Apple TV media information from Home Assistant
     async fetchAppleTVMediaInfo() {
-        // console.log("Starting Apple TV media fetch");
+        console.log("Starting Apple TV media fetch");
         try {
+            console.log(`Fetching Apple TV state from ${this.HA_URL}/api/states/media_player.loft_apple_tv`);
             const response = await fetch(`${this.HA_URL}/api/states/media_player.loft_apple_tv`, {
                 headers: { 'Authorization': 'Bearer ' + this.HA_TOKEN }
             });
@@ -366,7 +367,10 @@ class UIStore {
             return;
         }
         
-        if (!this.appleTVMediaInfo) return;
+        if (!this.appleTVMediaInfo) {
+            console.error("No Apple TV media info available");
+            return;
+        }
         
         // Update text elements
         if (titleEl) titleEl.textContent = this.appleTVMediaInfo.title || '—';
@@ -403,11 +407,15 @@ class UIStore {
     
     // Set up periodic refresh of Apple TV media info
     setupAppleTVMediaInfoRefresh() {
+        console.log("Setting up Apple TV media refresh");
         // Initial fetch
         this.fetchAppleTVMediaInfo();
         
         // Refresh every 5 seconds
-        setInterval(() => this.fetchAppleTVMediaInfo(), 5000);
+        setInterval(() => {
+            console.log("Periodic Apple TV refresh");
+            this.fetchAppleTVMediaInfo();
+        }, 5000);
     }
     
     // Initialize UI
@@ -590,42 +598,31 @@ class UIStore {
             this.isNowPlayingOverlayActive = false;
             this.navigateToView(this.menuItems[this.selectedMenuItem]?.path || 'menu');
         }
-        
-        // Get the current selected item
-        const currentItem = this.selectedMenuItem;
-        
-        // Calculate the new selected item based on wheel position
-        let newSelectedItem = currentItem;
-        
-        if (this.topWheelPosition > 0) {
-            // Move down (clockwise)
-            newSelectedItem = Math.min(this.menuItems.length - 1, currentItem + 1);
-        } else if (this.topWheelPosition < 0) {
-            // Move up (counter-clockwise)
-            newSelectedItem = Math.max(0, currentItem - 1);
-        }
-        
-        // Reset wheel position
+
+        this.updatePointer();
+        this.renderMenuItems();
         this.topWheelPosition = 0;
-        
-        // If the selection changed, update the UI
-        if (newSelectedItem !== currentItem) {
-            this.selectedMenuItem = newSelectedItem;
-            this.updatePointer();
-        }
     }
 
     navigateToView(path) {
-        // Send a click command to the server when a menu item is selected
-        if (window.sendClickCommand) {
-            window.sendClickCommand();
+        console.log('Navigating to path:', path);
+        console.log('Available views:', Object.keys(this.views));
+        
+        // First fade out content
+        const contentArea = document.getElementById('contentArea');
+        if (contentArea) {
+            contentArea.style.opacity = 0;
+            
+            // Wait for fade-out animation to complete before changing route
+            setTimeout(() => {
+                this.currentRoute = path;
+                this.updateView();
+            }, 250); // Match the transition duration in CSS
+        } else {
+            // No content area found, just update immediately
+            this.currentRoute = path;
+            this.updateView();
         }
-        
-        // Set the current route
-        this.currentRoute = path;
-        
-        // Update the view
-        this.updateView();
     }
 
     updateView() {
