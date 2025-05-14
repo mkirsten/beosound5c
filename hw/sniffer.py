@@ -467,7 +467,7 @@ class PC2Device:
                 self.sonos_speaker = None
         
         # If SoCo handled the command and we don't want to send a webhook as well, return
-        if soco_handled and not shouldSendWebhook(message):
+        if soco_handled:
             return True
             
         # Otherwise, continue with sending the webhook
