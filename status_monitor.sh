@@ -26,7 +26,7 @@ quality_icon() {
 
 while true; do
   clear
-  echo -e "${blue}===== RPI SYSTEM STATUS =====${reset}"
+  echo -e "${blue}===== BEOSOUND 5C SYSTEM STATUS =====${reset}"
 
   echo -e "\n${blue}Hostname and Network Interfaces:${reset}"
   hostname

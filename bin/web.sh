@@ -15,7 +15,14 @@ rm -rf ~/.cache/chromium/Default/Cache/*
 rm -rf ~/.cache/chromium/Default/Code\ Cache/*
 rm -rf ~/.cache/chromium/Default/Service\ Worker/*
 
+# Fade out plymouth
+plymouth quit --retain-splash
+
+# Wait a bit for transition effect
+sleep 0.5
+
 # Launch Chromium in kiosk mode with cache disabled
+
 chromium-browser \
   --disable-application-cache \
   --disable-cache \
