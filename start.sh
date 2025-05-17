@@ -36,9 +36,9 @@ if ! pgrep -f "python3 .*sniffer.py" > /dev/null; then
 fi
 sleep 1
 
-echo "⌛ Launching web.sh..."
-sleep 1
+#echo "⌛ Launching web.sh..."
+#sleep 1
 
-echo "🖥️  Starting web.sh..."
-cd "$BASE_DIR/bin" || exit 1
-./web.sh > "$LOG_DIR/websh.log" 2>&1 &
+#echo "🖥️  Starting web.sh..."
+#cd "$BASE_DIR/bin" || exit 1
+#./web.sh > "$LOG_DIR/websh.log" 2>&1 &
