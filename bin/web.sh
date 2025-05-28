@@ -7,8 +7,6 @@ xset s off
 xset s noblank
 xset -dpms
 
-# Hide mouse cursor after idle time
-
 # Clear Chromium cache before starting
 rm -rf ~/.cache/chromium/Default/Cache/*
 rm -rf ~/.cache/chromium/Default/Code\ Cache/*
