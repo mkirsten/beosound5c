@@ -20,25 +20,23 @@ git pull > "$LOG_DIR/git.log" 2>&1
 
 echo "🌐 Starting HTTP server..."
 cd "$BASE_DIR/web" || exit 1
-python3 -m http.server 8000 >> "$LOG_DIR/http.log" 2>&1 &
+nohup python3 -m http.server 8000 >> "$LOG_DIR/http.log" 2>&1 < /dev/null &
 sleep 1
 
 echo "🔧 Starting server.py..."
 cd "$BASE_DIR/hw" || exit 1
 if ! pgrep -f "python3 .*server.py" > /dev/null; then
-  sudo python3 server.py >> "$LOG_DIR/server.log" 2>&1 &
+  nohup sudo python3 server.py >> "$LOG_DIR/server.log" 2>&1 < /dev/null &
 fi
 sleep 1
 
 echo "🛰️  Starting sniffer.py..."
 if ! pgrep -f "python3 .*sniffer.py" > /dev/null; then
-  sudo python3 sniffer.py >> "$LOG_DIR/sniffer.log" 2>&1 &
+  nohup sudo python3 sniffer.py >> "$LOG_DIR/sniffer.log" 2>&1 < /dev/null &
 fi
 sleep 1
 
-#echo "⌛ Launching web.sh..."
-#sleep 1
-
-#echo "🖥️  Starting web.sh..."
-#cd "$BASE_DIR/bin" || exit 1
-#./web.sh > "$LOG_DIR/websh.log" 2>&1 &
+# Uncomment if needed, but make sure it too uses nohup
+# echo "🖥️  Starting web.sh..."
+# cd "$BASE_DIR/bin" || exit 1
+# nohup ./web.sh >> "$LOG_DIR/websh.log" 2>&1 < /dev/null &
