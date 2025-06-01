@@ -1,0 +1,16 @@
+[Unit]
+Description=BeoSound5c Hardware Server (server.py)
+After=network.target
+
+[Service]
+Type=simple
+User=kirsten
+WorkingDirectory=/home/kirsten/beosound5c/hw
+ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/hw/server.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
