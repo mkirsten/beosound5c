@@ -18,7 +18,7 @@ WEBHOOK_URL = "http://homeassistant.local:8123/api/webhook/beosound5c"
 WEBSOCKET_URL = "ws://localhost:8765"
 
 # Message processing settings
-BEOSOUND_DEVICE_NAME = "Kitchen"
+BEOSOUND_DEVICE_NAME = "Church"
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
 DEDUP_COMMANDS = ["volup", "voldown", "left", "right"]  # Commands to deduplicate
 WEBHOOK_INTERVAL = 0.2  # Send webhook at least every 0.2 seconds for deduped commands
@@ -160,7 +160,7 @@ class PC2Device:
         # Initialize Sonos speaker
         try:
             # Static Sonos configuration
-            SONOS_IP = "192.168.0.116"
+            SONOS_IP = "192.168.1.111"
             self.sonos_speaker = soco.SoCo(SONOS_IP)
             print(f"Connected to Sonos at {SONOS_IP}")
             self.VOLUME_STEP = 2
