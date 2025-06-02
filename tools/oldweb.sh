@@ -5,10 +5,7 @@ export DISPLAY=:0
 # Turn off screen blanking
 xset s off
 xset s noblank
-
-# Hide mouse cursor after idle time
-pkill unclutter-xfixes
-(sleep 3 && DISPLAY=:0 unclutter-xfixes -idle 0.5) &
+xset -dpms
 
 # Clear Chromium cache before starting
 rm -rf ~/.cache/chromium/Default/Cache/*
@@ -16,6 +13,7 @@ rm -rf ~/.cache/chromium/Default/Code\ Cache/*
 rm -rf ~/.cache/chromium/Default/Service\ Worker/*
 
 # Launch Chromium in kiosk mode with cache disabled
+
 chromium-browser \
   --disable-application-cache \
   --disable-cache \
