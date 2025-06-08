@@ -232,7 +232,7 @@
             
             setTimeout(() => {
                 isScrolling = false;
-            }, 10);
+            }, 50);
         }
 
         // Keyboard support
@@ -257,6 +257,109 @@
                     document.getElementById('scroll-hint').style.display = 'none';
                 }
             }, { once: true });
+        });
+    </script>
+     <script>
+        // WebSocket connection for navigation wheel events
+        let ws = null;
+        let lastClickTime = 0;
+        const CLICK_THROTTLE_MS = 27; // Max 5 times per second (1000ms / 5 = 200ms)
+        
+        function connectWebSocket() {
+            try {
+                ws = new WebSocket('ws://localhost:8765');
+                
+                ws.onopen = () => {
+                    console.log('WebSocket connected');
+                };
+                
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleWebSocketMessage(data);
+                    } catch (error) {
+                        console.error('Error parsing WebSocket message:', error);
+                    }
+                };
+                
+                ws.onclose = () => {
+                    console.log('WebSocket disconnected');
+                    // Attempt to reconnect after 2 seconds
+                    setTimeout(() => connectWebSocket(), 2000);
+                };
+                
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                };
+            } catch (error) {
+                console.error('Error creating WebSocket:', error);
+            }
+        }
+        
+        function handleWebSocketMessage(data) {
+            // Log all received WebSocket messages
+            console.log('Received WebSocket message:', data);
+            
+            // Listen for navigation wheel events (not volume or laser)
+            if (data.type === 'nav' && data.data) {
+                const direction = data.data.direction; // 'clock' or 'counter'
+                
+                // Find the scrollable container
+                const container = document.getElementById('container');
+                if (!container) return;
+                
+                // Check boundaries before scrolling or clicking
+                const atTop = currentIndex === 0;
+                const atBottom = currentIndex === items.length - 1;
+                const scrollingUp = direction === 'counter';
+                const scrollingDown = direction === 'clock';
+                
+                // Don't scroll or click if at boundaries
+                if ((atTop && scrollingUp) || (atBottom && scrollingDown)) {
+                    console.log('At boundary - not scrolling or clicking');
+                    return;
+                }
+                
+                // Scroll the container content
+                if (scrollingDown) {
+                    // Scroll down
+                    scroll(1);
+                } else if (scrollingUp) {
+                    // Scroll up
+                    scroll(-1);
+                }
+                
+                // Send click command back to server (rate limited)
+                sendClickCommand();
+            }
+        }
+        
+        function sendClickCommand() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            
+            const now = Date.now();
+            
+            // Rate limiting: only send if at least 200ms have passed since last send
+            if (now - lastClickTime < CLICK_THROTTLE_MS) {
+                console.log('Click command throttled - too soon');
+                return;
+            }
+            
+            lastClickTime = now;
+            
+            const message = {
+                type: 'command',
+                command: 'click',
+                params: {}
+            };
+            
+            ws.send(JSON.stringify(message));
+            console.log('Sent click command to server');
+        }
+        
+        // Initialize WebSocket connection when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            connectWebSocket();
         });
     </script>
 </body>
