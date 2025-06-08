@@ -507,9 +507,22 @@ function startVolumeProcessor() {
 
 // Handle button press events
 function handleButtonEvent(uiStore, data) {
+    // Log current page/route
+    const currentPage = uiStore.currentRoute || 'unknown';
+    console.log(`Button pressed: ${data.button} on page: ${currentPage}`);
+    
     // Log to debug overlay
     if (window.uiStore && window.uiStore.logWebsocketMessage) {
-        window.uiStore.logWebsocketMessage(`Button pressed: ${data.button}`);
+        window.uiStore.logWebsocketMessage(`Button pressed: ${data.button} on page: ${currentPage}`);
+    }
+    
+    // Don't send media commands if we're on the music page
+    if (currentPage === 'menu/music') {
+        console.log('On music page - not sending media commands');
+        if (window.uiStore && window.uiStore.logWebsocketMessage) {
+            window.uiStore.logWebsocketMessage('On music page - not sending media commands');
+        }
+        return;
     }
     
     switch (data.button) {
