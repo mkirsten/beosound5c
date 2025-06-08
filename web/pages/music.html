@@ -12,7 +12,7 @@
             width: 768px;
             height: 768px;
             overflow: hidden;
-            font-family: 'Montserrat', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Montserrat', sans-serif;
             position: relative;
             user-select: none;
         }
@@ -25,43 +25,48 @@
 
         .item {
             position: absolute;
-            display: flex;
-            align-items: center;
+            width: 200px;
+            height: 64px;
             opacity: 0.4;
             transform: scale(0.9);
-            will-change: transform, opacity;
+            will-change: transform, opacity, top, right;
+            transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
         }
 
         .item.selected {
             opacity: 1;
             transform: scale(1);
-            filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.3));
         }
 
         .item-name {
+            position: absolute;
+            right: 80px;
+            top: 50%;
+            transform: translateY(-50%);
             color: #ffffff;
-            margin-right: 20px;
             font-size: 14px;
             text-align: right;
             white-space: nowrap;
             opacity: 0.7;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
-            transform: none !important; /* Prevent text tilting */
+            transition: all 0.3s ease;
         }
 
         .item.selected .item-name {
-            font-size: 20px;
+            right: 88px;
+            font-size: 16px;
             font-weight: 600;
             opacity: 1;
-            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
         }
 
         .item-image {
+            position: absolute;
+            right: 16px;
+            top: 50%;
+            transform: translateY(-50%);
             width: 40px;
             height: 40px;
-            border-radius: 12px;
             object-fit: cover;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+            transition: all 0.3s ease;
         }
 
         .item.selected .item-image {
@@ -69,59 +74,57 @@
             height: 64px;
             box-shadow: 0 8px 16px rgba(0, 0, 0, 0.7);
         }
-
-        .pos-1 { 
+        .pos-0 { 
             right: 60px; 
-            top: 60px;
+            top: 80px;
+            transform: scale(0.8);
+        }
+        .pos-1 { 
+            right: 90px; 
+            top: 160px;
             transform: scale(0.8);
         }
         .pos-2 { 
-            right: 110px; 
-            top: 165px;
-            transform: scale(0.8);
+            right: 130px; 
+            top: 230px;
+            transform: scale(0.9);
         }
         .pos-3 { 
-            right: 135px; 
-            top: 275px;
-            transform: scale(0.8);
+            right: 155px; 
+            top: 310px;
+            transform: scale(1.1);
         }
         .pos-4 { 
-            right: 145px; 
-            top: 384px;
-            transform: scale(1);
+            right: 160px; 
+            top: 400px;
+            transform: scale(1.6);
         }
         .pos-5 { 
-            right: 135px; 
-            top: 493px;
-            transform: scale(0.8);
+            right: 155px; 
+            top: 500px;
+            transform: scale(1.1);
         }
         .pos-6 { 
-            right: 110px; 
-            top: 603px;
-            transform: scale(0.8);
+            right: 130px; 
+            top: 570px;
+            transform: scale(0.9);
         }
         .pos-7 { 
+            right: 90px; 
+            top: 640px;
+            transform: scale(0.8);
+        }
+        .pos-8 { 
             right: 60px; 
-            top: 708px;
+            top: 720px;
             transform: scale(0.8);
         }
 
-        /* Debug info */
-        #debug {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            color: #666;
-            font-size: 12px;
-            font-family: monospace;
-        }
     </style>
 </head>
 <body>
     <div id="arc-guide"></div>
     <div id="container"></div>
-    <div id="debug"></div>
-    <div id="scroll-hint">Scroll or use ↑↓ to navigate</div>
 
     <script>
         // Load playlist data from playlists_with_tracks.json
@@ -129,7 +132,6 @@
         let currentIndex = 0;
         let isScrolling = false;
         const container = document.getElementById('container');
-        const debug = document.getElementById('debug');
 
         // State management for playlist/songs view
         let viewMode = 'playlists'; // 'playlists' or 'songs'
@@ -220,20 +222,21 @@
             const visibleItems = [];
             const totalItems = items.length;
             
-            // Calculate the range of items to show
-            let startPos = Math.max(0, currentIndex - 3);
-            let endPos = Math.min(totalItems - 1, currentIndex + 3);
+            if (totalItems === 0) return visibleItems;
             
-            // Adjust the number of items shown based on position
-            if (currentIndex < 3) {
-                endPos = Math.min(6, totalItems - 1);
-            } else if (currentIndex > totalItems - 4) {
-                startPos = Math.max(0, totalItems - 7);
-            }
+            const centerPos = 4; // pos-4 is always the selected center
             
-            // Create the visible items array
-            for (let i = startPos; i <= endPos; i++) {
-                const position = i - currentIndex + 4; // Center position is 4
+            // Calculate how many items we can show before and after current
+            const itemsBefore = Math.min(currentIndex, centerPos);
+            const itemsAfter = Math.min(totalItems - currentIndex - 1, centerPos);
+            
+            // Create visible items, always putting currentIndex at center when possible
+            const startIndex = currentIndex - itemsBefore;
+            const endIndex = currentIndex + itemsAfter;
+            
+            for (let i = startIndex; i <= endIndex; i++) {
+                const relativePos = i - currentIndex; // -4 to +4 relative to current
+                const position = centerPos + relativePos; // Convert to 0-8 position
                 visibleItems.push({ item: items[i], position });
             }
             
@@ -249,6 +252,8 @@
             visibleItems.forEach(({ item, position }) => {
                 const itemEl = document.createElement('div');
                 itemEl.className = `item pos-${position}`;
+                
+                // The selected item is always at position 4
                 if (position === 4) {
                     itemEl.classList.add('selected');
                 }
@@ -269,7 +274,6 @@
             
             // Update debug info to show current mode
             const modeText = viewMode === 'playlists' ? 'Playlists' : `Songs: ${selectedPlaylist.name}`;
-            debug.innerHTML = `${modeText} | Selected: <strong>${items[currentIndex].name}</strong> | Index: ${currentIndex + 1}/${items.length}`;
         }
 
         function scroll(direction) {
@@ -292,7 +296,7 @@
             
             setTimeout(() => {
                 isScrolling = false;
-            }, 50);
+            }, 28);
         }
 
         // Keyboard support
