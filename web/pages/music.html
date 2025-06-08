@@ -9,7 +9,7 @@
             margin: 0;
             padding: 0;
             background-color: #000000;
-            width: 1024px;
+            width: 768px;
             height: 768px;
             overflow: hidden;
             font-family: 'Montserrat', Tahoma, Geneva, Verdana, sans-serif;
@@ -18,7 +18,7 @@
         }
 
         #container {
-            width: 1024px;
+            width: 768px;
             height: 768px;
             position: relative;
         }
@@ -140,7 +140,7 @@
         // Load playlists from JSON file
         async function loadPlaylists() {
             try {
-                const response = await fetch('playlists_with_tracks.json');
+                const response = await fetch('../playlists_with_tracks.json');
                 playlistData = await response.json();
                 
                 // Convert playlist data to our items format (playlists only initially)
