@@ -124,41 +124,97 @@
     <div id="scroll-hint">Scroll or use ↑↓ to navigate</div>
 
     <script>
-        // Generate dummy data with more interesting names
-        const items = [];
-        const categories = [
-            'Chill Vibes',
-            'Workout Mix',
-            'Focus Flow',
-            'Party Time',
-            'Road Trip',
-            'Study Session',
-            'Dinner Party',
-            'Morning Coffee',
-            'Late Night',
-            'Weekend Vibes'
-        ];
-        
-        const adjectives = [
-            'Ultimate', 'Essential', 'Classic', 'Fresh', 'Vintage',
-            'Modern', 'Epic', 'Relaxing', 'Energetic', 'Smooth',
-            'Best of', 'Greatest', 'Premium', 'Curated', 'Special'
-        ];
-        
-        for (let i = 1; i <= 100; i++) {
-            const category = categories[i % categories.length];
-            const adjective = adjectives[i % adjectives.length];
-            items.push({
-                id: `item-${i}`,
-                name: `${adjective} ${category}`,
-                image: `https://picsum.photos/seed/${i}/64/64`
-            });
-        }
-
+        // Load playlist data from playlists_with_tracks.json
+        let items = [];
         let currentIndex = 0;
         let isScrolling = false;
         const container = document.getElementById('container');
         const debug = document.getElementById('debug');
+
+        // State management for playlist/songs view
+        let viewMode = 'playlists'; // 'playlists' or 'songs'
+        let selectedPlaylist = null;
+        let playlistData = []; // Store full playlist data with tracks
+        let savedPlaylistIndex = 0; // Remember position when viewing songs
+
+        // Load playlists from JSON file
+        async function loadPlaylists() {
+            try {
+                const response = await fetch('playlists_with_tracks.json');
+                playlistData = await response.json();
+                
+                // Convert playlist data to our items format (playlists only initially)
+                items = playlistData.map((playlist, index) => ({
+                    id: playlist.id,
+                    name: playlist.name || `Playlist ${index + 1}`, // Handle empty names
+                    image: playlist.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪' // Placeholder for null images
+                }));
+                
+                // Initial render
+                render();
+            } catch (error) {
+                console.error('Error loading playlists:', error);
+                // Fallback to dummy data if loading fails
+                items = [
+                    { id: 'fallback-1', name: 'Error Loading Playlists', image: 'https://via.placeholder.com/64x64/ff0000/ffffff?text=!' }
+                ];
+                render();
+            }
+        }
+
+        function enterPlaylistView() {
+            if (viewMode !== 'playlists' || !playlistData[currentIndex]) return;
+            
+            // Save current playlist position
+            savedPlaylistIndex = currentIndex;
+            selectedPlaylist = playlistData[currentIndex];
+            
+            // Animate current playlist 200px left
+            const selectedElement = document.querySelector('.item.selected');
+            if (selectedElement) {
+                selectedElement.style.transform = 'translateX(-200px) scale(1)';
+                selectedElement.style.transition = 'transform 0.3s ease';
+            }
+            
+            // Load songs after animation
+            setTimeout(() => {
+                loadPlaylistSongs();
+            }, 300);
+        }
+
+        function loadPlaylistSongs() {
+            if (!selectedPlaylist || !selectedPlaylist.tracks) {
+                console.error('No tracks found for playlist');
+                return;
+            }
+            
+            // Convert tracks to items format
+            items = selectedPlaylist.tracks.map(track => ({
+                id: track.id,
+                name: `${track.artist} - ${track.name}`,
+                image: track.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+            }));
+            
+            viewMode = 'songs';
+            currentIndex = 0;
+            render();
+        }
+
+        function exitPlaylistView() {
+            if (viewMode !== 'songs') return;
+            
+            // Restore playlist items
+            items = playlistData.map((playlist, index) => ({
+                id: playlist.id,
+                name: playlist.name || `Playlist ${index + 1}`,
+                image: playlist.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+            }));
+            
+            viewMode = 'playlists';
+            currentIndex = savedPlaylistIndex; // Return to exact same position
+            selectedPlaylist = null;
+            render();
+        }
 
         function getVisibleItems() {
             const visibleItems = [];
@@ -185,6 +241,8 @@
         }
 
         function render() {
+            if (items.length === 0) return; // Don't render if no items loaded yet
+            
             container.innerHTML = '';
             const visibleItems = getVisibleItems();
             
@@ -209,11 +267,13 @@
                 container.appendChild(itemEl);
             });
             
-            debug.innerHTML = `Selected: <strong>${items[currentIndex].name}</strong> | Index: ${currentIndex + 1}/100`;
+            // Update debug info to show current mode
+            const modeText = viewMode === 'playlists' ? 'Playlists' : `Songs: ${selectedPlaylist.name}`;
+            debug.innerHTML = `${modeText} | Selected: <strong>${items[currentIndex].name}</strong> | Index: ${currentIndex + 1}/${items.length}`;
         }
 
         function scroll(direction) {
-            if (isScrolling) return;
+            if (isScrolling || items.length === 0) return;
             
             isScrolling = true;
             const oldIndex = currentIndex;
@@ -246,7 +306,8 @@
             }
         });
 
-        render();
+        // Load playlists when page loads
+        loadPlaylists();
 
         // Hide scroll hint after first interaction
         let interacted = false;
@@ -299,6 +360,25 @@
         function handleWebSocketMessage(data) {
             // Log all received WebSocket messages
             console.log('Received WebSocket message:', data);
+            
+            // Handle button messages for playlist selection and back navigation
+            if (data.type === 'button' && data.data && data.data.button) {
+                const button = data.data.button;
+                
+                if (button === 'left' && viewMode === 'playlists') {
+                    // Select playlist to show songs
+                    enterPlaylistView();
+                    return;
+                } else if (button === 'right' && viewMode === 'songs') {
+                    // Go back to playlists
+                    exitPlaylistView();
+                    return;
+                } else if (button === 'go') {
+                    // Send webhook with appropriate ID
+                    sendGoWebhook();
+                    return;
+                }
+            }
             
             // Listen for navigation wheel events (not volume or laser)
             if (data.type === 'nav' && data.data) {
@@ -355,6 +435,55 @@
             
             ws.send(JSON.stringify(message));
             console.log('Sent click command to server');
+        }
+        
+        async function sendGoWebhook() {
+            if (items.length === 0) return;
+            
+            let id;
+            
+            // Get appropriate ID based on current mode
+            if (viewMode === 'playlists') {
+                // Send playlist ID
+                const currentPlaylist = playlistData[currentIndex];
+                if (!currentPlaylist) return;
+                id = "spotify:playlist:" + currentPlaylist.id;
+                console.log('Sending webhook for playlist:', currentPlaylist.name, 'ID:', id);
+            } else if (viewMode === 'songs') {
+                // Send song ID
+                const currentSong = selectedPlaylist.tracks[currentIndex];
+                if (!currentSong) return;
+                id = "spotify:track:" + currentSong.id;
+                console.log('Sending webhook for song:', currentSong.name, 'ID:', id);
+            } else {
+                return;
+            }
+            
+            // Send webhook to Home Assistant
+            try {
+                const webhookData = {
+                    device_type: "Panel",
+                    button: "go",
+                    panel_context: "music",
+                    id: id
+                };
+                
+                const response = await fetch('http://homeassistant.local:8123/api/webhook/beosound5c', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(webhookData)
+                });
+                
+                if (response.ok) {
+                    console.log('Webhook sent successfully:', webhookData);
+                } else {
+                    console.error('Webhook failed with status:', response.status);
+                }
+            } catch (error) {
+                console.error('Error sending webhook:', error);
+            }
         }
         
         // Initialize WebSocket connection when page loads
