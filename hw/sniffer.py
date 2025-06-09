@@ -145,7 +145,9 @@ class PC2Device:
     # Address mask types
     ADDRESS_MASK_AUDIO_MASTER = 1
     ADDRESS_MASK_BEOPORT = 2
-    ADDRESS_MASK_PROMISC = 3
+    ADDRESS_MASK_ALL = 3
+
+    SONOS_IP = "192.168.1.111"
 
     def __init__(self):
         self.dev = None
@@ -160,7 +162,6 @@ class PC2Device:
         # Initialize Sonos speaker
         try:
             # Static Sonos configuration
-            SONOS_IP = "192.168.1.111"
             self.sonos_speaker = soco.SoCo(SONOS_IP)
             print(f"Connected to Sonos at {SONOS_IP}")
             self.VOLUME_STEP = 2
@@ -216,9 +217,10 @@ class PC2Device:
         elif address_mask == self.ADDRESS_MASK_BEOPORT:
             print("Setting address filter to Beoport PC2 mode")
             self.send_message([0xf6, 0x00, 0x82, 0x80, 0x83])
-        elif address_mask == self.ADDRESS_MASK_PROMISC:
-            print("Setting address filter to promiscuous mode")
-            self.send_message([0xf6, 0xc0, 0xc1, 0x80, 0x83, 0x05, 0x00, 0x00])
+        elif address_mask == self.ADDRESS_MASK_ALL:
+            print("Setting address filter to capture all data")
+            # self.send_message([0xF6, 0xC0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+            self.send_message([0xF6, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
         else:
             print("Error: Invalid address mask")
 
@@ -364,8 +366,9 @@ class PC2Device:
                     
                     # Check if we should send via WebSocket
                     if shouldSendWebsocket(message):
-                        self._send_websocket(message)
-                    
+                        # self._send_websocket(message)
+                        print("Ignoring websocket send")
+
                     # Run webhook tasks concurrently
                     if tasks:
                         print(f"🔍 DEBUG: Running {len(tasks)} webhook tasks")
@@ -395,6 +398,7 @@ class PC2Device:
         action = webhook_data['action']
         device_type = webhook_data['device_type']
         
+        """
         # Direct Sonos control for audio commands
         soco_handled = False
         if action in ["off", "volup", "voldown", "left", "right", "go", "mute", "up", "down"]:
@@ -465,20 +469,20 @@ class PC2Device:
                 # Reset speaker connection on error
                 try:
                     # Try to reconnect
-                    SONOS_IP = "192.168.0.116"
                     self.sonos_speaker = soco.SoCo(SONOS_IP)
                     print(f"Reconnected to Sonos at {SONOS_IP}")
                 except Exception:
                     self.sonos_speaker = None
-        
+
         # If SoCo handled the command, return without sending webhook
         if soco_handled:
             return True
-            
+        """
+
         # Otherwise, continue with sending the webhook
         # DIAGNOSTIC: Print webhook attempt
         print(f"🔍 DEBUG: Attempting to send webhook: {webhook_data['action']} to {WEBHOOK_URL}")
-        
+
         # Implement retry logic
         retries = 0
         while retries <= MAX_WEBHOOK_RETRIES:
@@ -739,7 +743,7 @@ if __name__ == "__main__":
 
         # Set address filter to desired mode
         print("\n=== Setting address filter ===")
-        pc2.set_address_filter(PC2Device.ADDRESS_MASK_PROMISC)  # Use promiscuous mode to capture all messages
+        pc2.set_address_filter(PC2Device.ADDRESS_MASK_ALL)
 
         # Keep the program running to allow for communication
         print("\n=== Device initialized. Sniffing USB messages... ===")
