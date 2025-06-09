@@ -52,11 +52,6 @@ def control_screen(on: bool):
         return False
     
     try:
-        # Check if we're already in the desired state to avoid redundant operations
-        if (on and backlight_on) or (not on and not backlight_on):
-            print(f"[SCREEN] Screen already {'on' if on else 'off'}, skipping")
-            return True
-            
         do_click()
         
         action = "on" if on else "off"
@@ -93,11 +88,6 @@ def control_screen(on: bool):
 def set_backlight(on: bool):
     """Turn backlight bit on/off."""
     global state_byte1, backlight_on
-    
-    # Skip if already in the desired state
-    if on == backlight_on:
-        print(f"[BACKLIGHT] Already {('on' if on else 'off')}, skipping")
-        return
     
     # Update state
     backlight_on = on
