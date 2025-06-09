@@ -42,57 +42,6 @@ def set_led(mode: str):
         state_byte1 |= 0x10
     bs5_send_cmd(state_byte1)
 
-def control_screen(on: bool):
-    """Control screen power using vcgencmd on Raspberry Pi."""
-    global screen_control_lock
-    
-    # Try to acquire the lock with a timeout to prevent deadlocks
-    if not screen_control_lock.acquire(timeout=0.5):
-        print("[SCREEN] Control operation already in progress, skipping")
-        return False
-    
-    try:
-        do_click()
-        
-        action = "on" if on else "off"
-        print(f"[SCREEN] Turning screen {action}")
-        
-        # Set LED state inverse to screen state
-        if on:
-            # Screen on -> LED off
-            set_led("off")
-        else:
-            # Screen off -> LED on
-            set_led("on")
-        
-        try:
-            # If turning on, also disable DPMS
-            if on:
-                # Set DISPLAY environment variable
-                env = os.environ.copy()
-                env["DISPLAY"] = ":0"
-                
-                # Run xset -dpms to disable DPMS
-                subprocess.run(
-                    ["xset", "-dpms"],
-                    env=env,
-                    stderr=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    check=False,
-                    timeout=2
-                )
-                print("[SCREEN] DPMS disabled")
-            
-            print(f"[SCREEN] Screen {action} command sent successfully")
-            return True
-            
-        except Exception as e:
-            print(f"[SCREEN] Error controlling screen: {str(e)}")
-            return False
-    finally:
-        # Always release the lock
-        screen_control_lock.release()
-
 def set_backlight(on: bool):
     """Turn backlight bit on/off."""
     global state_byte1, backlight_on
@@ -104,9 +53,6 @@ def set_backlight(on: bool):
     else:
         state_byte1 &= ~0x40
     bs5_send_cmd(state_byte1)
-    
-    # Control screen separately
-    control_screen(on)
 
 def toggle_backlight():
     """Toggle backlight state."""
@@ -115,8 +61,6 @@ def toggle_backlight():
     new_state = not backlight_on
     print(f"[BACKLIGHT] Toggling from {backlight_on} to {new_state}")
     set_backlight(new_state)
-
-# ——— WebSocket boilerplate ———
 
 async def handler(ws, path=None):
     clients.add(ws)
@@ -198,6 +142,7 @@ def parse_report(rep: list):
             if current_time - last_power_press_time > POWER_DEBOUNCE_TIME:
                 print("[BUTTON] Power button action triggered")
                 toggle_backlight()
+                do_click()
                 last_power_press_time = current_time
                 # Create button event for power button release
                 btn_evt = {'button': 'power'}
@@ -237,6 +182,7 @@ def scan_loop(loop):
                         broadcast(json.dumps({'type':evt_type,'data':evt})),
                         loop
                     )
+
 
             if first or laser_pos != last_laser:
                 asyncio.run_coroutine_threadsafe(
