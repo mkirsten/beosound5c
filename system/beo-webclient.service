@@ -7,6 +7,12 @@ Type=simple
 User=kirsten
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=/home/kirsten/.Xauthority
+
+ExecStartPre=/usr/bin/xset s off
+ExecStartPre=/usr/bin/xset s noblank
+ExecStartPre=/usr/bin/xset -dpms
+ExecStartPre=/usr/bin/xset dpms 0 0 0
+
 WorkingDirectory=/home/kirsten/beosound5c
 ExecStart=/home/kirsten/beosound5c/webclient.sh
 Restart=always
