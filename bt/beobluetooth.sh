@@ -78,7 +78,7 @@ while true; do
 
     # 1) Catch GLib warnings and restart
     if [[ "$line" == *"GLib-WARNING"* ]]; then
-      echo ">>> Caught GLib warning—restarting"
+97      echo ">>> Caught GLib warning—restarting"
       break
     fi
 
@@ -93,7 +93,8 @@ while true; do
       address="${BASH_REMATCH[1]}"
       command="${BASH_REMATCH[2],,}"
 
-      if [[ "$command" != "00" && $pressed == false ]]; then
+      # add && pressed == false to trigger only once per hold of buttons
+      if [[ "$command" != "00" ]]; then
         echo "[EVENT] Press: $command"
         # fire webhook
         curl -G "${WEBHOOK}" \
