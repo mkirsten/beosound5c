@@ -191,6 +191,8 @@ def scan_loop(loop):
                 )
                 last_laser, first = laser_pos, False
 
+        # Turn screen on when anything happens
+        set_backlight(True)
         time.sleep(0.001)
 
 # ——— Main & server start ———
