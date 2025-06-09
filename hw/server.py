@@ -66,15 +66,23 @@ def control_screen(on: bool):
             set_led("on")
         
         try:
-            # Use vcgencmd for Raspberry Pi
-            value = "1" if on else "0"
-            subprocess.run(
-                ["vcgencmd", "display_power", value], 
-                stderr=subprocess.PIPE, 
-                stdout=subprocess.PIPE, 
-                check=False,
-                timeout=2
-            )
+            # If turning on, also disable DPMS
+            if on:
+                # Set DISPLAY environment variable
+                env = os.environ.copy()
+                env["DISPLAY"] = ":0"
+                
+                # Run xset -dpms to disable DPMS
+                subprocess.run(
+                    ["xset", "-dpms"],
+                    env=env,
+                    stderr=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    check=False,
+                    timeout=2
+                )
+                print("[SCREEN] DPMS disabled")
+            
             print(f"[SCREEN] Screen {action} command sent successfully")
             return True
             
