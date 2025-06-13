@@ -3,18 +3,18 @@
 sudo pkill X || true
 
 # Wait for X to be ready (so xset doesn’t silently fail)
-export DISPLAY=:0
-export XAUTHORITY=/home/kirsten/.Xauthority
-for i in $(seq 1 30); do
-  xdpyinfo -display "$DISPLAY" >/dev/null 2>&1 && break
-  sleep 1
-done
+#export DISPLAY=:0
+#export XAUTHORITY=/home/kirsten/.Xauthority
+#for i in $(seq 1 30); do
+#  xdpyinfo -display "$DISPLAY" >/dev/null 2>&1 && break
+#  sleep 1
+#done
 
 # Turn off screensaver, screen blank and DPMS completely
-xset s off          # disable screen saver
-xset s noblank      # don’t blank the video device
-xset -dpms          # disable DPMS (Energy Star) features
-xset dpms 0 0 0     # set standby, suspend, off timers to 0 (never)
+#xset s off          # disable screen saver
+#xset s noblank      # don’t blank the video device
+#xset -dpms          # disable DPMS (Energy Star) features
+#xset dpms 0 0 0     # set standby, suspend, off timers to 0 (never)
 
 # Clear Chromium cache before starting
 rm -rf ~/.cache/chromium/Default/Cache/*
