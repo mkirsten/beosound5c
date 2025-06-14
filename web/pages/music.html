@@ -83,6 +83,8 @@
             height: 64px;
             box-shadow: 0 8px 16px rgba(0, 0, 0, 0.7);
         }
+
+        /* Base positions for items */
         .pos-0 { 
             right: 8%; 
             top: 5%;
@@ -129,17 +131,40 @@
             transform: scale(0.8);
         }
 
+        /* Moving positions - will be applied via JavaScript */
+        .moving {
+            transition: all 0.1s linear;
+        }
     </style>
 </head>
 <body>
     <div id="arc-guide"></div>
     <div id="container"></div>
+    <div id="scroll-hint">Scroll or use ↑↓ to navigate</div>
 
     <script>
+        // Constants for smooth scrolling
+        const MOVE_STEPS = 5; // Set to 2 for 50% movement (1/2 = 0.5 or 50%)
+        const MOVE = 1 / MOVE_STEPS; // How far to move in each step
+        
+        // Position definitions for interpolation
+        const POSITIONS = {
+            0: { right: 8, top: 5, scale: 0.8 },
+            1: { right: 12, top: 15, scale: 0.8 },
+            2: { right: 17, top: 25, scale: 0.9 },
+            3: { right: 20, top: 35, scale: 1.1 },
+            4: { right: 21, top: 50, scale: 1.6 },
+            5: { right: 20, top: 65, scale: 1.1 },
+            6: { right: 17, top: 75, scale: 0.9 },
+            7: { right: 12, top: 85, scale: 0.8 },
+            8: { right: 8, top: 95, scale: 0.8 }
+        };
+        
         // Load playlist data from playlists_with_tracks.json
         let items = [];
         let currentIndex = 0;
         let isScrolling = false;
+        let currentMove = 0; // Current move progress (0 to 1)
         const container = document.getElementById('container');
 
         // State management for playlist/songs view
@@ -291,12 +316,44 @@
             isScrolling = true;
             const oldIndex = currentIndex;
             
-            // Prevent scrolling beyond boundaries
-            if (direction > 0 && currentIndex < items.length - 1) {
-                currentIndex++;
-            } else if (direction < 0 && currentIndex > 0) {
-                currentIndex--;
+            // Calculate new move progress
+            currentMove += MOVE * direction;
+            
+            // If we've completed a full move, update the index
+            if (Math.abs(currentMove) >= 1) {
+                // Prevent scrolling beyond boundaries
+                if (direction > 0 && currentIndex < items.length - 1) {
+                    currentIndex++;
+                } else if (direction < 0 && currentIndex > 0) {
+                    currentIndex--;
+                }
+                currentMove = 0; // Reset move progress
             }
+            
+            // Apply the move to all items
+            const itemElements = document.querySelectorAll('.item');
+            itemElements.forEach(item => {
+                const currentPos = parseInt(item.className.match(/pos-(\d+)/)[1]);
+                const nextPos = direction > 0 ? currentPos - 1 : currentPos + 1;
+                
+                if (nextPos >= 0 && nextPos <= 8) {
+                    // Get positions from our POSITIONS object
+                    const currentPosData = POSITIONS[currentPos];
+                    const nextPosData = POSITIONS[nextPos];
+                    
+                    // Calculate intermediate position
+                    const moveProgress = Math.abs(currentMove);
+                    const right = interpolate(currentPosData.right, nextPosData.right, moveProgress);
+                    const top = interpolate(currentPosData.top, nextPosData.top, moveProgress);
+                    const scale = interpolate(currentPosData.scale, nextPosData.scale, moveProgress);
+                    
+                    // Apply the intermediate position
+                    item.style.right = `${right}%`;
+                    item.style.top = `${top}%`;
+                    item.style.transform = `scale(${scale})`;
+                    item.classList.add('moving');
+                }
+            });
             
             // Only render if the index actually changed
             if (oldIndex !== currentIndex) {
@@ -306,6 +363,11 @@
             setTimeout(() => {
                 isScrolling = false;
             }, 28);
+        }
+
+        // Helper function to interpolate between two values
+        function interpolate(start, end, progress) {
+            return start + (end - start) * progress;
         }
 
         // Keyboard support
