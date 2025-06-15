@@ -64,11 +64,6 @@ body {
     pointer-events: none; /* Items are not clickable */
 }
 
-/* Currently selected/focused item gets higher z-index */
-.arc-item.selected {
-    z-index: 10;
-}
-
 /* Text label for each item */
 .item-name {
     text-align: center;
