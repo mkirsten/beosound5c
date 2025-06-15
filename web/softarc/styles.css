@@ -1,0 +1,153 @@
+* Reset all default browser styles and set box-sizing */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* Main body styling - black background, white text, no scroll */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: black;
+    color: white;
+    overflow: hidden; /* Prevents scrolling - we handle navigation with keys */
+    height: 100vh;
+}
+
+/* Main app container - full screen, centered content */
+#app {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Top-left instructions text */
+.instructions {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    color: rgba(255, 255, 255, 0.6); /* Semi-transparent white */
+    font-size: 0.875rem;
+    z-index: 100; /* Above everything else */
+}
+
+/* Top-right counter display */
+.counter {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    color: rgba(255, 255, 255, 0.6); /* Semi-transparent white */
+    font-size: 0.875rem;
+    z-index: 100; /* Above everything else */
+}
+
+/* Container for all arc list items */
+.arc-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Individual item in the arc list */
+.arc-item {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 1rem; /* Space between name and image */
+    transition: all 75ms ease-out; /* Smooth animations for all changes */
+    pointer-events: none; /* Items are not clickable */
+}
+
+/* Currently selected/focused item gets higher z-index */
+.arc-item.selected {
+    z-index: 10;
+}
+
+/* Text label for each item */
+.item-name {
+    text-align: center;
+    max-width: 10rem;
+    word-wrap: break-word;
+    transition: all 75ms ease-out;
+}
+
+/* Selected item name styling - larger and brighter */
+.item-name.selected {
+    color: white;
+    font-size: 1.125rem;
+    font-weight: bold;
+}
+
+/* Non-selected item name styling - smaller and dimmer */
+.item-name.unselected {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.875rem;
+}
+
+/* Container for the item image with border effects */
+.item-image-container {
+    position: relative;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    transition: all 75ms ease-out;
+}
+
+/* Selected item gets a blue glowing border */
+.item-image-container.selected {
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.7);
+}
+
+/* The actual image element */
+.item-image {
+    width: 8rem; /* 128px */
+    height: 8rem; /* 128px */
+    object-fit: cover; /* Crop image to fit square without distortion */
+    border-radius: 0.75rem;
+    display: block;
+}
+
+/* Overlay that appears on top of selected images */
+.item-overlay {
+    position: absolute;
+    inset: 0; /* Covers entire image */
+    background: linear-gradient(to top, rgba(59, 130, 246, 0.2), transparent);
+    border-radius: 0.75rem;
+    opacity: 0; /* Hidden by default */
+    transition: opacity 75ms ease-out;
+}
+
+/* Show overlay on selected items */
+.item-overlay.selected {
+    opacity: 1;
+}
+
+/* Background decorative arc guide */
+.arc-guide {
+    position: absolute;
+    inset: 0; /* Covers entire screen */
+    pointer-events: none; /* Doesn't interfere with interactions */
+    opacity: 0.1; /* Very subtle */
+    z-index: 1; /* Behind items but above background */
+}
+
+/* Loading state for images while they're downloading */
+.item-image[data-loading="true"] {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Performance optimization - tells browser what properties will change */
+.arc-item {
+    will-change: transform, opacity, filter;
+}
+
+/* Accessibility - focus outline for keyboard navigation */
+.arc-item:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
