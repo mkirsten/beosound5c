@@ -93,10 +93,10 @@ body {
     transition: all 75ms ease-out;
 }
 
-/* Selected item gets a blue glowing border */
-.item-image-container.selected {
+/* Remove blue glowing border from selected items */
+/* .item-image-container.selected {
     box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.7);
-}
+} */
 
 /* The actual image element */
 .item-image {
