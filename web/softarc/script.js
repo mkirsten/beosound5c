@@ -25,36 +25,54 @@ class ArcList {
         this.currentItemDisplay = document.getElementById('current-item'); // Counter display
         this.totalItemsDisplay = document.getElementById('total-items'); // Total count display
         
-        // ===== GENERATE DATA =====
-        this.items = this.generateItems(); // Create 100 random items
-        
-        // ===== START THE APP =====
+        // ===== INITIALIZE =====
+        this.items = []; // Will be loaded asynchronously
         this.init();
     }
     
+    /**
+     * Load playlist data from playlists_with_tracks.json
+     * Each playlist has: name, id, url, image, and tracks array
+     */
+    async loadPlaylists() {
+        try {
+            const response = await fetch('../playlists_with_tracks.json');
+            const data = await response.json();
+            
+            // Transform playlist data into the format we need
+            return data.map(playlist => ({
+                id: playlist.id,
+                name: playlist.name,
+                image: playlist.image || 'data:image/svg+xml,%3Csvg width="128" height="128" xmlns="http://www.w3.org/2000/svg"%3E%3Crect width="128" height="128" fill="%23333"/%3E%3Ctext x="64" y="64" text-anchor="middle" dy=".3em" fill="white" font-size="16"%3E♪%3C/text%3E%3C/svg%3E'
+            }));
+        } catch (error) {
+            console.error('Error loading playlists:', error);
+            // Fallback to a few dummy items if loading fails
+            return [
+                { id: '1', name: 'Error Loading Playlists', image: 'data:image/svg+xml,%3Csvg width="128" height="128" xmlns="http://www.w3.org/2000/svg"%3E%3Crect width="128" height="128" fill="%23ff0000"/%3E%3Ctext x="64" y="64" text-anchor="middle" dy=".3em" fill="white" font-size="16"%3E!%3C/text%3E%3C/svg%3E' }
+            ];
+        }
+    }
+
     /**
      * Generate 100 random items with names and images
      * Each item has: id, name, and image URL
      * Using reliable placeholder images from picsum.photos
      */
     generateItems() {
-        // Arrays for generating random names
+        // This method is now replaced by loadPlaylists()
+        // Keeping it for reference but it won't be used
         const adjectives = ['Amazing', 'Brilliant', 'Creative', 'Dynamic', 'Epic', 'Fantastic', 'Glorious', 'Incredible', 'Luminous', 'Majestic'];
         const nouns = ['Galaxy', 'Phoenix', 'Thunder', 'Crystal', 'Shadow', 'Flame', 'Storm', 'Ocean', 'Mountain', 'Star'];
         
         return Array.from({ length: 100 }, (_, index) => {
-            // Create random name by combining adjective + noun
             const name = `${adjectives[Math.floor(Math.random() * adjectives.length)]} ${nouns[Math.floor(Math.random() * nouns.length)]}`;
-            
-            // Use picsum.photos for reliable placeholder images
-            const imageId = 100 + index; // Start from ID 100 to avoid very common images
+            const imageId = 100 + index;
             
             return {
-                id: Math.floor(Math.random() * 10000000000).toString().padStart(10, '0'), // Random 10-digit ID
-                name: name.length > 30 ? name.substring(0, 30) : name, // Limit name length
-                // Use picsum.photos - reliable, fast, and works everywhere
+                id: Math.floor(Math.random() * 10000000000).toString().padStart(10, '0'),
+                name: name.length > 30 ? name.substring(0, 30) : name,
                 image: `https://picsum.photos/128/128?random=${imageId}`,
-                // Fallback to a simple colored rectangle if picsum fails
                 fallbackImage: `data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='%23${(imageId * 123456).toString(16).slice(-6)}'/%3E%3Ctext x='64' y='64' text-anchor='middle' dy='.3em' fill='white' font-size='16'%3E${index + 1}%3C/text%3E%3C/svg%3E`
             };
         });
@@ -62,10 +80,15 @@ class ArcList {
     
     /**
      * Initialize the application
-     * Sets up event listeners, starts animation loop, updates counter
+     * Sets up event listeners, loads playlists, starts animation loop, updates counter
      */
-    init() {
-        console.log('Initializing ArcList with', this.items.length, 'items'); // Debug log
+    async init() {
+        console.log('Initializing ArcList...'); // Debug log
+        
+        // Load playlist data
+        this.items = await this.loadPlaylists();
+        console.log('Loaded', this.items.length, 'playlists'); // Debug log
+        
         this.setupEventListeners(); // Listen for keyboard input
         this.startAnimation(); // Begin the smooth animation loop
         this.updateCounter(); // Show initial counter values
@@ -162,132 +185,148 @@ class ArcList {
      */
     getVisibleItems() {
         const visibleItems = [];
-        const startIndex = Math.max(0, Math.floor(this.currentIndex) - this.MIDDLE_INDEX);
         
-        // Loop through potentially visible items
-        for (let i = 0; i < this.VISIBLE_ITEMS; i++) {
-            const itemIndex = startIndex + i;
+        // Calculate the range of items to show (centered around currentIndex)
+        const centerIndex = Math.round(this.currentIndex);
+        
+        // Show items from -MIDDLE_INDEX to +MIDDLE_INDEX relative to center
+        for (let relativePos = -this.MIDDLE_INDEX; relativePos <= this.MIDDLE_INDEX; relativePos++) {
+            const itemIndex = centerIndex + relativePos;
             
-            // Skip if item doesn't exist
-            if (itemIndex >= 0 && itemIndex < this.items.length) {
-                // Calculate relative position from center
-                const relativePosition = i - this.MIDDLE_INDEX - (this.currentIndex - Math.floor(this.currentIndex));
-                const absPosition = Math.abs(relativePosition);
-                
-                // Skip items that would be beyond the list boundaries
-                const actualItemPosition = this.currentIndex + relativePosition;
-                if (actualItemPosition < -0.5 || actualItemPosition >= this.items.length - 0.5) {
-                    continue;
-                }
-                
-                // ===== VISUAL EFFECTS =====
-                const scale = Math.max(0.4, 1.0 - (absPosition * 0.15)); // Calculate scale first
-                const opacity = Math.max(0.4, 1 - absPosition * 0.15); // Center item is fully visible, edges fade out
-                const blur = 0; //absPosition * 2; // Center item is sharp, edges are blurred
-                
-                // ===== ARC POSITIONING CALCULATIONS =====
-                // Items curve to the right side of the screen
-                const maxRadius = 180; // Horizontal offset for spacing
-                const x = Math.abs(relativePosition) * maxRadius * 0.4; // Horizontal spacing multiplier
-                
-                // Dynamic spacing based on item scale
-                // Base item size is 128px, so we need spacing proportional to the scaled size
-                const baseItemSize = 128; // Base size in pixels
-                const scaledItemSize = baseItemSize * scale; // Actual size after scaling
-                const minSpacing = scaledItemSize + 20; // Add 20px padding between items
-                const y = relativePosition * minSpacing; // Dynamic spacing based on scale
-                
-                // Add item to visible list with all its properties
-                visibleItems.push({
-                    ...this.items[itemIndex], // Include original item data (id, name, image)
-                    index: itemIndex,
-                    x, // Horizontal position
-                    y, // Vertical position
-                    scale, // Size multiplier
-                    opacity, // Transparency
-                    blur, // Blur amount
-                    isSelected: Math.abs(relativePosition) < 0.5 // Is this the center/selected item?
-                });
+            // Skip if item doesn't exist in our data
+            if (itemIndex < 0 || itemIndex >= this.items.length) {
+                continue;
             }
+            
+            // Calculate the actual relative position considering smooth scrolling
+            const actualRelativePos = relativePos - (this.currentIndex - centerIndex);
+            const absPosition = Math.abs(actualRelativePos);
+            
+            // ===== VISUAL EFFECTS =====
+            const scale = Math.max(0.4, 1.0 - (absPosition * 0.15)); // Calculate scale first
+            const opacity = Math.max(0.4, 1 - absPosition * 0.15); // Center item is fully visible, edges fade out
+            const blur = 0; // No blur for now
+            
+            // ===== ARC POSITIONING CALCULATIONS =====
+            // Items curve to the right side of the screen
+            const maxRadius = 180; // Horizontal offset for spacing
+            const x = Math.abs(actualRelativePos) * maxRadius * 0.4; // Horizontal spacing multiplier
+            
+            // Dynamic spacing based on item scale
+            const baseItemSize = 128; // Base size in pixels
+            const scaledItemSize = baseItemSize * scale; // Actual size after scaling
+            const minSpacing = scaledItemSize + 20; // Add 20px padding between items
+            const y = actualRelativePos * minSpacing; // Dynamic spacing based on scale
+            
+            // Add item to visible list with all its properties
+            visibleItems.push({
+                ...this.items[itemIndex], // Include original item data (id, name, image)
+                index: itemIndex, // Original index in the items array
+                relativePosition: actualRelativePos, // Position relative to center
+                x, // Horizontal position
+                y, // Vertical position
+                scale, // Size multiplier
+                opacity, // Transparency
+                blur, // Blur amount
+                isSelected: Math.abs(actualRelativePos) < 0.5 // Is this the center/selected item?
+            });
         }
         
-        console.log('Visible items:', visibleItems.length); // Debug log
+        // Sort by relative position to ensure consistent order
+        visibleItems.sort((a, b) => a.relativePosition - b.relativePosition);
+        
         return visibleItems;
     }
     
     /**
-     * Create an image element with fallback handling
-     * This ensures images always display something
+     * Create and configure an image element for an item
+     * Handles loading states and fallbacks properly
      */
     createImageElement(item) {
         const img = document.createElement('img');
         img.className = 'item-image';
         img.alt = item.name;
-        img.loading = 'eager'; // Load images immediately for better UX
+        img.loading = 'lazy';
         
-        // Set up error handling with fallback
-        img.onerror = () => {
-            console.log('Image failed to load for item:', item.index, 'using fallback');
-            img.src = item.fallbackImage;
-        };
+        // Add unique data attribute to prevent caching issues
+        img.dataset.itemId = item.id;
         
-        // Add load success logging
+        // Handle image loading
         img.onload = () => {
-            console.log('Image loaded successfully for item:', item.index);
+            img.removeAttribute('data-loading');
         };
         
-        // Set the image source
+        img.onerror = () => {
+            // Fallback to a simple placeholder
+            img.src = `data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='%23333'/%3E%3Ctext x='64' y='64' text-anchor='middle' dy='.3em' fill='white' font-size='16'%3E♪%3C/text%3E%3C/svg%3E`;
+        };
+        
+        img.setAttribute('data-loading', 'true');
         img.src = item.image;
         
         return img;
     }
     
     /**
-     * Render all visible items to the DOM
-     * This runs every frame to update positions and visual effects
+     * Render all visible items to the screen
+     * This is called every animation frame to update positions and visibility
      */
     render() {
-        const visibleItems = this.getVisibleItems();
-        
-        // Clear container (remove all existing items)
+        // Clear the container completely to prevent element reuse issues
         this.container.innerHTML = '';
         
-        console.log('Rendering', visibleItems.length, 'items'); // Debug log
+        const visibleItems = this.getVisibleItems();
         
-        // Create and position each visible item
+        // Create fresh DOM elements for each visible item
         visibleItems.forEach(item => {
-            // Create main item container
+            // Create main container for this item
             const itemElement = document.createElement('div');
-            itemElement.className = `arc-item ${item.isSelected ? 'selected' : ''}`;
+            itemElement.className = 'arc-item';
+            itemElement.dataset.itemId = item.id; // Add unique identifier
+            
+            // Add selected class if this is the center item
+            if (Math.abs(item.index - this.currentIndex) < 0.5) {
+                itemElement.classList.add('selected');
+            }
+            
+            // Create and configure the image
+            const imageContainer = document.createElement('div');
+            imageContainer.className = 'item-image-container';
+            if (itemElement.classList.contains('selected')) {
+                imageContainer.classList.add('selected');
+            }
+            
+            const img = this.createImageElement(item);
+            imageContainer.appendChild(img);
+            
+            // Create overlay for selected items
+            const overlay = document.createElement('div');
+            overlay.className = 'item-overlay';
+            if (itemElement.classList.contains('selected')) {
+                overlay.classList.add('selected');
+            }
+            imageContainer.appendChild(overlay);
+            
+            // Create and configure the name label
+            const nameElement = document.createElement('div');
+            nameElement.className = 'item-name';
+            nameElement.textContent = item.name;
+            if (itemElement.classList.contains('selected')) {
+                nameElement.classList.add('selected');
+            } else {
+                nameElement.classList.add('unselected');
+            }
             
             // Apply positioning and visual effects
             itemElement.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
             itemElement.style.opacity = item.opacity;
             itemElement.style.filter = `blur(${item.blur}px)`;
             
-            // Create the item name element
-            const nameElement = document.createElement('div');
-            nameElement.className = `item-name ${item.isSelected ? 'selected' : 'unselected'}`;
-            nameElement.textContent = item.name;
-            
-            // Create the image container
-            const imageContainer = document.createElement('div');
-            imageContainer.className = `item-image-container ${item.isSelected ? 'selected' : ''}`;
-            
-            // Create the image with fallback handling
-            const imageElement = this.createImageElement(item);
-            
-            // Create the overlay
-            const overlayElement = document.createElement('div');
-            overlayElement.className = `item-overlay ${item.isSelected ? 'selected' : ''}`;
-            
-            // Assemble the item
-            imageContainer.appendChild(imageElement);
-            imageContainer.appendChild(overlayElement);
+            // Add elements to the item container
             itemElement.appendChild(nameElement);
             itemElement.appendChild(imageContainer);
             
-            // Add item to the container
+            // Add item to the main container
             this.container.appendChild(itemElement);
         });
     }
