@@ -16,9 +16,9 @@ from collections import defaultdict
 # Home Assistant webhook and WebSocket URLs
 WEBHOOK_URL = "http://homeassistant.local:8123/api/webhook/beosound5c"
 WEBSOCKET_URL = "ws://localhost:8765"
+BEOSOUND_DEVICE_NAME = "Church"
 
 # Message processing settings
-BEOSOUND_DEVICE_NAME = "Church"
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
 DEDUP_COMMANDS = ["volup", "voldown", "left", "right"]  # Commands to deduplicate
 WEBHOOK_INTERVAL = 0.2  # Send webhook at least every 0.2 seconds for deduped commands
@@ -147,8 +147,6 @@ class PC2Device:
     ADDRESS_MASK_BEOPORT = 2
     ADDRESS_MASK_ALL = 3
 
-    SONOS_IP = "192.168.1.111"
-
     def __init__(self):
         self.dev = None
         self.running = False
@@ -158,16 +156,6 @@ class PC2Device:
         self.ws = None
         self.session = None
         self.loop = None
-        
-        # Initialize Sonos speaker
-        try:
-            # Static Sonos configuration
-            self.sonos_speaker = soco.SoCo(SONOS_IP)
-            print(f"Connected to Sonos at {SONOS_IP}")
-            self.VOLUME_STEP = 2
-        except Exception as e:
-            print(f"Failed to initialize Sonos: {e}")
-            self.sonos_speaker = None
 
     def open(self):
         """Find and open the PC2 device"""
@@ -251,7 +239,7 @@ class PC2Device:
         while self.running:
             try:
                 # Try to read data from the device with a timeout
-                # Buffer size of 1024 should be enough for most messages
+                # Buffer size of 1024 should be enough 
                 data = self.dev.read(self.EP_IN, 1024, timeout=500)  # Increased timeout to 500ms
 
                 if data and len(data) > 0:
@@ -320,7 +308,7 @@ class PC2Device:
             self.session = aiohttp.ClientSession(
                 connector=connector,
                 timeout=aiohttp.ClientTimeout(total=2.0),  # Increased default timeout
-                headers={"User-Agent": "BeosoundSniffer/1.0"}
+                headers={"User-Agent": "Beosound5cSniffer/1.0"}
             )
             print("🔍 DEBUG: aiohttp session created successfully")
         except Exception as e:
@@ -397,88 +385,7 @@ class PC2Device:
         # Check if this is an Audio command that we should handle directly with Sonos
         action = webhook_data['action']
         device_type = webhook_data['device_type']
-        
-        """
-        # Direct Sonos control for audio commands
-        soco_handled = False
-        if action in ["off", "volup", "voldown", "left", "right", "go", "mute", "up", "down"]:
-            try:
-                # If we have a valid speaker, control it directly
-                if self.sonos_speaker is not None:
-                    if action == "volup":
-                        # Volume is always controlled locally for each speaker
-                        current_vol = self.sonos_speaker.volume
-                        new_vol = min(100, current_vol + self.VOLUME_STEP)
-                        self.sonos_speaker.volume = new_vol
-                        print(f"Sonos volume up: {current_vol} → {new_vol}")
-                        soco_handled = True
-                        
-                    elif action == "voldown":
-                        # Volume is always controlled locally for each speaker
-                        current_vol = self.sonos_speaker.volume
-                        new_vol = max(0, current_vol - self.VOLUME_STEP)
-                        self.sonos_speaker.volume = new_vol
-                        print(f"Sonos volume down: {current_vol} → {new_vol}")
-                        soco_handled = True
-                    
-                    elif action == "mute":
-                        # Toggle mute - local to each speaker
-                        self.sonos_speaker.mute = not self.sonos_speaker.mute
-                        print(f"Sonos mute: {self.sonos_speaker.mute}")
-                        soco_handled = True
-                    
-                    else:
-                        # For transport controls, use the coordinator
-                        coordinator = self.sonos_speaker
-                        if not self.sonos_speaker.is_coordinator:
-                            coordinator = self.sonos_speaker.group.coordinator
-                            print(f"Using coordinator {coordinator.player_name} instead of {self.sonos_speaker.player_name}")
-                        
-                        if action == "up" or action == "right":
-                            # Next track - send to coordinator
-                            coordinator.next()
-                            print(f"Sonos next track (via {coordinator.player_name})")
-                            soco_handled = True
-                            
-                        elif action == "down" or action == "left":
-                            # Previous track - send to coordinator
-                            coordinator.previous()
-                            print(f"Sonos previous track (via {coordinator.player_name})")
-                            soco_handled = True
-                        
-                        elif action == "off":
-                            # Toggle play/pause - send to coordinator
-                            state = coordinator.get_current_transport_info()['current_transport_state']
-                            coordinator.pause()
-                            print(f"Sonos paused (via {coordinator.player_name})")
-                            soco_handled = True    
-                        
-                        elif action == "go":
-                            # Toggle play/pause - send to coordinator
-                            state = coordinator.get_current_transport_info()['current_transport_state']
-                            if state == 'PLAYING':
-                                coordinator.pause()
-                                print(f"Sonos paused (via {coordinator.player_name})")
-                            else:
-                                coordinator.play()
-                                print(f"Sonos playing (via {coordinator.player_name})")
-                            soco_handled = True
-            
-            except Exception as e:
-                print(f"Error controlling Sonos: {e}")
-                # Reset speaker connection on error
-                try:
-                    # Try to reconnect
-                    self.sonos_speaker = soco.SoCo(SONOS_IP)
-                    print(f"Reconnected to Sonos at {SONOS_IP}")
-                except Exception:
-                    self.sonos_speaker = None
-
-        # If SoCo handled the command, return without sending webhook
-        if soco_handled:
-            return True
-        """
-
+    
         # Otherwise, continue with sending the webhook
         # DIAGNOSTIC: Print webhook attempt
         print(f"🔍 DEBUG: Attempting to send webhook: {webhook_data['action']} to {WEBHOOK_URL}")
@@ -625,7 +532,7 @@ class PC2Device:
             0x58: "list",
             0x60: "volup", 0x64: "voldown",
             0x80: "tv",
-            0x81: "radio",  # Based on log: Unknown(0x81) is amem
+            0x81: "radio",
             0x85: "vmem",
             0x86: "dvd",
             0x8A: "dtv",

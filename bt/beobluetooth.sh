@@ -1,22 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Set these up based on device and endpoint for webhooks
 MAC="48:D0:CF:BD:CE:35"
+WEBHOOK="http://homeassistant.local:8123/api/webhook/beoremote-event"
+
+# Handles for Bluetooth GATT
 DESC1="0x0025"
 DESC2="0x0026"
-WEBHOOK="http://homeassistant.local:8123/api/webhook/beoremote-event"
+
+# The idea is basically to
+# 1) Kill old gatttool CLI tools running and reset bt controller
+# 2) Start gatttool CLI and try to connect to the B&O BT remote
+# 3a) If connection works; listen for any button events and send then raw to a (HA) webhook, even repeats
+# 3b) If connection fails; go back to step 1 or 2 depending on type of failure
+# May seem stupid, but work contrary to all libs that I've tried
 
 while true; do
   echo "=== CLEANUP ==="
   pkill -f "gatttool -b $MAC" 2>/dev/null || true
 
+  # (1) Multiple ways exist to reset the bt controller, and the below appears to be working well
   echo "=== RESET HCI ==="
-  # sudo hciconfig hci0 down;  sleep 0.5
-  # sudo hciconfig hci0 up;    sleep 0.5
   sudo btmgmt power off; sleep 0.5
   sudo btmgmt power on; sleep 0.5
 
-
+  # (2) Start gatttool
   echo "=== SPAWN gatttool ==="
   # stderr → stdout so we can catch everything
   coproc GTOOL { gatttool -b "$MAC" -I 2>&1; }
@@ -24,8 +33,9 @@ while true; do
   GOUT="${GTOOL[0]}"
   GPID=$!
 
+  # (2) ...and try to conncet
   echo "=== CONNECTING ==="
-  # keep issuing "connect" until success (or until we force a restart)
+  # Keep issuing "connect" until success (3a), or until we force a restart in various ways (3b)
   while true; do
     echo "connect" >&"$GIN"
     while read -r -u "$GOUT" line; do
@@ -69,6 +79,7 @@ while true; do
     done
   done
 
+  # (3a) Awesome, let's listen for button events from the remote
   echo "=== LISTENING ==="
   pressed=false
 
@@ -76,19 +87,19 @@ while true; do
   while read -r -u "$GOUT" line; do
     echo "[gatttool] $line"
 
-    # 1) Catch GLib warnings and restart
+    # Catch GLib warnings and restart
     if [[ "$line" == *"GLib-WARNING"* ]]; then
-97      echo ">>> Caught GLib warning—restarting"
+      echo ">>> Caught GLib warning—restarting"
       break
     fi
 
-    # 2) Catch invalid FD
+    # Catch invalid FD
     if [[ "$line" == *"Invalid file descriptor"* ]]; then
       echo ">>> Invalid FD—restarting"
       break
     fi
 
-    # parse notifications
+    # Parse notifications
     if [[ "$line" =~ Notification[[:space:]]handle[[:space:]]\=[[:space:]]([^[:space:]]+)[[:space:]]value:[[:space:]]([0-9A-Fa-f]{2})[[:space:]]([0-9A-Fa-f]{2}) ]]; then
       address="${BASH_REMATCH[1]}"
       command="${BASH_REMATCH[2],,}"
