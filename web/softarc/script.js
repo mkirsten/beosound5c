@@ -6,33 +6,61 @@
  * The center item is highlighted and larger, with items fading and blurring towards the edges.
  */
 class ArcList {
-    constructor() {
+    constructor(config = {}) {
         // ===== CONFIGURATION PARAMETERS =====
+        this.config = {
+            // Data source configuration
+            dataSource: config.dataSource || '../playlists_with_tracks.json', // URL to JSON data
+            dataType: config.dataType || 'playlists', // 'playlists', 'songs', 'custom'
+            itemMapper: config.itemMapper || null, // Custom function to map data to items
+            
+            // View configuration
+            viewMode: config.viewMode || 'single', // 'single' or 'hierarchical' (like playlists->songs)
+            parentKey: config.parentKey || 'tracks', // Key for child items in hierarchical mode
+            parentNameKey: config.parentNameKey || 'name', // Key for parent item names
+            childNameMapper: config.childNameMapper || null, // Custom function to format child names
+            
+            // Storage configuration
+            storagePrefix: config.storagePrefix || 'arclist', // Prefix for localStorage keys
+            
+            // WebSocket configuration
+            webSocketUrl: config.webSocketUrl || 'ws://localhost:8765',
+            webhookUrl: config.webhookUrl || 'http://homeassistant.local:8123/api/webhook/beosound5c',
+            
+            // UI configuration
+            title: config.title || 'Arc List',
+            context: config.context || 'music',
+            
+            // Default values
+            ...config
+        };
+        
+        // ===== ANIMATION PARAMETERS =====
         this.SCROLL_SPEED = 0.05; // How fast scrolling animation happens (0.1 = slow, 0.3 = fast)
         this.SCROLL_STEP = 0.333; // How much to scroll per key press (changed from 0.2 to 1 for better navigation)
         this.SNAP_DELAY = 1000; // Milliseconds to wait before snapping to closest item (reduced from 1000)
-        this.VISIBLE_ITEMS = 9; // How many items to show at once
-        this.MIDDLE_INDEX = Math.floor(this.VISIBLE_ITEMS / 2); // Index of the center item
+        this.MIDDLE_INDEX = 4; // How many items to show on each side of center (4 = 9 total items visible)
         
         // ===== STATE VARIABLES =====
-        this.currentIndex = 0; // Current smooth scroll position (can be decimal)
-        this.targetIndex = 0; // Where we want to scroll to
+        this.items = []; // Current items to display
+        this.currentIndex = 0; // Current center item index (can be fractional for smooth scrolling)
+        this.targetIndex = 0; // Target index we're scrolling towards
         this.lastScrollTime = 0; // When user last pressed a key (for auto-snap)
         this.animationFrame = null; // Reference to current animation frame
         this.previousIndex = null; // Store previous center index
         this.lastClickedItemId = null; // Track the last item that was clicked
         
         // ===== POSITION MEMORY =====
-        this.STORAGE_KEY_PLAYLIST = 'arclist_playlist_position';
-        this.STORAGE_KEY_SONGS = 'arclist_songs_position';
-        this.STORAGE_KEY_VIEW_MODE = 'arclist_view_mode';
-        this.STORAGE_KEY_SELECTED_PLAYLIST = 'arclist_selected_playlist';
+        this.STORAGE_KEY_PLAYLIST = `${this.config.storagePrefix}_playlist_position`;
+        this.STORAGE_KEY_SONGS = `${this.config.storagePrefix}_songs_position`;
+        this.STORAGE_KEY_VIEW_MODE = `${this.config.storagePrefix}_view_mode`;
+        this.STORAGE_KEY_SELECTED_PLAYLIST = `${this.config.storagePrefix}_selected_playlist`;
         
-        // State management for playlist/songs view
-        this.viewMode = 'playlists'; // 'playlists' or 'songs'
+        // State management for hierarchical view
+        this.viewMode = this.config.viewMode === 'hierarchical' ? 'playlists' : 'single';
         this.selectedPlaylist = null;
-        this.playlistData = []; // Store full playlist data with tracks
-        this.savedPlaylistIndex = 0; // Remember position when viewing songs
+        this.playlistData = []; // Store full data with children
+        this.savedPlaylistIndex = 0; // Remember position when viewing children
         
         // Animation state
         this.isAnimating = false; // Prevent render loop from interfering with animations
@@ -42,9 +70,48 @@ class ArcList {
         this.currentItemDisplay = document.getElementById('current-item'); // Counter display
         this.totalItemsDisplay = document.getElementById('total-items'); // Total count display
         
+        // Check if required DOM elements exist
+        if (!this.container) {
+            console.error('Required DOM element "arc-container" not found');
+            return;
+        }
+        if (!this.currentItemDisplay) {
+            console.error('Required DOM element "current-item" not found');
+            return;
+        }
+        if (!this.totalItemsDisplay) {
+            console.error('Required DOM element "total-items" not found');
+            return;
+        }
+        
         // ===== INITIALIZE =====
-        this.items = []; // Will be loaded asynchronously
         this.init();
+    }
+    
+    /**
+     * Initialize the application
+     * Sets up event listeners, loads playlists, starts animation loop, updates counter
+     */
+    async init() {
+        console.log('Initializing ArcList...'); // Debug log
+        
+        // Validate DOM elements are still available
+        if (!this.container || !this.currentItemDisplay || !this.totalItemsDisplay) {
+            console.error('Required DOM elements not available during initialization');
+            return;
+        }
+        
+        // Load playlist data
+        await this.loadPlaylists();
+        console.log('Loaded', this.items.length, 'items from', this.config.dataSource);
+        
+        // Restore saved position and view mode
+        this.restoreState();
+        
+        this.setupEventListeners(); // Listen for keyboard input
+        this.startAnimation(); // Begin the smooth animation loop
+        this.updateCounter(); // Show initial counter values
+        this.totalItemsDisplay.textContent = this.items.length; // Set total items display
     }
     
     /**
@@ -53,22 +120,38 @@ class ArcList {
      */
     async loadPlaylists() {
         try {
-            const response = await fetch('../playlists_with_tracks.json');
+            const response = await fetch(this.config.dataSource);
             this.playlistData = await response.json();
             
-            // Convert playlist data to our items format (playlists only initially)
-            this.items = this.playlistData.map((playlist, index) => ({
-                id: playlist.id,
-                name: playlist.name || `Playlist ${index + 1}`, // Handle empty names
-                image: playlist.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪' // Placeholder for null images
-            }));
+            // Convert data to our items format based on configuration
+            if (this.config.itemMapper) {
+                // Use custom mapper function
+                this.items = this.config.itemMapper(this.playlistData);
+            } else if (this.config.dataType === 'playlists') {
+                // Default playlist format
+                this.items = this.playlistData.map((playlist, index) => ({
+                    id: playlist.id,
+                    name: playlist[this.config.parentNameKey] || `Item ${index + 1}`,
+                    image: playlist.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+                }));
+            } else if (this.config.dataType === 'custom') {
+                // Assume data is already in the correct format
+                this.items = this.playlistData;
+            } else {
+                // Generic fallback
+                this.items = this.playlistData.map((item, index) => ({
+                    id: item.id || `item-${index}`,
+                    name: item.name || item.title || `Item ${index + 1}`,
+                    image: item.image || item.thumbnail || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+                }));
+            }
             
-            console.log('Loaded playlists:', this.items.length);
+            console.log('Loaded', this.items.length, 'items from', this.config.dataSource);
         } catch (error) {
-            console.error('Error loading playlists:', error);
+            console.error('Error loading data:', error);
             // Fallback to dummy data if loading fails
             this.items = [
-                { id: 'fallback-1', name: 'Error Loading Playlists', image: 'https://via.placeholder.com/64x64/ff0000/ffffff?text=!' }
+                { id: 'fallback-1', name: 'Error Loading Data', image: 'https://via.placeholder.com/64x64/ff0000/ffffff?text=!' }
             ];
         }
     }
@@ -95,26 +178,6 @@ class ArcList {
                 fallbackImage: `data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='%23${(imageId * 123456).toString(16).slice(-6)}'/%3E%3Ctext x='64' y='64' text-anchor='middle' dy='.3em' fill='white' font-size='16'%3E${index + 1}%3C/text%3E%3C/svg%3E`
             };
         });
-    }
-    
-    /**
-     * Initialize the application
-     * Sets up event listeners, loads playlists, starts animation loop, updates counter
-     */
-    async init() {
-        console.log('Initializing ArcList...'); // Debug log
-        
-        // Load playlist data
-        await this.loadPlaylists();
-        console.log('Loaded', this.items.length, 'playlists'); // Debug log
-        
-        // Restore saved position and view mode
-        this.restoreState();
-        
-        this.setupEventListeners(); // Listen for keyboard input
-        this.startAnimation(); // Begin the smooth animation loop
-        this.updateCounter(); // Show initial counter values
-        this.totalItemsDisplay.textContent = this.items.length; // Set total items display
     }
     
     /**
@@ -615,7 +678,7 @@ class ArcList {
      */
     connectWebSocket() {
         try {
-            this.ws = new WebSocket('ws://localhost:8765');
+            this.ws = new WebSocket(this.config.webSocketUrl);
             
             this.ws.onopen = () => {
                 console.log('WebSocket connected');
@@ -814,23 +877,31 @@ class ArcList {
      * Load songs from the selected playlist
      */
     loadPlaylistSongs() {
-        if (!this.selectedPlaylist || !this.selectedPlaylist.tracks) {
-            console.error('No tracks found for playlist');
+        if (!this.selectedPlaylist || !this.selectedPlaylist[this.config.parentKey]) {
+            console.error('No child items found for selected item');
             return;
         }
         
-        // Convert tracks to items format
-        this.items = this.selectedPlaylist.tracks.map(track => ({
-            id: track.id,
-            name: `${track.artist} - ${track.name}`,
-            image: track.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
-        }));
+        const childItems = this.selectedPlaylist[this.config.parentKey];
+        
+        // Convert child items to our format
+        if (this.config.childNameMapper) {
+            // Use custom mapper for child names
+            this.items = childItems.map(item => this.config.childNameMapper(item));
+        } else {
+            // Default mapping
+            this.items = childItems.map(item => ({
+                id: item.id,
+                name: item.name || `${item.artist || ''} - ${item.title || item.name || 'Unknown'}`.trim(),
+                image: item.image || item.thumbnail || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+            }));
+        }
         
         this.viewMode = 'songs';
         this.currentIndex = 0;
         this.targetIndex = 0;
         this.render();
-        console.log('Switched to song view:', this.items.length, 'songs');
+        console.log('Switched to child view:', this.items.length, 'items');
     }
 
     /**
@@ -894,20 +965,25 @@ class ArcList {
         if (this.items.length === 0) return;
         
         let id;
+        let itemName;
         
         // Get appropriate ID based on current mode
-        if (this.viewMode === 'playlists') {
-            // Send playlist ID
-            const currentPlaylist = this.playlistData[this.currentIndex];
-            if (!currentPlaylist) return;
-            id = "spotify:playlist:" + currentPlaylist.id;
-            console.log('Sending webhook for playlist:', currentPlaylist.name, 'ID:', id);
+        if (this.viewMode === 'playlists' || this.viewMode === 'single') {
+            // Send parent item ID
+            const currentItem = this.playlistData[this.currentIndex] || this.items[this.currentIndex];
+            if (!currentItem) return;
+            
+            id = currentItem.id;
+            itemName = currentItem.name || currentItem[this.config.parentNameKey];
+            console.log('Sending webhook for item:', itemName, 'ID:', id);
         } else if (this.viewMode === 'songs') {
-            // Send song ID
-            const currentSong = this.selectedPlaylist.tracks[this.currentIndex];
-            if (!currentSong) return;
-            id = "spotify:track:" + currentSong.id;
-            console.log('Sending webhook for song:', currentSong.name, 'ID:', id);
+            // Send child item ID
+            const currentChild = this.selectedPlaylist[this.config.parentKey][this.currentIndex];
+            if (!currentChild) return;
+            
+            id = currentChild.id;
+            itemName = currentChild.name || currentChild.title;
+            console.log('Sending webhook for child item:', itemName, 'ID:', id);
         } else {
             return;
         }
@@ -917,11 +993,12 @@ class ArcList {
             const webhookData = {
                 device_type: "Panel",
                 button: "go",
-                panel_context: "music",
-                id: id
+                panel_context: this.config.context,
+                id: id,
+                name: itemName
             };
             
-            const response = await fetch('http://homeassistant.local:8123/api/webhook/beosound5c', {
+            const response = await fetch(this.config.webhookUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -944,5 +1021,61 @@ class ArcList {
 // Wait for the page to fully load, then create the ArcList
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM loaded, initializing ArcList...'); // Debug log
-    new ArcList();
+    
+    // Debug: Check for any existing elements that might cause conflicts
+    const existingElements = document.querySelectorAll('[id*="arc"], [id*="volume"]');
+    if (existingElements.length > 0) {
+        console.log('Found existing elements that might conflict:', existingElements);
+    }
+    
+    // Example configurations for different use cases:
+    
+    // 1. Music playlists (current setup)
+    const musicConfig = {
+        dataSource: '../playlists_with_tracks.json',
+        dataType: 'playlists',
+        viewMode: 'hierarchical',
+        parentKey: 'tracks',
+        parentNameKey: 'name',
+        storagePrefix: 'music_arclist',
+        title: 'Music',
+        context: 'music',
+        childNameMapper: (track) => ({
+            id: track.id,
+            name: `${track.artist} - ${track.name}`,
+            image: track.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+        })
+    };
+    
+    // 2. Simple list (no hierarchy)
+    const simpleConfig = {
+        dataSource: '../simple_items.json',
+        dataType: 'custom',
+        viewMode: 'single',
+        storagePrefix: 'simple_arclist',
+        title: 'Simple List',
+        context: 'simple'
+    };
+    
+    // 3. Custom data with custom mapper
+    const customConfig = {
+        dataSource: '../custom_data.json',
+        dataType: 'custom',
+        itemMapper: (data) => data.map(item => ({
+            id: item.customId,
+            name: item.displayName,
+            image: item.iconUrl
+        })),
+        viewMode: 'single',
+        storagePrefix: 'custom_arclist',
+        title: 'Custom Data',
+        context: 'custom'
+    };
+    
+    // Initialize with music configuration (current setup)
+    new ArcList(musicConfig);
+    
+    // To use a different configuration, uncomment one of these:
+    // new ArcList(simpleConfig);
+    // new ArcList(customConfig);
 });
