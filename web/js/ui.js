@@ -411,8 +411,9 @@ class UIStore {
         const mainArc = document.getElementById('mainArc');
         mainArc.setAttribute('d', arcs.drawArc(arcs.cx, arcs.cy, this.radius, 158, 202));
 
-        const volumeArc = document.getElementById('volumeArc');
-        this.updateVolumeArc();
+        // Volume arc removed - no longer needed
+        // const volumeArc = document.getElementById('volumeArc');
+        // this.updateVolumeArc();
 
         // Setup menu items
         this.renderMenuItems();
@@ -420,11 +421,12 @@ class UIStore {
     }
 
     updateVolumeArc() {
-        const volumeArc = document.getElementById('volumeArc');
-        const startAngle = 95;
-        const endAngle = 265;
-        const volumeAngle = ((this.volume - 0) * (endAngle - startAngle)) / (100 - 0) + startAngle;
-        volumeArc.setAttribute('d', arcs.drawArc(arcs.cx, arcs.cy, 270, startAngle, volumeAngle));
+        // Volume arc removed - this function is now a no-op
+        // const volumeArc = document.getElementById('volumeArc');
+        // const startAngle = 95;
+        // const endAngle = 265;
+        // const volumeAngle = ((this.volume - 0) * (endAngle - startAngle)) / (100 - 0) + startAngle;
+        // volumeArc.setAttribute('d', arcs.drawArc(arcs.cx, arcs.cy, 270, startAngle, volumeAngle));
     }
 
     updatePointer() {

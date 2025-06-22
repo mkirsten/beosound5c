@@ -8,7 +8,7 @@
 class ArcList {
     constructor() {
         // ===== CONFIGURATION PARAMETERS =====
-        this.SCROLL_SPEED = 0.15; // How fast scrolling animation happens (0.1 = slow, 0.3 = fast)
+        this.SCROLL_SPEED = 0.05; // How fast scrolling animation happens (0.1 = slow, 0.3 = fast)
         this.SCROLL_STEP = 0.333; // How much to scroll per key press (changed from 0.2 to 1 for better navigation)
         this.SNAP_DELAY = 1000; // Milliseconds to wait before snapping to closest item (reduced from 1000)
         this.VISIBLE_ITEMS = 9; // How many items to show at once
