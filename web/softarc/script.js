@@ -19,6 +19,8 @@ class ArcList {
         this.targetIndex = 0; // Where we want to scroll to
         this.lastScrollTime = 0; // When user last pressed a key (for auto-snap)
         this.animationFrame = null; // Reference to current animation frame
+        this.previousIndex = null; // Store previous center index
+        this.lastClickedItemId = null; // Track the last item that was clicked
         
         // ===== DOM ELEMENTS =====
         this.container = document.getElementById('arc-container'); // Main container for items
@@ -192,6 +194,9 @@ class ArcList {
                 this.currentIndex += diff * this.SCROLL_SPEED;
             }
             
+            // Check if selection has changed and trigger click
+            this.checkForSelectionClick();
+            
             // Update the display
             this.render(); // Position all visible items
             this.updateCounter(); // Update the counter display
@@ -235,7 +240,7 @@ class ArcList {
             // 🎯 ARC SHAPE CONTROL - Adjust these values to change the arc appearance:
             const maxRadius = 220; // Horizontal offset for spacing (higher = more spread out)
             const horizontalMultiplier = 0.35; // How much items curve to the right (0.1 = straight, 0.5 = very curved)
-            const baseXOffset = 120; // 🎯 BASE X POSITION - Move entire arc left/right (higher = more to the right)
+            const baseXOffset = 100; // 🎯 BASE X POSITION - Move entire arc left/right (higher = more to the right)
             const x = baseXOffset + (Math.abs(actualRelativePos) * maxRadius * horizontalMultiplier); // Horizontal spacing multiplier
             
             // 🎯 VERTICAL SPACING CONTROL - Adjust these values to change vertical spacing:
@@ -504,7 +509,7 @@ class ArcList {
             }
             
             // Send click command back to server (rate limited)
-            this.sendClickCommand();
+            //this.sendClickCommand();
         }
     }
     
@@ -515,11 +520,10 @@ class ArcList {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
         
         const now = Date.now();
-        const CLICK_THROTTLE_MS = 50;
+        const CLICK_THROTTLE_MS = 5;
         
-        // Rate limiting: only send if at least 200ms have passed since last send
+        // Rate limiting: only send if at least 50ms have passed since last send
         if (now - (this.lastClickTime || 0) < CLICK_THROTTLE_MS) {
-            console.log('Click command throttled - too soon');
             return;
         }
         
@@ -532,7 +536,21 @@ class ArcList {
         };
         
         this.ws.send(JSON.stringify(message));
-        console.log('Sent click command to server');
+    }
+    
+    /**
+     * Check if an item is passing through the selected position and trigger click
+     */
+    checkForSelectionClick() {
+        const centerIndex = Math.round(this.currentIndex);
+        const currentItem = this.items[centerIndex];
+        
+        // Only trigger if we have a valid item and it's different from the last clicked item
+        if (currentItem && currentItem.id !== this.lastClickedItemId) {
+            console.log('Selected item changed to:', currentItem.name);
+            this.sendClickCommand();
+            this.lastClickedItemId = currentItem.id;
+        }
     }
 }
 
