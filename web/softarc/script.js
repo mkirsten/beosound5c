@@ -22,6 +22,12 @@ class ArcList {
         this.previousIndex = null; // Store previous center index
         this.lastClickedItemId = null; // Track the last item that was clicked
         
+        // ===== POSITION MEMORY =====
+        this.STORAGE_KEY_PLAYLIST = 'arclist_playlist_position';
+        this.STORAGE_KEY_SONGS = 'arclist_songs_position';
+        this.STORAGE_KEY_VIEW_MODE = 'arclist_view_mode';
+        this.STORAGE_KEY_SELECTED_PLAYLIST = 'arclist_selected_playlist';
+        
         // State management for playlist/songs view
         this.viewMode = 'playlists'; // 'playlists' or 'songs'
         this.selectedPlaylist = null;
@@ -102,12 +108,108 @@ class ArcList {
         await this.loadPlaylists();
         console.log('Loaded', this.items.length, 'playlists'); // Debug log
         
+        // Restore saved position and view mode
+        this.restoreState();
+        
         this.setupEventListeners(); // Listen for keyboard input
         this.startAnimation(); // Begin the smooth animation loop
         this.updateCounter(); // Show initial counter values
         this.totalItemsDisplay.textContent = this.items.length; // Set total items display
     }
     
+    /**
+     * Save current state to localStorage
+     */
+    saveState() {
+        try {
+            localStorage.setItem(this.STORAGE_KEY_VIEW_MODE, this.viewMode);
+            if (this.viewMode === 'playlists') {
+                localStorage.setItem(this.STORAGE_KEY_PLAYLIST, this.currentIndex.toString());
+            } else if (this.viewMode === 'songs') {
+                localStorage.setItem(this.STORAGE_KEY_SONGS, this.currentIndex.toString());
+                if (this.selectedPlaylist) {
+                    localStorage.setItem(this.STORAGE_KEY_SELECTED_PLAYLIST, JSON.stringify({
+                        id: this.selectedPlaylist.id,
+                        name: this.selectedPlaylist.name,
+                        savedPlaylistIndex: this.savedPlaylistIndex
+                    }));
+                }
+            }
+            console.log('State saved:', this.viewMode, this.currentIndex);
+        } catch (error) {
+            console.error('Error saving state:', error);
+        }
+    }
+
+    /**
+     * Restore state from localStorage
+     */
+    restoreState() {
+        try {
+            const savedViewMode = localStorage.getItem(this.STORAGE_KEY_VIEW_MODE);
+            
+            if (savedViewMode === 'songs') {
+                // Restore songs view
+                const savedSelectedPlaylist = localStorage.getItem(this.STORAGE_KEY_SELECTED_PLAYLIST);
+                const savedSongsPosition = localStorage.getItem(this.STORAGE_KEY_SONGS);
+                
+                if (savedSelectedPlaylist && savedSongsPosition) {
+                    const playlistInfo = JSON.parse(savedSelectedPlaylist);
+                    const songsIndex = parseFloat(savedSongsPosition);
+                    
+                    // Find the playlist in our data
+                    const playlist = this.playlistData.find(p => p.id === playlistInfo.id);
+                    if (playlist) {
+                        this.selectedPlaylist = playlist;
+                        this.savedPlaylistIndex = playlistInfo.savedPlaylistIndex || 0;
+                        this.viewMode = 'songs';
+                        
+                        // Load songs and set position
+                        this.loadPlaylistSongsFromRestore(songsIndex);
+                        console.log('Restored songs view:', playlist.name, 'position:', songsIndex);
+                        return;
+                    }
+                }
+            }
+            
+            // Restore playlists view (default)
+            const savedPlaylistPosition = localStorage.getItem(this.STORAGE_KEY_PLAYLIST);
+            if (savedPlaylistPosition) {
+                const position = parseFloat(savedPlaylistPosition);
+                this.currentIndex = Math.max(0, Math.min(this.items.length - 1, position));
+                this.targetIndex = this.currentIndex;
+                console.log('Restored playlist position:', position);
+            }
+        } catch (error) {
+            console.error('Error restoring state:', error);
+        }
+    }
+
+    /**
+     * Load playlist songs when restoring from saved state
+     */
+    loadPlaylistSongsFromRestore(songsIndex) {
+        if (!this.selectedPlaylist || !this.selectedPlaylist.tracks) {
+            console.error('No tracks found for playlist during restore');
+            return;
+        }
+        
+        // Convert tracks to items format
+        this.items = this.selectedPlaylist.tracks.map(track => ({
+            id: track.id,
+            name: `${track.artist} - ${track.name}`,
+            image: track.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+        }));
+        
+        // Set position
+        this.currentIndex = Math.max(0, Math.min(this.items.length - 1, songsIndex));
+        this.targetIndex = this.currentIndex;
+        
+        // Update display
+        this.totalItemsDisplay.textContent = this.items.length;
+        console.log('Loaded', this.items.length, 'songs for restore');
+    }
+
     /**
      * Set up keyboard event listeners and auto-snap functionality
      */
@@ -121,6 +223,10 @@ class ArcList {
         
         // Initialize WebSocket connection for navigation wheel events
         this.connectWebSocket();
+        
+        // Save state periodically and on page unload
+        setInterval(() => this.saveState(), 1000); // Save every second
+        window.addEventListener('beforeunload', () => this.saveState());
     }
     
     /**
@@ -134,15 +240,15 @@ class ArcList {
         console.log('Key pressed:', e.key, 'Current target:', this.targetIndex); // Debug log
         
         if (e.key === 'ArrowUp') {
-            // Move up in the list (decrease index)
+            // Move up in the list (decrease index) - use base scroll step for keyboard
             this.targetIndex = Math.max(0, this.targetIndex - this.SCROLL_STEP);
             this.setupSnapTimer(); // Reset auto-snap timer
-            console.log('Moving up to:', this.targetIndex); // Debug log
+            console.log('Keyboard: Moving up to:', this.targetIndex); // Debug log
         } else if (e.key === 'ArrowDown') {
-            // Move down in the list (increase index)
+            // Move down in the list (increase index) - use base scroll step for keyboard
             this.targetIndex = Math.min(this.items.length - 1, this.targetIndex + this.SCROLL_STEP);
             this.setupSnapTimer(); // Reset auto-snap timer
-            console.log('Moving down to:', this.targetIndex); // Debug log
+            console.log('Keyboard: Moving down to:', this.targetIndex); // Debug log
         }
     }
     
@@ -573,6 +679,12 @@ class ArcList {
         // Listen for navigation wheel events (not volume or laser)
         if (data.type === 'nav' && data.data) {
             const direction = data.data.direction; // 'clock' or 'counter'
+            const speed = data.data.speed || 1; // Speed parameter from server
+            
+            // Calculate scroll step based on speed
+            // Speed ranges from 1-127, convert to scroll step
+            const speedMultiplier = Math.min(speed / 10, 5); // Cap at 5x speed
+            const scrollStep = this.SCROLL_STEP * speedMultiplier;
             
             // Check boundaries before scrolling
             const atTop = this.targetIndex <= 0;
@@ -586,17 +698,17 @@ class ArcList {
                 return;
             }
             
-            // Handle the scroll
+            // Handle the scroll with speed-based step
             if (scrollingDown) {
                 // Scroll down
-                this.targetIndex = Math.min(this.items.length - 1, this.targetIndex + this.SCROLL_STEP);
+                this.targetIndex = Math.min(this.items.length - 1, this.targetIndex + scrollStep);
                 this.setupSnapTimer(); // Reset auto-snap timer
-                console.log('WebSocket: Moving down to:', this.targetIndex);
+                console.log('WebSocket: Moving down to:', this.targetIndex, 'speed:', speed, 'step:', scrollStep);
             } else if (scrollingUp) {
                 // Scroll up
-                this.targetIndex = Math.max(0, this.targetIndex - this.SCROLL_STEP);
+                this.targetIndex = Math.max(0, this.targetIndex - scrollStep);
                 this.setupSnapTimer(); // Reset auto-snap timer
-                console.log('WebSocket: Moving up to:', this.targetIndex);
+                console.log('WebSocket: Moving up to:', this.targetIndex, 'speed:', speed, 'step:', scrollStep);
             }
             
             // Send click command back to server (rate limited)
