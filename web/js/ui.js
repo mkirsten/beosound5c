@@ -422,11 +422,17 @@ class UIStore {
 
     updateVolumeArc() {
         // Volume arc removed - this function is now a no-op
-        // const volumeArc = document.getElementById('volumeArc');
-        // const startAngle = 95;
-        // const endAngle = 265;
-        // const volumeAngle = ((this.volume - 0) * (endAngle - startAngle)) / (100 - 0) + startAngle;
-        // volumeArc.setAttribute('d', arcs.drawArc(arcs.cx, arcs.cy, 270, startAngle, volumeAngle));
+        const volumeArc = document.getElementById('volumeArc');
+        if (!volumeArc) {
+            // Element doesn't exist, just return without error
+            return;
+        }
+        
+        // If the element exists, update it (for backward compatibility)
+        const startAngle = 95;
+        const endAngle = 265;
+        const volumeAngle = ((this.volume - 0) * (endAngle - startAngle)) / (100 - 0) + startAngle;
+        volumeArc.setAttribute('d', arcs.drawArc(arcs.cx, arcs.cy, 270, startAngle, volumeAngle));
     }
 
     updatePointer() {
