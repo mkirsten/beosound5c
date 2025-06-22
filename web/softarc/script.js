@@ -36,15 +36,36 @@ class ArcList {
      */
     async loadPlaylists() {
         try {
+            console.log('Attempting to load playlists from ../playlists_with_tracks.json');
             const response = await fetch('../playlists_with_tracks.json');
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
             const data = await response.json();
+            console.log('Successfully loaded playlists:', data.length, 'playlists found');
             
             // Transform playlist data into the format we need
-            return data.map(playlist => ({
-                id: playlist.id,
-                name: playlist.name,
-                image: playlist.image || 'data:image/svg+xml,%3Csvg width="128" height="128" xmlns="http://www.w3.org/2000/svg"%3E%3Crect width="128" height="128" fill="%23333"/%3E%3Ctext x="64" y="64" text-anchor="middle" dy=".3em" fill="white" font-size="16"%3E♪%3C/text%3E%3C/svg%3E'
-            }));
+            const transformedData = data.map(playlist => {
+                console.log('Processing playlist:', playlist.name, 'with image:', playlist.image);
+                
+                // Try to get a better image - use first track's image if available
+                let bestImage = playlist.image;
+                if (playlist.tracks && playlist.tracks.length > 0 && playlist.tracks[0].image) {
+                    bestImage = playlist.tracks[0].image;
+                    console.log('Using track image instead of playlist mosaic:', bestImage);
+                }
+                
+                return {
+                    id: playlist.id,
+                    name: playlist.name,
+                    image: bestImage || 'data:image/svg+xml,%3Csvg width="128" height="128" xmlns="http://www.w3.org/2000/svg"%3E%3Crect width="128" height="128" fill="%23333"/%3E%3Ctext x="64" y="64" text-anchor="middle" dy=".3em" fill="white" font-size="16"%3E♪%3C/text%3E%3C/svg%3E'
+                };
+            });
+            
+            console.log('Transformed playlists:', transformedData);
+            return transformedData;
         } catch (error) {
             console.error('Error loading playlists:', error);
             // Fallback to a few dummy items if loading fails
@@ -105,6 +126,9 @@ class ArcList {
         // Initialize auto-snap timer (snaps to closest item after user stops scrolling)
         this.snapTimer = null;
         this.setupSnapTimer();
+        
+        // Initialize WebSocket connection for navigation wheel events
+        this.connectWebSocket();
     }
     
     /**
@@ -208,11 +232,13 @@ class ArcList {
             const blur = 0; // No blur for now
             
             // ===== ARC POSITIONING CALCULATIONS =====
-            // Items curve to the right side of the screen
-            const maxRadius = 180; // Horizontal offset for spacing
-            const x = Math.abs(actualRelativePos) * maxRadius * 0.4; // Horizontal spacing multiplier
+            // 🎯 ARC SHAPE CONTROL - Adjust these values to change the arc appearance:
+            const maxRadius = 220; // Horizontal offset for spacing (higher = more spread out)
+            const horizontalMultiplier = 0.35; // How much items curve to the right (0.1 = straight, 0.5 = very curved)
+            const baseXOffset = 120; // 🎯 BASE X POSITION - Move entire arc left/right (higher = more to the right)
+            const x = baseXOffset + (Math.abs(actualRelativePos) * maxRadius * horizontalMultiplier); // Horizontal spacing multiplier
             
-            // Dynamic spacing based on item scale
+            // 🎯 VERTICAL SPACING CONTROL - Adjust these values to change vertical spacing:
             const baseItemSize = 128; // Base size in pixels
             const scaledItemSize = baseItemSize * scale; // Actual size after scaling
             const minSpacing = scaledItemSize + 20; // Add 20px padding between items
@@ -251,20 +277,84 @@ class ArcList {
         // Add unique data attribute to prevent caching issues
         img.dataset.itemId = item.id;
         
+        console.log('Creating image for item:', item.name, 'with src:', item.image);
+        
         // Handle image loading
         img.onload = () => {
+            console.log('✅ Image loaded successfully for:', item.name);
             img.removeAttribute('data-loading');
         };
         
         img.onerror = () => {
-            // Fallback to a simple placeholder
-            img.src = `data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='%23333'/%3E%3Ctext x='64' y='64' text-anchor='middle' dy='.3em' fill='white' font-size='16'%3E♪%3C/text%3E%3C/svg%3E`;
+            console.error('❌ Image failed to load for:', item.name, 'src:', item.image);
+            
+            // Try to create a better fallback based on the item name
+            const fallbackColor = this.getColorFromName(item.name);
+            const fallbackText = item.name.substring(0, 2).toUpperCase();
+            
+            // Create a more interesting fallback with the item's name
+            const fallbackSvg = `data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='%23${fallbackColor}'/%3E%3Ctext x='64' y='64' text-anchor='middle' dy='.3em' fill='white' font-size='20' font-family='Arial, sans-serif'%3E${fallbackText}%3C/text%3E%3C/svg%3E`;
+            
+            console.log('🔄 Using fallback image for:', item.name, 'with color:', fallbackColor, 'text:', fallbackText);
+            console.log('🔄 Fallback SVG URL:', fallbackSvg.substring(0, 100) + '...');
+            
+            // Test with a simple known-working image first
+            if (item.name.includes('test')) {
+                img.src = 'data:image/svg+xml,%3Csvg width="128" height="128" xmlns="http://www.w3.org/2000/svg"%3E%3Crect width="128" height="128" fill="%23ff0000"/%3E%3Ctext x="64" y="64" text-anchor="middle" dy=".3em" fill="white" font-size="20"%3ETEST%3C/text%3E%3C/svg%3E';
+            } else {
+                img.src = fallbackSvg;
+            }
         };
         
         img.setAttribute('data-loading', 'true');
+        console.log('🔄 Setting image src to:', item.image);
         img.src = item.image;
         
+        // TEMPORARY: Make image more visible for debugging
+        img.style.border = '2px solid red';
+        img.style.backgroundColor = 'rgba(255, 0, 0, 0.3)';
+        img.style.zIndex = '1000';
+        img.style.position = 'relative';
+        img.style.width = '128px';
+        img.style.height = '128px';
+        img.style.display = 'block';
+        img.style.objectFit = 'cover';
+        img.style.visibility = 'visible';
+        img.style.opacity = '1';
+        img.style.maxWidth = 'none';
+        img.style.maxHeight = 'none';
+        img.style.minWidth = '128px';
+        img.style.minHeight = '128px';
+        img.style.overflow = 'visible';
+        img.style.clip = 'auto';
+        img.style.clipPath = 'none';
+        
         return img;
+    }
+    
+    /**
+     * Generate a consistent color from a string (for fallback images)
+     */
+    getColorFromName(name) {
+        // Simple hash function to generate consistent colors
+        let hash = 0;
+        for (let i = 0; i < name.length; i++) {
+            hash = name.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        
+        // Convert to hex color (avoiding too light or too dark colors)
+        const hue = Math.abs(hash) % 360;
+        const saturation = 60 + (Math.abs(hash) % 20); // 60-80%
+        const lightness = 40 + (Math.abs(hash) % 20); // 40-60%
+        
+        // Convert HSL to hex (simplified)
+        const colors = [
+            '4A90E2', '50C878', 'FF6B6B', 'FFD93D', '6C5CE7',
+            'A8E6CF', 'FF8B94', 'FFD3B6', 'FFAAA5', 'DCEDC8',
+            'FFEAA7', 'DDA0DD', '98D8C8', 'F7DC6F', 'BB8FCE'
+        ];
+        
+        return colors[Math.abs(hash) % colors.length];
     }
     
     /**
@@ -278,8 +368,8 @@ class ArcList {
         const visibleItems = this.getVisibleItems();
         
         // Create fresh DOM elements for each visible item
-        visibleItems.forEach(item => {
-            // Create main container for this item
+        visibleItems.forEach((item, index) => {
+            // Create main container for this item - EXACTLY like music.html
             const itemElement = document.createElement('div');
             itemElement.className = 'arc-item';
             itemElement.dataset.itemId = item.id; // Add unique identifier
@@ -289,42 +379,31 @@ class ArcList {
                 itemElement.classList.add('selected');
             }
             
-            // Create and configure the image
+            // Create and configure the image - EXACTLY like music.html
             const imageContainer = document.createElement('div');
             imageContainer.className = 'item-image-container';
             if (itemElement.classList.contains('selected')) {
                 imageContainer.classList.add('selected');
             }
             
-            const img = this.createImageElement(item);
-            imageContainer.appendChild(img);
+            // Create image EXACTLY like music.html
+            const nameEl = document.createElement('div');
+            nameEl.className = 'item-name';
+            nameEl.textContent = item.name;
             
-            // Create overlay for selected items
-            const overlay = document.createElement('div');
-            overlay.className = 'item-overlay';
-            if (itemElement.classList.contains('selected')) {
-                overlay.classList.add('selected');
-            }
-            imageContainer.appendChild(overlay);
-            
-            // Create and configure the name label
-            const nameElement = document.createElement('div');
-            nameElement.className = 'item-name';
-            nameElement.textContent = item.name;
-            if (itemElement.classList.contains('selected')) {
-                nameElement.classList.add('selected');
-            } else {
-                nameElement.classList.add('unselected');
-            }
+            const imgEl = document.createElement('img');
+            imgEl.className = 'item-image';
+            imgEl.src = item.image;
+            imgEl.loading = 'lazy';
             
             // Apply positioning and visual effects
             itemElement.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
             itemElement.style.opacity = item.opacity;
             itemElement.style.filter = `blur(${item.blur}px)`;
             
-            // Add elements to the item container
-            itemElement.appendChild(nameElement);
-            itemElement.appendChild(imageContainer);
+            // Add elements to the item container - EXACTLY like music.html
+            itemElement.appendChild(nameEl);
+            itemElement.appendChild(imgEl);
             
             // Add item to the main container
             this.container.appendChild(itemElement);
@@ -352,6 +431,108 @@ class ArcList {
         if (this.snapTimer) {
             clearTimeout(this.snapTimer); // Clear auto-snap timer
         }
+    }
+    
+    /**
+     * WebSocket connection for navigation wheel events
+     */
+    connectWebSocket() {
+        try {
+            this.ws = new WebSocket('ws://localhost:8765');
+            
+            this.ws.onopen = () => {
+                console.log('WebSocket connected');
+            };
+            
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleWebSocketMessage(data);
+                } catch (error) {
+                    console.error('Error parsing WebSocket message:', error);
+                }
+            };
+            
+            this.ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                // Attempt to reconnect after 2 seconds
+                setTimeout(() => this.connectWebSocket(), 2000);
+            };
+            
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        } catch (error) {
+            console.error('Error creating WebSocket:', error);
+        }
+    }
+    
+    /**
+     * Handle WebSocket messages for navigation wheel events
+     */
+    handleWebSocketMessage(data) {
+        // Log all received WebSocket messages
+        console.log('Received WebSocket message:', data);
+        
+        // Listen for navigation wheel events (not volume or laser)
+        if (data.type === 'nav' && data.data) {
+            const direction = data.data.direction; // 'clock' or 'counter'
+            
+            // Check boundaries before scrolling
+            const atTop = this.targetIndex <= 0;
+            const atBottom = this.targetIndex >= this.items.length - 1;
+            const scrollingUp = direction === 'counter';
+            const scrollingDown = direction === 'clock';
+            
+            // Don't scroll if at boundaries
+            if ((atTop && scrollingUp) || (atBottom && scrollingDown)) {
+                console.log('At boundary - not scrolling');
+                return;
+            }
+            
+            // Handle the scroll
+            if (scrollingDown) {
+                // Scroll down
+                this.targetIndex = Math.min(this.items.length - 1, this.targetIndex + this.SCROLL_STEP);
+                this.setupSnapTimer(); // Reset auto-snap timer
+                console.log('WebSocket: Moving down to:', this.targetIndex);
+            } else if (scrollingUp) {
+                // Scroll up
+                this.targetIndex = Math.max(0, this.targetIndex - this.SCROLL_STEP);
+                this.setupSnapTimer(); // Reset auto-snap timer
+                console.log('WebSocket: Moving up to:', this.targetIndex);
+            }
+            
+            // Send click command back to server (rate limited)
+            this.sendClickCommand();
+        }
+    }
+    
+    /**
+     * Send click command back to server (rate limited)
+     */
+    sendClickCommand() {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        
+        const now = Date.now();
+        const CLICK_THROTTLE_MS = 50;
+        
+        // Rate limiting: only send if at least 200ms have passed since last send
+        if (now - (this.lastClickTime || 0) < CLICK_THROTTLE_MS) {
+            console.log('Click command throttled - too soon');
+            return;
+        }
+        
+        this.lastClickTime = now;
+        
+        const message = {
+            type: 'command',
+            command: 'click',
+            params: {}
+        };
+        
+        this.ws.send(JSON.stringify(message));
+        console.log('Sent click command to server');
     }
 }
 
