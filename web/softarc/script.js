@@ -155,30 +155,6 @@ class ArcList {
             ];
         }
     }
-
-    /**
-     * Generate 100 random items with names and images
-     * Each item has: id, name, and image URL
-     * Using reliable placeholder images from picsum.photos
-     */
-    generateItems() {
-        // This method is now replaced by loadPlaylists()
-        // Keeping it for reference but it won't be used
-        const adjectives = ['Amazing', 'Brilliant', 'Creative', 'Dynamic', 'Epic', 'Fantastic', 'Glorious', 'Incredible', 'Luminous', 'Majestic'];
-        const nouns = ['Galaxy', 'Phoenix', 'Thunder', 'Crystal', 'Shadow', 'Flame', 'Storm', 'Ocean', 'Mountain', 'Star'];
-        
-        return Array.from({ length: 100 }, (_, index) => {
-            const name = `${adjectives[Math.floor(Math.random() * adjectives.length)]} ${nouns[Math.floor(Math.random() * nouns.length)]}`;
-            const imageId = 100 + index;
-            
-            return {
-                id: Math.floor(Math.random() * 10000000000).toString().padStart(10, '0'),
-                name: name.length > 30 ? name.substring(0, 30) : name,
-                image: `https://picsum.photos/128/128?random=${imageId}`,
-                fallbackImage: `data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='%23${(imageId * 123456).toString(16).slice(-6)}'/%3E%3Ctext x='64' y='64' text-anchor='middle' dy='.3em' fill='white' font-size='16'%3E${index + 1}%3C/text%3E%3C/svg%3E`
-            };
-        });
-    }
     
     /**
      * Save current state to localStorage
@@ -453,7 +429,7 @@ class ArcList {
             console.error('❌ Image failed to load for:', item.name, 'src:', item.image);
             
             // Try to create a better fallback based on the item name
-            const fallbackColor = this.getColorFromName(item.name);
+            const fallbackColor = "4A90E2";
             const fallbackText = item.name.substring(0, 2).toUpperCase();
             
             // Create a more interesting fallback with the item's name
@@ -474,51 +450,7 @@ class ArcList {
         console.log('🔄 Setting image src to:', item.image);
         img.src = item.image;
         
-        // TEMPORARY: Make image more visible for debugging
-        img.style.border = '2px solid red';
-        img.style.backgroundColor = 'rgba(255, 0, 0, 0.3)';
-        img.style.zIndex = '1000';
-        img.style.position = 'relative';
-        img.style.width = '128px';
-        img.style.height = '128px';
-        img.style.display = 'block';
-        img.style.objectFit = 'cover';
-        img.style.visibility = 'visible';
-        img.style.opacity = '1';
-        img.style.maxWidth = 'none';
-        img.style.maxHeight = 'none';
-        img.style.minWidth = '128px';
-        img.style.minHeight = '128px';
-        img.style.overflow = 'visible';
-        img.style.clip = 'auto';
-        img.style.clipPath = 'none';
-        
         return img;
-    }
-    
-    /**
-     * Generate a consistent color from a string (for fallback images)
-     */
-    getColorFromName(name) {
-        // Simple hash function to generate consistent colors
-        let hash = 0;
-        for (let i = 0; i < name.length; i++) {
-            hash = name.charCodeAt(i) + ((hash << 5) - hash);
-        }
-        
-        // Convert to hex color (avoiding too light or too dark colors)
-        const hue = Math.abs(hash) % 360;
-        const saturation = 60 + (Math.abs(hash) % 20); // 60-80%
-        const lightness = 40 + (Math.abs(hash) % 20); // 40-60%
-        
-        // Convert HSL to hex (simplified)
-        const colors = [
-            '4A90E2', '50C878', 'FF6B6B', 'FFD93D', '6C5CE7',
-            'A8E6CF', 'FF8B94', 'FFD3B6', 'FFAAA5', 'DCEDC8',
-            'FFEAA7', 'DDA0DD', '98D8C8', 'F7DC6F', 'BB8FCE'
-        ];
-        
-        return colors[Math.abs(hash) % colors.length];
     }
     
     /**
