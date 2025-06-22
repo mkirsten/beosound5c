@@ -79,7 +79,7 @@ class UIStore {
                 title: 'Playlists',
                 content: `
                     <div id="music-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                        <iframe id="music-iframe" src="pages/music.html" style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);" allowfullscreen></iframe>
+                        <iframe id="music-iframe" src="softarc/index.html" style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);" allowfullscreen></iframe>
                     </div>
                 `
             },
