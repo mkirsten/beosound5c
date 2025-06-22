@@ -3,21 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Soft arc scrollable list on Beosound 5c</title>
+    <title>Arc List - Beosound 5c</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        .interface-selector {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .interface-selector h1 {
+            margin-bottom: 2rem;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        .interface-selector a {
+            display: block;
+            margin: 1rem 0;
+            padding: 1rem 2rem;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: background 0.3s ease;
+        }
+        .interface-selector a:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+    </style>
 </head>
 <body>
-    <!-- Main application container -->
     <div id="app">
-        <div class="counter">
-            <span id="current-item">1</span> / <span id="total-items">100</span>
+        <div class="interface-selector">
+            <h1>Select Interface</h1>
+            <a href="music.html">🎵 Music</a>
+            <a href="settings.html">⚙️ Settings</a>
+            <a href="apps.html">📱 Apps</a>
+            <a href="photos.html">📷 Photos</a>
         </div>
-        <!-- Main container where all arc list items will be displayed -->
-        <div class="arc-container" id="arc-container">
-            <!-- Items will be dynamically generated here by JavaScript -->
-        </div>
-   </div>
-    <!-- Main JavaScript file that handles all functionality -->
-    <script src="script.js"></script>
+    </div>
 </body>
 </html>

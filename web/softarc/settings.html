@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Beosound 5c</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Main application container -->
+    <div id="app">
+        <div class="counter">
+            <span id="current-item">1</span> / <span id="total-items">10</span>
+        </div>
+
+        <!-- Main container where all arc list items will be displayed -->
+        <div class="arc-container" id="arc-container">
+            <!-- Items will be dynamically generated here by JavaScript -->
+        </div>
+    </div>
+
+    <!-- Main JavaScript file that handles all functionality -->
+    <script src="script.js"></script>
+    <script>
+        // Settings-specific configuration
+        document.addEventListener('DOMContentLoaded', () => {
+            const settingsConfig = {
+                dataSource: '../settings.json', // You'll need to create this
+                dataType: 'custom',
+                viewMode: 'single',
+                storagePrefix: 'settings_arclist',
+                title: 'Settings',
+                context: 'settings',
+                itemMapper: (data) => data.map(setting => ({
+                    id: setting.id,
+                    name: setting.name,
+                    image: setting.icon || 'https://via.placeholder.com/64x64/555555/ffffff?text=⚙'
+                })),
+                webhookUrl: 'http://homeassistant.local:8123/api/webhook/beosound5c_settings'
+            };
+            
+            new ArcList(settingsConfig);
+        });
+    </script>
+</body>
+</html> 

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music - Beosound 5c</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <div class="counter">
+            <span id="current-item">1</span> / <span id="total-items">100</span>
+        </div>
+        <div class="arc-container" id="arc-container"></div>
+    </div>
+
+    <!-- Main JavaScript file that handles all functionality -->
+    <script src="script.js"></script>
+    <script>
+        // Music-specific configuration
+        document.addEventListener('DOMContentLoaded', () => {
+            const musicConfig = {
+                dataSource: '../playlists_with_tracks.json',
+                dataType: 'playlists',
+                viewMode: 'hierarchical',
+                parentKey: 'tracks',
+                parentNameKey: 'name',
+                storagePrefix: 'music_arclist',
+                title: 'Music',
+                context: 'music',
+                childNameMapper: (track) => ({
+                    id: track.id,
+                    name: `${track.artist} - ${track.name}`,
+                    image: track.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+                })
+            };
+            
+            new ArcList(musicConfig);
+        });
+    </script>
+</body>
+</html> 
