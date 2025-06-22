@@ -22,6 +22,15 @@ class ArcList {
         this.previousIndex = null; // Store previous center index
         this.lastClickedItemId = null; // Track the last item that was clicked
         
+        // State management for playlist/songs view
+        this.viewMode = 'playlists'; // 'playlists' or 'songs'
+        this.selectedPlaylist = null;
+        this.playlistData = []; // Store full playlist data with tracks
+        this.savedPlaylistIndex = 0; // Remember position when viewing songs
+        
+        // Animation state
+        this.isAnimating = false; // Prevent render loop from interfering with animations
+        
         // ===== DOM ELEMENTS =====
         this.container = document.getElementById('arc-container'); // Main container for items
         this.currentItemDisplay = document.getElementById('current-item'); // Counter display
@@ -38,41 +47,22 @@ class ArcList {
      */
     async loadPlaylists() {
         try {
-            console.log('Attempting to load playlists from ../playlists_with_tracks.json');
             const response = await fetch('../playlists_with_tracks.json');
+            this.playlistData = await response.json();
             
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
+            // Convert playlist data to our items format (playlists only initially)
+            this.items = this.playlistData.map((playlist, index) => ({
+                id: playlist.id,
+                name: playlist.name || `Playlist ${index + 1}`, // Handle empty names
+                image: playlist.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪' // Placeholder for null images
+            }));
             
-            const data = await response.json();
-            console.log('Successfully loaded playlists:', data.length, 'playlists found');
-            
-            // Transform playlist data into the format we need
-            const transformedData = data.map(playlist => {
-                console.log('Processing playlist:', playlist.name, 'with image:', playlist.image);
-                
-                // Try to get a better image - use first track's image if available
-                let bestImage = playlist.image;
-                if (playlist.tracks && playlist.tracks.length > 0 && playlist.tracks[0].image) {
-                    bestImage = playlist.tracks[0].image;
-                    console.log('Using track image instead of playlist mosaic:', bestImage);
-                }
-                
-                return {
-                    id: playlist.id,
-                    name: playlist.name,
-                    image: bestImage || 'data:image/svg+xml,%3Csvg width="128" height="128" xmlns="http://www.w3.org/2000/svg"%3E%3Crect width="128" height="128" fill="%23333"/%3E%3Ctext x="64" y="64" text-anchor="middle" dy=".3em" fill="white" font-size="16"%3E♪%3C/text%3E%3C/svg%3E'
-                };
-            });
-            
-            console.log('Transformed playlists:', transformedData);
-            return transformedData;
+            console.log('Loaded playlists:', this.items.length);
         } catch (error) {
             console.error('Error loading playlists:', error);
-            // Fallback to a few dummy items if loading fails
-            return [
-                { id: '1', name: 'Error Loading Playlists', image: 'data:image/svg+xml,%3Csvg width="128" height="128" xmlns="http://www.w3.org/2000/svg"%3E%3Crect width="128" height="128" fill="%23ff0000"/%3E%3Ctext x="64" y="64" text-anchor="middle" dy=".3em" fill="white" font-size="16"%3E!%3C/text%3E%3C/svg%3E' }
+            // Fallback to dummy data if loading fails
+            this.items = [
+                { id: 'fallback-1', name: 'Error Loading Playlists', image: 'https://via.placeholder.com/64x64/ff0000/ffffff?text=!' }
             ];
         }
     }
@@ -109,7 +99,7 @@ class ArcList {
         console.log('Initializing ArcList...'); // Debug log
         
         // Load playlist data
-        this.items = await this.loadPlaylists();
+        await this.loadPlaylists();
         console.log('Loaded', this.items.length, 'playlists'); // Debug log
         
         this.setupEventListeners(); // Listen for keyboard input
@@ -367,6 +357,18 @@ class ArcList {
      * This is called every animation frame to update positions and visibility
      */
     render() {
+        // Don't render if we're in the middle of an animation
+        if (this.isAnimating) {
+            return;
+        }
+        
+        // If we're in song view, preserve the animated playlist item
+        if (this.viewMode === 'songs') {
+            // Only render song items, don't clear the animated playlist item
+            this.renderSongItems();
+            return;
+        }
+        
         // Clear the container completely to prevent element reuse issues
         this.container.innerHTML = '';
         
@@ -407,6 +409,70 @@ class ArcList {
             itemElement.style.filter = `blur(${item.blur}px)`;
             
             // Add elements to the item container - EXACTLY like music.html
+            itemElement.appendChild(nameEl);
+            itemElement.appendChild(imgEl);
+            
+            // Add item to the main container
+            this.container.appendChild(itemElement);
+        });
+    }
+    
+    /**
+     * Render song items while preserving the animated playlist item
+     */
+    renderSongItems() {
+        // Hide all playlist items except the animated one
+        const playlistItems = document.querySelectorAll('.arc-item:not([data-song-item="true"])');
+        playlistItems.forEach(item => {
+            // Only hide if it's not the animated playlist item
+            if (!item.dataset.animatedPlaylist) {
+                // Hide non-animated playlist items
+                item.style.display = 'none';
+            }
+        });
+        
+        // Remove any existing song items
+        const songItems = document.querySelectorAll('.arc-item[data-song-item="true"]');
+        songItems.forEach(item => item.remove());
+        
+        const visibleItems = this.getVisibleItems();
+        
+        // Create fresh DOM elements for each visible song item
+        visibleItems.forEach((item, index) => {
+            // Create main container for this song item
+            const itemElement = document.createElement('div');
+            itemElement.className = 'arc-item';
+            itemElement.dataset.itemId = item.id;
+            itemElement.dataset.songItem = 'true'; // Mark as song item for easy removal
+            
+            // Add selected class if this is the center item
+            if (Math.abs(item.index - this.currentIndex) < 0.5) {
+                itemElement.classList.add('selected');
+            }
+            
+            // Create and configure the image
+            const imageContainer = document.createElement('div');
+            imageContainer.className = 'item-image-container';
+            if (itemElement.classList.contains('selected')) {
+                imageContainer.classList.add('selected');
+            }
+            
+            // Create image
+            const nameEl = document.createElement('div');
+            nameEl.className = 'item-name';
+            nameEl.textContent = item.name;
+            
+            const imgEl = document.createElement('img');
+            imgEl.className = 'item-image';
+            imgEl.src = item.image;
+            imgEl.loading = 'lazy';
+            
+            // Apply positioning and visual effects
+            itemElement.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
+            itemElement.style.opacity = item.opacity;
+            itemElement.style.filter = `blur(${item.blur}px)`;
+            
+            // Add elements to the item container
             itemElement.appendChild(nameEl);
             itemElement.appendChild(imgEl);
             
@@ -479,6 +545,31 @@ class ArcList {
         // Log all received WebSocket messages
         console.log('Received WebSocket message:', data);
         
+        // Handle button messages for playlist selection and back navigation
+        if (data.type === 'button' && data.data && data.data.button) {
+            const button = data.data.button;
+            console.log('Button event received:', button, 'current view mode:', this.viewMode);
+            
+            if (button === 'left' && this.viewMode === 'playlists') {
+                console.log('Left button pressed in playlist mode - entering playlist view');
+                // Select playlist to show songs
+                this.enterPlaylistView();
+                return;
+            } else if (button === 'right' && this.viewMode === 'songs') {
+                console.log('Right button pressed in song mode - exiting to playlists');
+                // Go back to playlists
+                this.exitPlaylistView();
+                return;
+            } else if (button === 'go') {
+                console.log('Go button pressed - sending webhook');
+                // Send webhook with appropriate ID
+                this.sendGoWebhook();
+                return;
+            } else {
+                console.log('Button pressed but no action taken:', button, 'view mode:', this.viewMode);
+            }
+        }
+        
         // Listen for navigation wheel events (not volume or laser)
         if (data.type === 'nav' && data.data) {
             const direction = data.data.direction; // 'clock' or 'counter'
@@ -519,6 +610,7 @@ class ArcList {
     sendClickCommand() {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
         
+        /*
         const now = Date.now();
         const CLICK_THROTTLE_MS = 5;
         
@@ -528,7 +620,7 @@ class ArcList {
         }
         
         this.lastClickTime = now;
-        
+        */
         const message = {
             type: 'command',
             command: 'click',
@@ -550,6 +642,188 @@ class ArcList {
             console.log('Selected item changed to:', currentItem.name);
             this.sendClickCommand();
             this.lastClickedItemId = currentItem.id;
+        }
+    }
+
+    /**
+     * Enter playlist view - show songs from the selected playlist
+     */
+    enterPlaylistView() {
+        console.log('enterPlaylistView called, current mode:', this.viewMode, 'currentIndex:', this.currentIndex);
+        
+        if (this.viewMode !== 'playlists' || !this.playlistData[this.currentIndex]) {
+            console.log('Cannot enter playlist view - conditions not met');
+            return;
+        }
+        
+        // Save current playlist position
+        this.savedPlaylistIndex = this.currentIndex;
+        this.selectedPlaylist = this.playlistData[this.currentIndex];
+        console.log('Selected playlist:', this.selectedPlaylist.name);
+        
+        // Ensure the render is up to date first
+        this.render();
+        
+        // Animate current playlist 200px left
+        const selectedElement = document.querySelector('.arc-item.selected');
+        console.log('Found selected element:', selectedElement);
+        
+        if (selectedElement) {
+            // Get current transform and add the left translation
+            const currentTransform = selectedElement.style.transform || '';
+            selectedElement.style.transform = currentTransform + ' translateX(-200px)';
+            selectedElement.style.transition = 'transform 0.3s ease';
+            selectedElement.dataset.animatedPlaylist = 'true'; // Mark as animated playlist item
+            console.log('Applied animation to selected element');
+        } else {
+            console.log('No selected element found for animation - trying alternative approach');
+            // Fallback: try to find by data attribute
+            const centerIndex = Math.round(this.currentIndex);
+            const fallbackElement = document.querySelector(`[data-item-id="${this.items[centerIndex]?.id}"]`);
+            if (fallbackElement) {
+                const currentTransform = fallbackElement.style.transform || '';
+                fallbackElement.style.transform = currentTransform + ' translateX(-200px)';
+                fallbackElement.style.transition = 'transform 0.3s ease';
+                fallbackElement.dataset.animatedPlaylist = 'true'; // Mark as animated playlist item
+                console.log('Applied animation to fallback element');
+            } else {
+                console.log('No element found at all - skipping animation');
+            }
+        }
+        
+        // Load songs after animation
+        setTimeout(() => {
+            console.log('Loading playlist songs after animation');
+            this.loadPlaylistSongs();
+        }, 300);
+    }
+
+    /**
+     * Load songs from the selected playlist
+     */
+    loadPlaylistSongs() {
+        if (!this.selectedPlaylist || !this.selectedPlaylist.tracks) {
+            console.error('No tracks found for playlist');
+            return;
+        }
+        
+        // Convert tracks to items format
+        this.items = this.selectedPlaylist.tracks.map(track => ({
+            id: track.id,
+            name: `${track.artist} - ${track.name}`,
+            image: track.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+        }));
+        
+        this.viewMode = 'songs';
+        this.currentIndex = 0;
+        this.targetIndex = 0;
+        this.render();
+        console.log('Switched to song view:', this.items.length, 'songs');
+    }
+
+    /**
+     * Exit playlist view - return to playlist selection
+     */
+    exitPlaylistView() {
+        if (this.viewMode !== 'songs') return;
+        
+        console.log('Exiting playlist view, returning to playlist:', this.savedPlaylistIndex);
+        
+        // Set animation state to prevent render interference
+        this.isAnimating = true;
+        
+        // Find the animated playlist item and animate it back
+        const animatedPlaylistItem = document.querySelector('.arc-item[data-animated-playlist="true"]');
+        if (animatedPlaylistItem) {
+            console.log('Found animated playlist item, animating back');
+            
+            // Animate the playlist item back to its original position
+            const currentTransform = animatedPlaylistItem.style.transform;
+            // Remove the translateX(-200px) part
+            const originalTransform = currentTransform.replace(/ translateX\(-200px\)/, '');
+            animatedPlaylistItem.style.transform = originalTransform;
+            animatedPlaylistItem.style.transition = 'transform 0.3s ease';
+            
+            // Remove the animated marker
+            delete animatedPlaylistItem.dataset.animatedPlaylist;
+        }
+        
+        // After animation, restore playlist view
+        setTimeout(() => {
+            // Show all playlist items again
+            const playlistItems = document.querySelectorAll('.arc-item:not([data-song-item="true"])');
+            playlistItems.forEach(item => {
+                item.style.display = '';
+            });
+            
+            // Restore playlist items
+            this.items = this.playlistData.map((playlist, index) => ({
+                id: playlist.id,
+                name: playlist.name || `Playlist ${index + 1}`,
+                image: playlist.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+            }));
+            
+            this.viewMode = 'playlists';
+            this.currentIndex = this.savedPlaylistIndex; // Return to exact same position
+            this.targetIndex = this.savedPlaylistIndex;
+            this.selectedPlaylist = null;
+            
+            // Re-enable rendering and render the playlist view
+            this.isAnimating = false;
+            this.render();
+            console.log('Switched back to playlist view');
+        }, 300);
+    }
+
+    /**
+     * Send webhook with appropriate ID based on current view mode
+     */
+    async sendGoWebhook() {
+        if (this.items.length === 0) return;
+        
+        let id;
+        
+        // Get appropriate ID based on current mode
+        if (this.viewMode === 'playlists') {
+            // Send playlist ID
+            const currentPlaylist = this.playlistData[this.currentIndex];
+            if (!currentPlaylist) return;
+            id = "spotify:playlist:" + currentPlaylist.id;
+            console.log('Sending webhook for playlist:', currentPlaylist.name, 'ID:', id);
+        } else if (this.viewMode === 'songs') {
+            // Send song ID
+            const currentSong = this.selectedPlaylist.tracks[this.currentIndex];
+            if (!currentSong) return;
+            id = "spotify:track:" + currentSong.id;
+            console.log('Sending webhook for song:', currentSong.name, 'ID:', id);
+        } else {
+            return;
+        }
+        
+        // Send webhook to Home Assistant
+        try {
+            const webhookData = {
+                device_type: "Panel",
+                button: "go",
+                panel_context: "music",
+                id: id
+            };
+            
+            const response = await fetch('http://homeassistant.local:8123/api/webhook/beosound5c', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(webhookData)
+            });
+            
+            if (response.ok) {
+                console.log('Webhook sent successfully:', webhookData);
+            } else {
+                console.error('Webhook failed with status:', response.status);
+            }
+        } catch (error) {
+            console.error('Error sending webhook:', error);
         }
     }
 }
