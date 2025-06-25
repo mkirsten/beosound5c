@@ -10,13 +10,13 @@ class ArcList {
         // ===== CONFIGURATION PARAMETERS =====
         this.config = {
             // Data source configuration
-            dataSource: config.dataSource || '../playlists_with_tracks.json', // URL to JSON data
-            dataType: config.dataType || 'playlists', // 'playlists', 'songs', 'custom'
+            dataSource: config.dataSource || '../data.json', // URL to JSON data
+            dataType: config.dataType || 'generic', // 'generic', 'parent_child', 'custom'
             itemMapper: config.itemMapper || null, // Custom function to map data to items
             
             // View configuration
-            viewMode: config.viewMode || 'single', // 'single' or 'hierarchical' (like playlists->songs)
-            parentKey: config.parentKey || 'tracks', // Key for child items in hierarchical mode
+            viewMode: config.viewMode || 'single', // 'single' or 'hierarchical' (like parent->child)
+            parentKey: config.parentKey || 'children', // Key for child items in hierarchical mode
             parentNameKey: config.parentNameKey || 'name', // Key for parent item names
             childNameMapper: config.childNameMapper || null, // Custom function to format child names
             
@@ -51,16 +51,16 @@ class ArcList {
         this.lastClickedItemId = null; // Track the last item that was clicked
         
         // ===== POSITION MEMORY =====
-        this.STORAGE_KEY_PLAYLIST = `${this.config.storagePrefix}_playlist_position`;
-        this.STORAGE_KEY_SONGS = `${this.config.storagePrefix}_songs_position`;
+        this.STORAGE_KEY_PARENT = `${this.config.storagePrefix}_parent_position`;
+        this.STORAGE_KEY_CHILD = `${this.config.storagePrefix}_child_position`;
         this.STORAGE_KEY_VIEW_MODE = `${this.config.storagePrefix}_view_mode`;
-        this.STORAGE_KEY_SELECTED_PLAYLIST = `${this.config.storagePrefix}_selected_playlist`;
+        this.STORAGE_KEY_SELECTED_PARENT = `${this.config.storagePrefix}_selected_parent`;
         
         // State management for hierarchical view
-        this.viewMode = this.config.viewMode === 'hierarchical' ? 'playlists' : 'single';
-        this.selectedPlaylist = null;
-        this.playlistData = []; // Store full data with children
-        this.savedPlaylistIndex = 0; // Remember position when viewing children
+        this.viewMode = this.config.viewMode === 'hierarchical' ? 'parent' : 'single';
+        this.selectedParent = null;
+        this.parentData = []; // Store full data with children
+        this.savedParentIndex = 0; // Remember position when viewing children
         
         // Animation state
         this.isAnimating = false; // Prevent render loop from interfering with animations
@@ -90,7 +90,7 @@ class ArcList {
     
     /**
      * Initialize the application
-     * Sets up event listeners, loads playlists, starts animation loop, updates counter
+     * Sets up event listeners, loads data, starts animation loop, updates counter
      */
     async init() {
         console.log('Initializing ArcList...'); // Debug log
@@ -101,8 +101,8 @@ class ArcList {
             return;
         }
         
-        // Load playlist data
-        await this.loadPlaylists();
+        // Load data
+        await this.loadData();
         console.log('Loaded', this.items.length, 'items from', this.config.dataSource);
         
         // Restore saved position and view mode
@@ -115,31 +115,32 @@ class ArcList {
     }
     
     /**
-     * Load playlist data from playlists_with_tracks.json
-     * Each playlist has: name, id, url, image, and tracks array
+     * Load data from data source
+     * Each parent item can contain child items in hierarchical mode
      */
-    async loadPlaylists() {
+    async loadData() {
         try {
             const response = await fetch(this.config.dataSource);
-            this.playlistData = await response.json();
+            this.parentData = await response.json();
             
             // Convert data to our items format based on configuration
             if (this.config.itemMapper) {
                 // Use custom mapper function
-                this.items = this.config.itemMapper(this.playlistData);
-            } else if (this.config.dataType === 'playlists') {
-                // Default playlist format
-                this.items = this.playlistData.map((playlist, index) => ({
-                    id: playlist.id,
-                    name: playlist[this.config.parentNameKey] || `Item ${index + 1}`,
-                    image: playlist.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+                this.items = this.config.itemMapper(this.parentData);
+            } else if (this.config.dataType === 'parent_child') {
+                // Default parent/child format - preserve child data for hierarchical navigation
+                this.items = this.parentData.map((parent, index) => ({
+                    id: parent.id,
+                    name: parent[this.config.parentNameKey] || `Item ${index + 1}`,
+                    image: parent.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪',
+                    [this.config.parentKey]: parent[this.config.parentKey] // Preserve child data
                 }));
             } else if (this.config.dataType === 'custom') {
                 // Assume data is already in the correct format
-                this.items = this.playlistData;
+                this.items = this.parentData;
             } else {
                 // Generic fallback
-                this.items = this.playlistData.map((item, index) => ({
+                this.items = this.parentData.map((item, index) => ({
                     id: item.id || `item-${index}`,
                     name: item.name || item.title || `Item ${index + 1}`,
                     image: item.image || item.thumbnail || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
@@ -162,15 +163,15 @@ class ArcList {
     saveState() {
         try {
             localStorage.setItem(this.STORAGE_KEY_VIEW_MODE, this.viewMode);
-            if (this.viewMode === 'playlists') {
-                localStorage.setItem(this.STORAGE_KEY_PLAYLIST, this.currentIndex.toString());
-            } else if (this.viewMode === 'songs') {
-                localStorage.setItem(this.STORAGE_KEY_SONGS, this.currentIndex.toString());
-                if (this.selectedPlaylist) {
-                    localStorage.setItem(this.STORAGE_KEY_SELECTED_PLAYLIST, JSON.stringify({
-                        id: this.selectedPlaylist.id,
-                        name: this.selectedPlaylist.name,
-                        savedPlaylistIndex: this.savedPlaylistIndex
+            if (this.viewMode === 'parent') {
+                localStorage.setItem(this.STORAGE_KEY_PARENT, this.currentIndex.toString());
+            } else if (this.viewMode === 'child') {
+                localStorage.setItem(this.STORAGE_KEY_CHILD, this.currentIndex.toString());
+                if (this.selectedParent) {
+                    localStorage.setItem(this.STORAGE_KEY_SELECTED_PARENT, JSON.stringify({
+                        id: this.selectedParent.id,
+                        name: this.selectedParent.name,
+                        savedParentIndex: this.savedParentIndex
                     }));
                 }
             }
@@ -187,37 +188,37 @@ class ArcList {
         try {
             const savedViewMode = localStorage.getItem(this.STORAGE_KEY_VIEW_MODE);
             
-            if (savedViewMode === 'songs') {
-                // Restore songs view
-                const savedSelectedPlaylist = localStorage.getItem(this.STORAGE_KEY_SELECTED_PLAYLIST);
-                const savedSongsPosition = localStorage.getItem(this.STORAGE_KEY_SONGS);
+            if (savedViewMode === 'child') {
+                // Restore child view
+                const savedSelectedParent = localStorage.getItem(this.STORAGE_KEY_SELECTED_PARENT);
+                const savedChildPosition = localStorage.getItem(this.STORAGE_KEY_CHILD);
                 
-                if (savedSelectedPlaylist && savedSongsPosition) {
-                    const playlistInfo = JSON.parse(savedSelectedPlaylist);
-                    const songsIndex = parseFloat(savedSongsPosition);
+                if (savedSelectedParent && savedChildPosition) {
+                    const parentInfo = JSON.parse(savedSelectedParent);
+                    const childIndex = parseFloat(savedChildPosition);
                     
-                    // Find the playlist in our data
-                    const playlist = this.playlistData.find(p => p.id === playlistInfo.id);
-                    if (playlist) {
-                        this.selectedPlaylist = playlist;
-                        this.savedPlaylistIndex = playlistInfo.savedPlaylistIndex || 0;
-                        this.viewMode = 'songs';
+                    // Find the parent in our data
+                    const parent = this.parentData.find(p => p.id === parentInfo.id);
+                    if (parent) {
+                        this.selectedParent = parent;
+                        this.savedParentIndex = parentInfo.savedParentIndex || 0;
+                        this.viewMode = 'child';
                         
-                        // Load songs and set position
-                        this.loadPlaylistSongsFromRestore(songsIndex);
-                        console.log('Restored songs view:', playlist.name, 'position:', songsIndex);
+                        // Load children and set position
+                        this.loadParentChildrenFromRestore(childIndex);
+                        console.log('Restored child view:', parent.name, 'position:', childIndex);
                         return;
                     }
                 }
             }
             
-            // Restore playlists view (default)
-            const savedPlaylistPosition = localStorage.getItem(this.STORAGE_KEY_PLAYLIST);
-            if (savedPlaylistPosition) {
-                const position = parseFloat(savedPlaylistPosition);
+            // Restore parent view (default)
+            const savedParentPosition = localStorage.getItem(this.STORAGE_KEY_PARENT);
+            if (savedParentPosition) {
+                const position = parseFloat(savedParentPosition);
                 this.currentIndex = Math.max(0, Math.min(this.items.length - 1, position));
                 this.targetIndex = this.currentIndex;
-                console.log('Restored playlist position:', position);
+                console.log('Restored parent position:', position);
             }
         } catch (error) {
             console.error('Error restoring state:', error);
@@ -227,26 +228,31 @@ class ArcList {
     /**
      * Load playlist songs when restoring from saved state
      */
-    loadPlaylistSongsFromRestore(songsIndex) {
-        if (!this.selectedPlaylist || !this.selectedPlaylist.tracks) {
-            console.error('No tracks found for playlist during restore');
+    loadParentChildrenFromRestore(childIndex) {
+        if (!this.selectedParent || !this.selectedParent[this.config.parentKey]) {
+            console.error('No children found for parent during restore');
             return;
         }
         
-        // Convert tracks to items format
-        this.items = this.selectedPlaylist.tracks.map(track => ({
-            id: track.id,
-            name: `${track.artist} - ${track.name}`,
-            image: track.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
-        }));
+        // Convert children to items format
+        const children = this.selectedParent[this.config.parentKey];
+        if (this.config.childNameMapper) {
+            this.items = children.map(this.config.childNameMapper);
+        } else {
+            this.items = children.map(child => ({
+                id: child.id,
+                name: child.name || child.title || 'Unnamed Item',
+                image: child.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+            }));
+        }
         
         // Set position
-        this.currentIndex = Math.max(0, Math.min(this.items.length - 1, songsIndex));
+        this.currentIndex = Math.max(0, Math.min(this.items.length - 1, childIndex));
         this.targetIndex = this.currentIndex;
         
         // Update display
         this.totalItemsDisplay.textContent = this.items.length;
-        console.log('Loaded', this.items.length, 'songs for restore');
+        console.log('Loaded', this.items.length, 'children for restore');
     }
 
     /**
@@ -266,6 +272,17 @@ class ArcList {
         // Save state periodically and on page unload
         setInterval(() => this.saveState(), 1000); // Save every second
         window.addEventListener('beforeunload', () => this.saveState());
+        
+        // Listen for events from parent window (when in iframe)
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'button') {
+                console.log('Received button event from parent:', event.data.button);
+                this.handleButtonFromParent(event.data.button);
+            } else if (event.data && event.data.type === 'nav') {
+                console.log('Received nav event from parent:', event.data.data);
+                this.handleNavFromParent(event.data.data);
+            }
+        });
     }
     
     /**
@@ -276,18 +293,102 @@ class ArcList {
         const now = Date.now();
         this.lastScrollTime = now; // Record when user last interacted
         
-        console.log('Key pressed:', e.key, 'Current target:', this.targetIndex); // Debug log
+        // Removed excessive keyboard navigation logging
         
         if (e.key === 'ArrowUp') {
             // Move up in the list (decrease index) - use base scroll step for keyboard
             this.targetIndex = Math.max(0, this.targetIndex - this.SCROLL_STEP);
             this.setupSnapTimer(); // Reset auto-snap timer
-            console.log('Keyboard: Moving up to:', this.targetIndex); // Debug log
         } else if (e.key === 'ArrowDown') {
             // Move down in the list (increase index) - use base scroll step for keyboard
             this.targetIndex = Math.min(this.items.length - 1, this.targetIndex + this.SCROLL_STEP);
             this.setupSnapTimer(); // Reset auto-snap timer
-            console.log('Keyboard: Moving down to:', this.targetIndex); // Debug log
+        } else if (e.key === 'ArrowLeft') {
+            // Enter hierarchical view (same as WebSocket "left" button)
+            if (this.config.viewMode === 'hierarchical' && this.viewMode === 'parent') {
+                console.log('Keyboard: Left arrow pressed in parent mode - entering child view');
+                this.enterChildView();
+            } else {
+                console.log('Keyboard: Left arrow pressed but no action available');
+            }
+        } else if (e.key === 'ArrowRight') {
+            // Exit hierarchical view (same as WebSocket "right" button)
+            if (this.config.viewMode === 'hierarchical' && this.viewMode === 'child') {
+                console.log('Keyboard: Right arrow pressed in child mode - exiting to parent');
+                this.exitChildView();
+            } else {
+                console.log('Keyboard: Right arrow pressed but no action available');
+            }
+        } else if (e.key === 'Enter') {
+            // Trigger "go" action (same as WebSocket "go" button)
+            console.log('Keyboard: Enter pressed - sending webhook');
+            this.sendGoWebhook();
+        }
+    }
+    
+    /**
+     * Handle button events forwarded from parent window (when in iframe)
+     */
+    handleButtonFromParent(button) {
+        console.log('Processing button from parent:', button, 'current view mode:', this.viewMode);
+        
+        if (button === 'left') {
+            // Enter hierarchical view (same as keyboard left arrow)
+            if (this.config.viewMode === 'hierarchical' && this.viewMode === 'parent') {
+                console.log('Parent button: Left pressed in parent mode - entering child view');
+                this.enterChildView();
+            } else {
+                console.log('Parent button: Left pressed but no action available');
+            }
+        } else if (button === 'right') {
+            // Exit hierarchical view (same as keyboard right arrow)
+            if (this.config.viewMode === 'hierarchical' && this.viewMode === 'child') {
+                console.log('Parent button: Right pressed in child mode - exiting to parent');
+                this.exitChildView();
+            } else {
+                console.log('Parent button: Right pressed but no action available');
+            }
+        } else if (button === 'go') {
+            // Trigger "go" action (same as keyboard Enter)
+            console.log('Parent button: Go pressed - sending webhook');
+            this.sendGoWebhook();
+        }
+    }
+    
+    /**
+     * Handle navigation events forwarded from parent window (when in iframe)
+     */
+    handleNavFromParent(data) {
+        const direction = data.direction; // 'clock' or 'counter'
+        const speed = data.speed || 1; // Speed parameter from server
+        
+        console.log('Processing nav from parent:', direction, 'speed:', speed);
+        
+        // Calculate scroll step based on speed (same logic as WebSocket handling)
+        const speedMultiplier = Math.min(speed / 10, 5); // Cap at 5x speed
+        const scrollStep = this.SCROLL_STEP * speedMultiplier;
+        
+        // Check boundaries before scrolling
+        const atTop = this.targetIndex <= 0;
+        const atBottom = this.targetIndex >= this.items.length - 1;
+        const scrollingUp = direction === 'counter';
+        const scrollingDown = direction === 'clock';
+        
+        // Don't scroll if at boundaries
+        if ((atTop && scrollingUp) || (atBottom && scrollingDown)) {
+            console.log('At boundary - not scrolling');
+            return;
+        }
+        
+        // Handle the scroll with speed-based step
+        if (scrollingDown) {
+            // Scroll down
+            this.targetIndex = Math.min(this.items.length - 1, this.targetIndex + scrollStep);
+            this.setupSnapTimer(); // Reset auto-snap timer
+        } else if (scrollingUp) {
+            // Scroll up
+            this.targetIndex = Math.max(0, this.targetIndex - scrollStep);
+            this.setupSnapTimer(); // Reset auto-snap timer
         }
     }
     
@@ -308,7 +409,7 @@ class ArcList {
                 const closestIndex = Math.round(this.targetIndex); // Find closest whole number
                 const clampedIndex = Math.max(0, Math.min(this.items.length - 1, closestIndex)); // Keep within bounds
                 this.targetIndex = clampedIndex; // Snap to that position
-                console.log('Snapping to:', clampedIndex); // Debug log
+                // Snapping to closest item
             }
         }, this.SNAP_DELAY);
     }
@@ -463,10 +564,10 @@ class ArcList {
             return;
         }
         
-        // If we're in song view, preserve the animated playlist item
-        if (this.viewMode === 'songs') {
-            // Only render song items, don't clear the animated playlist item
-            this.renderSongItems();
+        // If we're in child view, preserve the animated parent item
+        if (this.viewMode === 'child') {
+            // Only render child items, don't clear the animated parent item
+            this.renderChildItems();
             return;
         }
         
@@ -519,32 +620,32 @@ class ArcList {
     }
     
     /**
-     * Render song items while preserving the animated playlist item
+     * Render child items while preserving the animated parent item
      */
-    renderSongItems() {
-        // Hide all playlist items except the animated one
-        const playlistItems = document.querySelectorAll('.arc-item:not([data-song-item="true"])');
-        playlistItems.forEach(item => {
-            // Only hide if it's not the animated playlist item
-            if (!item.dataset.animatedPlaylist) {
-                // Hide non-animated playlist items
+    renderChildItems() {
+        // Hide all parent items except the animated one
+        const parentItems = document.querySelectorAll('.arc-item:not([data-child-item="true"])');
+        parentItems.forEach(item => {
+            // Only hide if it's not the animated parent item
+            if (!item.dataset.animatedParent) {
+                // Hide non-animated parent items
                 item.style.display = 'none';
             }
         });
         
-        // Remove any existing song items
-        const songItems = document.querySelectorAll('.arc-item[data-song-item="true"]');
-        songItems.forEach(item => item.remove());
+        // Remove any existing child items
+        const childItems = document.querySelectorAll('.arc-item[data-child-item="true"]');
+        childItems.forEach(item => item.remove());
         
         const visibleItems = this.getVisibleItems();
         
-        // Create fresh DOM elements for each visible song item
+        // Create fresh DOM elements for each visible child item
         visibleItems.forEach((item, index) => {
-            // Create main container for this song item
+            // Create main container for this child item
             const itemElement = document.createElement('div');
             itemElement.className = 'arc-item';
             itemElement.dataset.itemId = item.id;
-            itemElement.dataset.songItem = 'true'; // Mark as song item for easy removal
+            itemElement.dataset.childItem = 'true'; // Mark as child item for easy removal
             
             // Add selected class if this is the center item
             if (Math.abs(item.index - this.currentIndex) < 0.5) {
@@ -589,7 +690,7 @@ class ArcList {
         // Show current item number (1-based instead of 0-based)
         const displayIndex = Math.floor(this.currentIndex) + 1;
         this.currentItemDisplay.textContent = displayIndex;
-        console.log('Counter updated:', displayIndex, '/', this.items.length); // Debug log
+        // Removed excessive debug logging that was called 60fps from animation loop
     }
     
     /**
@@ -646,20 +747,20 @@ class ArcList {
         // Log all received WebSocket messages
         console.log('Received WebSocket message:', data);
         
-        // Handle button messages for playlist selection and back navigation
+        // Handle button messages for parent selection and back navigation
         if (data.type === 'button' && data.data && data.data.button) {
             const button = data.data.button;
             console.log('Button event received:', button, 'current view mode:', this.viewMode);
             
-            if (button === 'left' && this.viewMode === 'playlists') {
-                console.log('Left button pressed in playlist mode - entering playlist view');
-                // Select playlist to show songs
-                this.enterPlaylistView();
+            if (button === 'left' && this.viewMode === 'parent') {
+                console.log('Left button pressed in parent mode - entering child view');
+                // Select parent to show children
+                this.enterChildView();
                 return;
-            } else if (button === 'right' && this.viewMode === 'songs') {
-                console.log('Right button pressed in song mode - exiting to playlists');
-                // Go back to playlists
-                this.exitPlaylistView();
+            } else if (button === 'right' && this.viewMode === 'child') {
+                console.log('Right button pressed in child mode - exiting to parent');
+                // Go back to parent
+                this.exitChildView();
                 return;
             } else if (button === 'go') {
                 console.log('Go button pressed - sending webhook');
@@ -698,12 +799,12 @@ class ArcList {
                 // Scroll down
                 this.targetIndex = Math.min(this.items.length - 1, this.targetIndex + scrollStep);
                 this.setupSnapTimer(); // Reset auto-snap timer
-                console.log('WebSocket: Moving down to:', this.targetIndex, 'speed:', speed, 'step:', scrollStep);
+                // Removed excessive WebSocket scroll logging
             } else if (scrollingUp) {
                 // Scroll up
                 this.targetIndex = Math.max(0, this.targetIndex - scrollStep);
                 this.setupSnapTimer(); // Reset auto-snap timer
-                console.log('WebSocket: Moving up to:', this.targetIndex, 'speed:', speed, 'step:', scrollStep);
+                // Removed excessive WebSocket scroll logging
             }
             
             // Send click command back to server (rate limited)
@@ -746,32 +847,32 @@ class ArcList {
         
         // Only trigger if we have a valid item and it's different from the last clicked item
         if (currentItem && currentItem.id !== this.lastClickedItemId) {
-            console.log('Selected item changed to:', currentItem.name);
+            // Selection changed - removed excessive logging
             this.sendClickCommand();
             this.lastClickedItemId = currentItem.id;
         }
     }
 
     /**
-     * Enter playlist view - show songs from the selected playlist
+     * Enter child view - show children from the selected parent
      */
-    enterPlaylistView() {
-        console.log('enterPlaylistView called, current mode:', this.viewMode, 'currentIndex:', this.currentIndex);
+    enterChildView() {
+        console.log('enterChildView called, current mode:', this.viewMode, 'currentIndex:', this.currentIndex);
         
-        if (this.viewMode !== 'playlists' || !this.playlistData[this.currentIndex]) {
-            console.log('Cannot enter playlist view - conditions not met');
+        if (this.viewMode !== 'parent' || !this.parentData[this.currentIndex]) {
+            console.log('Cannot enter child view - conditions not met');
             return;
         }
         
-        // Save current playlist position
-        this.savedPlaylistIndex = this.currentIndex;
-        this.selectedPlaylist = this.playlistData[this.currentIndex];
-        console.log('Selected playlist:', this.selectedPlaylist.name);
+        // Save current parent position
+        this.savedParentIndex = this.currentIndex;
+        this.selectedParent = this.parentData[this.currentIndex];
+        console.log('Selected parent:', this.selectedParent.name);
         
         // Ensure the render is up to date first
         this.render();
         
-        // Animate current playlist 200px left
+        // Animate current parent 200px left
         const selectedElement = document.querySelector('.arc-item.selected');
         console.log('Found selected element:', selectedElement);
         
@@ -780,7 +881,7 @@ class ArcList {
             const currentTransform = selectedElement.style.transform || '';
             selectedElement.style.transform = currentTransform + ' translateX(-200px)';
             selectedElement.style.transition = 'transform 0.3s ease';
-            selectedElement.dataset.animatedPlaylist = 'true'; // Mark as animated playlist item
+            selectedElement.dataset.animatedParent = 'true'; // Mark as animated parent item
             console.log('Applied animation to selected element');
         } else {
             console.log('No selected element found for animation - trying alternative approach');
@@ -791,30 +892,30 @@ class ArcList {
                 const currentTransform = fallbackElement.style.transform || '';
                 fallbackElement.style.transform = currentTransform + ' translateX(-200px)';
                 fallbackElement.style.transition = 'transform 0.3s ease';
-                fallbackElement.dataset.animatedPlaylist = 'true'; // Mark as animated playlist item
+                fallbackElement.dataset.animatedParent = 'true'; // Mark as animated parent item
                 console.log('Applied animation to fallback element');
             } else {
                 console.log('No element found at all - skipping animation');
             }
         }
         
-        // Load songs after animation
+        // Load children after animation
         setTimeout(() => {
-            console.log('Loading playlist songs after animation');
-            this.loadPlaylistSongs();
+            console.log('Loading parent children after animation');
+            this.loadParentChildren();
         }, 300);
     }
 
     /**
-     * Load songs from the selected playlist
+     * Load children from the selected parent
      */
-    loadPlaylistSongs() {
-        if (!this.selectedPlaylist || !this.selectedPlaylist[this.config.parentKey]) {
-            console.error('No child items found for selected item');
+    loadParentChildren() {
+        if (!this.selectedParent || !this.selectedParent[this.config.parentKey]) {
+            console.error('No child items found for selected parent');
             return;
         }
         
-        const childItems = this.selectedPlaylist[this.config.parentKey];
+        const childItems = this.selectedParent[this.config.parentKey];
         
         // Convert child items to our format
         if (this.config.childNameMapper) {
@@ -824,12 +925,12 @@ class ArcList {
             // Default mapping
             this.items = childItems.map(item => ({
                 id: item.id,
-                name: item.name || `${item.artist || ''} - ${item.title || item.name || 'Unknown'}`.trim(),
+                name: item.name || item.title || 'Unnamed Item',
                 image: item.image || item.thumbnail || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
             }));
         }
         
-        this.viewMode = 'songs';
+        this.viewMode = 'child';
         this.currentIndex = 0;
         this.targetIndex = 0;
         this.render();
@@ -837,56 +938,56 @@ class ArcList {
     }
 
     /**
-     * Exit playlist view - return to playlist selection
+     * Exit child view - return to parent selection
      */
-    exitPlaylistView() {
-        if (this.viewMode !== 'songs') return;
+    exitChildView() {
+        if (this.viewMode !== 'child') return;
         
-        console.log('Exiting playlist view, returning to playlist:', this.savedPlaylistIndex);
+        console.log('Exiting child view, returning to parent:', this.savedParentIndex);
         
         // Set animation state to prevent render interference
         this.isAnimating = true;
         
-        // Find the animated playlist item and animate it back
-        const animatedPlaylistItem = document.querySelector('.arc-item[data-animated-playlist="true"]');
-        if (animatedPlaylistItem) {
-            console.log('Found animated playlist item, animating back');
+        // Find the animated parent item and animate it back
+        const animatedParentItem = document.querySelector('.arc-item[data-animated-parent="true"]');
+        if (animatedParentItem) {
+            console.log('Found animated parent item, animating back');
             
-            // Animate the playlist item back to its original position
-            const currentTransform = animatedPlaylistItem.style.transform;
+            // Animate the parent item back to its original position
+            const currentTransform = animatedParentItem.style.transform;
             // Remove the translateX(-200px) part
             const originalTransform = currentTransform.replace(/ translateX\(-200px\)/, '');
-            animatedPlaylistItem.style.transform = originalTransform;
-            animatedPlaylistItem.style.transition = 'transform 0.3s ease';
+            animatedParentItem.style.transform = originalTransform;
+            animatedParentItem.style.transition = 'transform 0.3s ease';
             
             // Remove the animated marker
-            delete animatedPlaylistItem.dataset.animatedPlaylist;
+            delete animatedParentItem.dataset.animatedParent;
         }
         
-        // After animation, restore playlist view
+        // After animation, restore parent view
         setTimeout(() => {
-            // Show all playlist items again
-            const playlistItems = document.querySelectorAll('.arc-item:not([data-song-item="true"])');
-            playlistItems.forEach(item => {
+            // Show all parent items again
+            const parentItems = document.querySelectorAll('.arc-item:not([data-child-item="true"])');
+            parentItems.forEach(item => {
                 item.style.display = '';
             });
             
-            // Restore playlist items
-            this.items = this.playlistData.map((playlist, index) => ({
-                id: playlist.id,
-                name: playlist.name || `Playlist ${index + 1}`,
-                image: playlist.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+            // Restore parent items
+            this.items = this.parentData.map((parent, index) => ({
+                id: parent.id,
+                name: parent.name || `Parent ${index + 1}`,
+                image: parent.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
             }));
             
-            this.viewMode = 'playlists';
-            this.currentIndex = this.savedPlaylistIndex; // Return to exact same position
-            this.targetIndex = this.savedPlaylistIndex;
-            this.selectedPlaylist = null;
+            this.viewMode = 'parent';
+            this.currentIndex = this.savedParentIndex; // Return to exact same position
+            this.targetIndex = this.savedParentIndex;
+            this.selectedParent = null;
             
-            // Re-enable rendering and render the playlist view
+            // Re-enable rendering and render the parent view
             this.isAnimating = false;
             this.render();
-            console.log('Switched back to playlist view');
+            console.log('Switched back to parent view');
         }, 300);
     }
 
@@ -900,17 +1001,17 @@ class ArcList {
         let itemName;
         
         // Get appropriate ID based on current mode
-        if (this.viewMode === 'playlists' || this.viewMode === 'single') {
+        if (this.viewMode === 'parent' || this.viewMode === 'single') {
             // Send parent item ID
-            const currentItem = this.playlistData[this.currentIndex] || this.items[this.currentIndex];
+            const currentItem = this.parentData[this.currentIndex] || this.items[this.currentIndex];
             if (!currentItem) return;
             
             id = currentItem.id;
             itemName = currentItem.name || currentItem[this.config.parentNameKey];
             console.log('Sending webhook for item:', itemName, 'ID:', id);
-        } else if (this.viewMode === 'songs') {
+        } else if (this.viewMode === 'child') {
             // Send child item ID
-            const currentChild = this.selectedPlaylist[this.config.parentKey][this.currentIndex];
+            const currentChild = this.selectedParent[this.config.parentKey][this.currentIndex];
             if (!currentChild) return;
             
             id = currentChild.id;
@@ -949,65 +1050,5 @@ class ArcList {
     }
 }
 
-// ===== INITIALIZE THE APPLICATION =====
-// Wait for the page to fully load, then create the ArcList
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM loaded, initializing ArcList...'); // Debug log
-    
-    // Debug: Check for any existing elements that might cause conflicts
-    const existingElements = document.querySelectorAll('[id*="arc"], [id*="volume"]');
-    if (existingElements.length > 0) {
-        console.log('Found existing elements that might conflict:', existingElements);
-    }
-    
-    // Example configurations for different use cases:
-    
-    // 1. Music playlists (current setup)
-    const musicConfig = {
-        dataSource: '../playlists_with_tracks.json',
-        dataType: 'playlists',
-        viewMode: 'hierarchical',
-        parentKey: 'tracks',
-        parentNameKey: 'name',
-        storagePrefix: 'music_arclist',
-        title: 'Music',
-        context: 'music',
-        childNameMapper: (track) => ({
-            id: track.id,
-            name: `${track.artist} - ${track.name}`,
-            image: track.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
-        })
-    };
-    
-    // 2. Simple list (no hierarchy)
-    const simpleConfig = {
-        dataSource: '../simple_items.json',
-        dataType: 'custom',
-        viewMode: 'single',
-        storagePrefix: 'simple_arclist',
-        title: 'Simple List',
-        context: 'simple'
-    };
-    
-    // 3. Custom data with custom mapper
-    const customConfig = {
-        dataSource: '../custom_data.json',
-        dataType: 'custom',
-        itemMapper: (data) => data.map(item => ({
-            id: item.customId,
-            name: item.displayName,
-            image: item.iconUrl
-        })),
-        viewMode: 'single',
-        storagePrefix: 'custom_arclist',
-        title: 'Custom Data',
-        context: 'custom'
-    };
-    
-    // Initialize with music configuration (current setup)
-    new ArcList(musicConfig);
-    
-    // To use a different configuration, uncomment one of these:
-    // new ArcList(simpleConfig);
-    // new ArcList(customConfig);
-});
+// ===== ArcList CLASS ONLY =====
+// No automatic initialization - each HTML file controls its own setup

@@ -9,7 +9,7 @@
 <body>
     <div id="app">
         <div class="counter">
-            <span id="current-item">1</span> / <span id="total-items">50</span>
+            <span id="current-item">1</span> / <span id="total-items">8</span>
         </div>
         <div class="arc-container" id="arc-container"></div>
     </div>
@@ -17,28 +17,32 @@
     <!-- Main JavaScript file that handles all functionality -->
     <script src="script.js"></script>
     <script>
-        // Photos-specific configuration
+        // Scenes-specific configuration
         document.addEventListener('DOMContentLoaded', () => {
             const scenesConfig = {
-                dataSource: '../scenes.json', // You'll need to create this
-                dataType: 'custom',
+                dataSource: '../scenes.json',
+                dataType: 'scenes', // Use a custom type name
                 viewMode: 'hierarchical',
-                parentKey: 'photos',
-                parentNameKey: 'album_name',
-                storagePrefix: 'photos_arclist',
+                parentKey: 'scenes',
+                parentNameKey: 'name',
+                storagePrefix: 'scenes_arclist',
                 title: 'Scenes',
                 context: 'scenes',
-                itemMapper: (data) => data.map(album => ({
-                    id: album.id,
-                    name: album.album_name,
-                    image: album.cover_photo || 'https://via.placeholder.com/64x64/ff6b6b/ffffff?text=📷'
-                })),
+                itemMapper: (data) => {
+                    console.log('Loading scenes data:', data);
+                    return data.map(scene => ({
+                        id: scene.id,
+                        name: scene.name,
+                        image: scene.image || 'https://via.placeholder.com/64x64/6B7280/ffffff?text=🎭',
+                        scenes: scene.scenes // Keep the child scenes data for hierarchical navigation
+                    }));
+                },
                 childNameMapper: (scene) => ({
                     id: scene.id,
-                    name: scene.Ä || photo.title || 'Photo',
-                    image: scene.thumbnail || photo.url || 'https://via.placeholder.com/64x64/ff6b6b/ffffff?text=📸'
+                    name: scene.name,
+                    image: scene.image || 'https://via.placeholder.com/64x64/6B7280/ffffff?text=🎭'
                 }),
-                webhookUrl: 'http://homeassistant.local:8123/api/webhook/beosound5c_photos'
+                webhookUrl: 'http://homeassistant.local:8123/api/webhook/beosound5c_scenes'
             };
             
             new ArcList(scenesConfig);
