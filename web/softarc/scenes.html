@@ -26,17 +26,17 @@
                 parentKey: 'photos',
                 parentNameKey: 'album_name',
                 storagePrefix: 'photos_arclist',
-                title: 'Photos',
-                context: 'photos',
+                title: 'Scenes',
+                context: 'scenes',
                 itemMapper: (data) => data.map(album => ({
                     id: album.id,
                     name: album.album_name,
                     image: album.cover_photo || 'https://via.placeholder.com/64x64/ff6b6b/ffffff?text=📷'
                 })),
-                childNameMapper: (photo) => ({
-                    id: photo.id,
-                    name: photo.filename || photo.title || 'Photo',
-                    image: photo.thumbnail || photo.url || 'https://via.placeholder.com/64x64/ff6b6b/ffffff?text=📸'
+                childNameMapper: (scene) => ({
+                    id: scene.id,
+                    name: scene.Ä || photo.title || 'Photo',
+                    image: scene.thumbnail || photo.url || 'https://via.placeholder.com/64x64/ff6b6b/ffffff?text=📸'
                 }),
                 webhookUrl: 'http://homeassistant.local:8123/api/webhook/beosound5c_photos'
             };

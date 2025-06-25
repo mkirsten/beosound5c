@@ -82,6 +82,8 @@ while true; do
   # (3a) Awesome, let's listen for button events from the remote
   echo "=== LISTENING ==="
   pressed=false
+  last_command=""
+  repeat_count=0
 
   # Listen loop: breaks back to outer while on EOF or FD error
   while read -r -u "$GOUT" line; do
