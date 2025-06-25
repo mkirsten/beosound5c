@@ -25,17 +25,28 @@
         // Settings-specific configuration
         document.addEventListener('DOMContentLoaded', () => {
             const settingsConfig = {
-                dataSource: '../settings.json', // You'll need to create this
-                dataType: 'custom',
-                viewMode: 'single',
+                dataSource: '../settings.json',
+                dataType: 'settings', // Use a custom type name
+                viewMode: 'hierarchical',
+                parentKey: 'settings',
+                parentNameKey: 'name',
                 storagePrefix: 'settings_arclist',
                 title: 'Settings',
                 context: 'settings',
-                itemMapper: (data) => data.map(setting => ({
+                itemMapper: (data) => {
+                    console.log('Loading settings data:', data);
+                    return data.map(setting => ({
+                        id: setting.id,
+                        name: setting.name,
+                        image: setting.image || 'https://via.placeholder.com/64x64/555555/ffffff?text=⚙',
+                        settings: setting.settings // Keep the child settings data for hierarchical navigation
+                    }));
+                },
+                childNameMapper: (setting) => ({
                     id: setting.id,
                     name: setting.name,
-                    image: setting.icon || 'https://via.placeholder.com/64x64/555555/ffffff?text=⚙'
-                })),
+                    image: setting.image || 'https://via.placeholder.com/64x64/555555/ffffff?text=⚙'
+                }),
                 webhookUrl: 'http://homeassistant.local:8123/api/webhook/beosound5c_settings'
             };
             

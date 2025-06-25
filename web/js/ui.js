@@ -86,25 +86,18 @@ class UIStore {
             'menu/settings': {
                 title: 'Settings',
                 content: `
-                    <div class="arc-content-flow scrollable-content">
-                        <div class="flow-items">
-                            <div class="flow-item">Music Track 1</div>
-                            <div class="flow-item">Music Track 2</div>
-                            <div class="flow-item">Music Track 3</div>
-                            <div class="flow-item">Music Track 4</div>
-                            <div class="flow-item">Music Track 5</div>
-                            <div class="flow-item">Music Track 6</div>
-                            <div class="flow-item">Music Track 7</div>
-                            <div class="flow-item">Music Track 8</div>
-                            <div class="flow-item">Music Track 9</div>
-                            <div class="flow-item">Music Track 10</div>
-                            <div class="flow-item">Music Track 11</div>
-                            <div class="flow-item">Music Track 12</div>
-                            <div class="flow-item">Music Track 13</div>
-                            <div class="flow-item">Music Track 14</div>
-                            <div class="flow-item">Music Track 15</div>
-                        </div>
-                    </div>`
+                    <div id="settings-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                        <iframe id="settings-iframe" src="softarc/settings.html" style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);" allowfullscreen></iframe>
+                    </div>
+                `
+            },
+            'menu/scenes': {
+                title: 'Scenes',
+                content: `
+                    <div id="scenes-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                        <iframe id="scenes-iframe" src="softarc/scenes.html" style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);" allowfullscreen></iframe>
+                    </div>
+                `
             },
             'menu/security': {
                 title: 'SECURITY',
@@ -779,8 +772,12 @@ class UIStore {
     }
 }
 
-// Make sendClickCommand globally accessible
+// Initialize UIStore and make functions globally accessible
 document.addEventListener('DOMContentLoaded', () => {
+    // Create the UI store and make it globally accessible
+    const uiStore = new UIStore();
+    window.uiStore = uiStore;
+    
     // Make the sendClickCommand function globally accessible
     window.sendClickCommand = () => {
         if (window.uiStore) {

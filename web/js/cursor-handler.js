@@ -419,6 +419,27 @@ function initWebSocket() {
 
 // Handle navigation wheel events
 function handleNavEvent(uiStore, data) {
+    // Check if we need to forward nav events to iframe pages
+    const currentPage = uiStore.currentRoute || 'unknown';
+    const localHandledPages = ['menu/music', 'menu/settings', 'menu/scenes'];
+    
+    if (localHandledPages.includes(currentPage)) {
+        // Forward nav events to iframe
+        let iframeName = '';
+        if (currentPage === 'menu/music') iframeName = 'music-iframe';
+        else if (currentPage === 'menu/settings') iframeName = 'settings-iframe';
+        else if (currentPage === 'menu/scenes') iframeName = 'scenes-iframe';
+        
+        const iframe = document.getElementById(iframeName);
+        if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({
+                type: 'nav',
+                data: data
+            }, '*');
+        }
+        return; // Don't process nav events in parent when iframe should handle them
+    }
+    
     // Set topWheelPosition based on direction
     // clock = clockwise = down = positive
     // counter = counterclockwise = up = negative
@@ -516,11 +537,29 @@ function handleButtonEvent(uiStore, data) {
         window.uiStore.logWebsocketMessage(`Button pressed: ${data.button} on page: ${currentPage}`);
     }
     
-    // Don't send media commands if we're on the music page
-    if (currentPage === 'menu/music') {
-        console.log('On music page - not sending media commands');
+    // Forward button events to iframe pages that handle their own navigation
+    const localHandledPages = ['menu/music', 'menu/settings', 'menu/scenes'];
+    if (localHandledPages.includes(currentPage)) {
+        console.log(`On ${currentPage} page - forwarding button to iframe`);
         if (window.uiStore && window.uiStore.logWebsocketMessage) {
-            window.uiStore.logWebsocketMessage('On music page - not sending media commands');
+            window.uiStore.logWebsocketMessage(`On ${currentPage} page - forwarding button to iframe`);
+        }
+        
+        // Forward the button event to the appropriate iframe
+        let iframeName = '';
+        if (currentPage === 'menu/music') iframeName = 'music-iframe';
+        else if (currentPage === 'menu/settings') iframeName = 'settings-iframe';
+        else if (currentPage === 'menu/scenes') iframeName = 'scenes-iframe';
+        
+        const iframe = document.getElementById(iframeName);
+        if (iframe && iframe.contentWindow) {
+            // Send the button event to the iframe
+            iframe.contentWindow.postMessage({
+                type: 'button',
+                button: data.button
+            }, '*');
+        } else {
+            console.log(`Iframe ${iframeName} not found or not ready`);
         }
         return;
     }
