@@ -36,8 +36,8 @@ class ArcList {
         };
         
         // ===== ANIMATION PARAMETERS =====
-        this.SCROLL_SPEED = 0.05; // How fast scrolling animation happens (0.1 = slow, 0.3 = fast)
-        this.SCROLL_STEP = 0.333; // How much to scroll per key press (changed from 0.2 to 1 for better navigation)
+        this.SCROLL_SPEED = 0.5; // How fast scrolling animation happens (0.1 = slow, 0.3 = fast)
+        this.SCROLL_STEP = 0.5; // How much to scroll per key press (changed from 0.2 to 1 for better navigation)
         this.SNAP_DELAY = 1000; // Milliseconds to wait before snapping to closest item (reduced from 1000)
         this.MIDDLE_INDEX = 4; // How many items to show on each side of center (4 = 9 total items visible)
         
