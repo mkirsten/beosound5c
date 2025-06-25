@@ -104,19 +104,39 @@ while true; do
       address="${BASH_REMATCH[1]}"
       command="${BASH_REMATCH[2],,}"
 
-      # add && pressed == false to trigger only once per hold of buttons
-      if [[ "$command" != "00" ]]; then
-        echo "[EVENT] Press: $command"
-        # fire webhook
+      # Reset state on button release
+      if [[ "$command" == "00" ]]; then
+        pressed=false
+        last_command=""
+        repeat_count=0
+        continue
+      fi
+
+      # Handle new or repeated commands
+      if [[ "$command" != "$last_command" ]]; then
+        # New command - send webhook immediately
+        echo "[EVENT] Press: $command (new)"
         curl -G "${WEBHOOK}" \
           --silent --output /dev/null \
           --data-urlencode "address=${address}" \
           --data-urlencode "command=${command}"
+        last_command="$command"
+        repeat_count=1
         pressed=true
-
-      elif [[ "$command" == "00" && $pressed == true ]]; then
-        # echo "[EVENT] Release"
-        pressed=false
+      else
+        # Same command - increment counter
+        ((repeat_count++))
+        
+        # Send webhook on first press and after 3rd repeat, as debouncing logic
+        if [[ $repeat_count -gt 3 ]]; then
+          echo "[EVENT] Press: $command (repeat $repeat_count)"
+          curl -G "${WEBHOOK}" \
+            --silent --output /dev/null \
+            --data-urlencode "address=${address}" \
+            --data-urlencode "command=${command}"
+        else
+          echo "[EVENT] Press: $command (ignored repeat $repeat_count)"
+        fi
       fi
     fi
   done
