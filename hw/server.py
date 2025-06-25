@@ -54,11 +54,12 @@ def set_backlight(on: bool):
         state_byte1 &= ~0x40
     bs5_send_cmd(state_byte1)
     
-    # Control screen using xset
+    # Control screen using xrandr
     env = os.environ.copy()
     env["DISPLAY"] = ":0"
     subprocess.run(
-        ["xset", "dpms", "force", "on" if on else "off"],
+        ["xrandr", "--output", "HDMI-1"] + 
+        (["--mode", "1024x768", "--rate", "60"] if on else ["--off"]),
         env=env,
         stderr=subprocess.PIPE,
         stdout=subprocess.PIPE,
