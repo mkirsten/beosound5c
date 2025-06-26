@@ -74,6 +74,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Start the volume processor loop
     startVolumeProcessor();
     
+    // Add mouse wheel support for laptop testing
+    addMouseWheelSupport();
+    
     // Add mousemove event listener to show cursor when moved
     document.addEventListener('mousemove', () => {
         showCursor();
@@ -450,7 +453,7 @@ function handleNavEvent(uiStore, data) {
     }
     
     // Let the UI handle the movement based on position
-    //uiStore.handleWheelChange();
+    uiStore.handleWheelChange();
 }
 
 // Handle volume wheel events
@@ -597,4 +600,66 @@ function handleButtonEvent(uiStore, data) {
         default:
             console.log('Unknown button:', data.button);
     }
+}
+
+// Add mouse wheel support for laptop testing
+function addMouseWheelSupport() {
+    console.log('Adding mouse wheel support for laptop testing');
+    
+    // Add wheel event listener to the document
+    document.addEventListener('wheel', (event) => {
+        // Prevent default scrolling behavior
+        event.preventDefault();
+        
+        // Calculate scroll direction and speed
+        const deltaY = event.deltaY;
+        const deltaX = event.deltaX;
+        
+        // Use the larger delta for direction (vertical takes precedence)
+        const primaryDelta = Math.abs(deltaY) > Math.abs(deltaX) ? deltaY : deltaX;
+        
+        // Determine direction (positive = down/right, negative = up/left)
+        const direction = primaryDelta > 0 ? 'clock' : 'counter';
+        
+        // Calculate speed based on delta magnitude
+        // Mouse wheel typically gives values like 100, trackpad can give smaller values
+        const speed = Math.min(127, Math.max(1, Math.abs(primaryDelta) / 3));
+        
+        console.log(`Mouse wheel: direction=${direction}, speed=${speed}, deltaY=${deltaY}, deltaX=${deltaX}`);
+        
+        // Create navigation event data similar to WebSocket
+        const navData = {
+            direction: direction,
+            speed: speed
+        };
+        
+        // Get UI store and simulate laser pointer movement
+        const uiStore = window.uiStore;
+        if (uiStore) {
+            console.log('Simulating laser pointer movement from mouse wheel');
+            
+            // Calculate new angle based on current position and scroll direction
+            const currentAngle = uiStore.wheelPointerAngle;
+            const angleStep = speed * 0.3; // Convert speed to angle step (adjust multiplier for sensitivity)
+            
+            let newAngle;
+            if (direction === 'clock') {
+                // Scroll down = move clockwise = increase angle
+                newAngle = Math.min(210, currentAngle + angleStep);
+            } else {
+                // Scroll up = move counter-clockwise = decrease angle
+                newAngle = Math.max(150, currentAngle - angleStep);
+            }
+            
+            console.log(`Mouse wheel: ${currentAngle}° → ${newAngle}° (${direction}, speed=${speed})`);
+            
+            // Update the wheel pointer angle directly (like laser pointer does)
+            uiStore.wheelPointerAngle = newAngle;
+            uiStore.handleWheelChange();
+        } else {
+            console.log('UI Store not available for mouse wheel simulation');
+        }
+    }, { passive: false }); // passive: false allows preventDefault()
+    
+    console.log('Mouse wheel support added - you can now scroll to simulate laser pointer navigation');
 } 
