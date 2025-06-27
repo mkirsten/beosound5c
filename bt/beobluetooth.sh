@@ -86,59 +86,91 @@ while true; do
   repeat_count=0
 
   # Listen loop: breaks back to outer while on EOF or FD error
-  while read -r -u "$GOUT" line; do
-    echo "[gatttool] $line"
-
-    # Catch GLib warnings and restart
-    if [[ "$line" == *"GLib-WARNING"* ]]; then
-      echo ">>> Caught GLib warning—restarting"
+  while true; do
+    # Check if gatttool process is still running
+    if ! kill -0 "$GPID" 2>/dev/null; then
+      echo ">>> gatttool process died—restarting"
       break
     fi
-
-    # Catch invalid FD
-    if [[ "$line" == *"Invalid file descriptor"* ]]; then
-      echo ">>> Invalid FD—restarting"
-      break
-    fi
-
-    # Parse notifications
-    if [[ "$line" =~ Notification[[:space:]]handle[[:space:]]\=[[:space:]]([^[:space:]]+)[[:space:]]value:[[:space:]]([0-9A-Fa-f]{2})[[:space:]]([0-9A-Fa-f]{2}) ]]; then
-      address="${BASH_REMATCH[1]}"
-      command="${BASH_REMATCH[2],,}"
-
-      # Reset state on button release
-      if [[ "$command" == "00" ]]; then
-        pressed=false
-        last_command=""
-        repeat_count=0
-        continue
+    
+    # Read with timeout to avoid hanging
+    if read -r -u "$GOUT" -t 30 line; then
+      echo "[gatttool] $line"
+      
+      # Catch GLib warnings and restart
+      if [[ "$line" == *"GLib-WARNING"* ]]; then
+        echo ">>> Caught GLib warning—restarting"
+        break
       fi
 
-      # Handle new or repeated commands
-      if [[ "$command" != "$last_command" ]]; then
-        # New command - send webhook immediately
-        echo "[EVENT] Press: $command (new)"
-        curl -G "${WEBHOOK}" \
-          --silent --output /dev/null \
-          --data-urlencode "address=${address}" \
-          --data-urlencode "command=${command}"
-        last_command="$command"
-        repeat_count=1
-        pressed=true
-      else
-        # Same command - increment counter
-        ((repeat_count++))
-        
-        # Send webhook on first press and after 3rd repeat, as debouncing logic
-        if [[ $repeat_count -gt 3 ]]; then
-          echo "[EVENT] Press: $command (repeat $repeat_count)"
+      # Catch invalid FD
+      if [[ "$line" == *"Invalid file descriptor"* ]]; then
+        echo ">>> Invalid FD—restarting"
+        break
+      fi
+      
+      # Catch disconnection
+      if [[ "$line" == *"Connection lost"* ]] || [[ "$line" == *"Disconnected"* ]]; then
+        echo ">>> Connection lost—restarting"
+        break
+      fi
+
+      # Parse notifications
+      if [[ "$line" =~ Notification[[:space:]]handle[[:space:]]\=[[:space:]]([^[:space:]]+)[[:space:]]value:[[:space:]]([0-9A-Fa-f]{2})[[:space:]]([0-9A-Fa-f]{2}) ]]; then
+        address="${BASH_REMATCH[1]}"
+        command="${BASH_REMATCH[2],,}"
+
+        # Reset state on button release
+        if [[ "$command" == "00" ]]; then
+          pressed=false
+          last_command=""
+          repeat_count=0
+          continue
+        fi
+
+        # Handle new or repeated commands
+        if [[ "$command" != "$last_command" ]]; then
+          # New command - send webhook immediately
+          echo "[EVENT] Press: $command (new)"
           curl -G "${WEBHOOK}" \
             --silent --output /dev/null \
             --data-urlencode "address=${address}" \
             --data-urlencode "command=${command}"
+          last_command="$command"
+          repeat_count=1
+          pressed=true
         else
-          echo "[EVENT] Press: $command (ignored repeat $repeat_count)"
+          # Same command - increment counter
+          ((repeat_count++))
+          
+          # Send webhook on first press and after 3rd repeat, as debouncing logic
+          if [[ $repeat_count -gt 3 ]]; then
+            echo "[EVENT] Press: $command (repeat $repeat_count)"
+            curl -G "${WEBHOOK}" \
+              --silent --output /dev/null \
+              --data-urlencode "address=${address}" \
+              --data-urlencode "command=${command}"
+          else
+            echo "[EVENT] Press: $command (ignored repeat $repeat_count)"
+          fi
         fi
+      fi
+    else
+      # read failed or timed out
+      read_exit_code=$?
+      if [[ $read_exit_code -gt 128 ]]; then
+        # Timeout occurred, check if process is still alive and continue
+        echo ">>> Read timeout (30s), checking connection..."
+        if ! kill -0 "$GPID" 2>/dev/null; then
+          echo ">>> Process died during timeout—restarting"
+          break
+        fi
+        echo ">>> Process still alive, continuing to listen..."
+        continue
+      else
+        # EOF or other error
+        echo ">>> Read failed with exit code $read_exit_code—restarting"
+        break
       fi
     fi
   done
