@@ -55,6 +55,10 @@ class UIStore {
         this.radius = 1000;
         this.angleStep = 5;
         
+        // Menu animation state
+        this.menuAnimationState = 'visible'; // 'visible', 'sliding-out', 'hidden', 'sliding-in'
+        this.menuAnimationTimeout = null;
+        
         // Initialize views first
         this.views = {
             'menu': {
@@ -145,6 +149,11 @@ class UIStore {
         this.initializeUI();
         this.setupEventListeners();
         this.updateView();
+        
+        // Ensure menu starts visible
+        setTimeout(() => {
+            this.ensureMenuVisible();
+        }, 100);
         
         // Start fetching media info
         this.fetchMediaInfo();
@@ -597,20 +606,49 @@ class UIStore {
     }
 
     handleWheelChange() {
-        // Check for overlay at top or bottom
-        if (this.wheelPointerAngle > 203) { // bottom
-            if (!this.isNowPlayingOverlayActive) {
+        // Define transition zones for menu sliding
+        const bottomOverlayStart = 203;
+        const bottomTransitionStart = 195;
+        const topOverlayStart = 155;
+        const topTransitionStart = 163;
+        
+        // Determine if we should be in overlay zone
+        const shouldBeInOverlayZone = this.wheelPointerAngle > bottomTransitionStart || this.wheelPointerAngle < topTransitionStart;
+        const shouldBeInFullOverlay = this.wheelPointerAngle > bottomOverlayStart || this.wheelPointerAngle < topOverlayStart;
+        
+        // Handle time-based menu sliding animations with better state management
+        console.log(`Menu state: ${this.menuAnimationState}, shouldBeInOverlayZone: ${shouldBeInOverlayZone}, angle: ${this.wheelPointerAngle.toFixed(1)}°`);
+        
+        if (shouldBeInOverlayZone) {
+            // Should hide menu
+            if (this.menuAnimationState === 'visible' || this.menuAnimationState === 'sliding-in') {
+                this.startMenuSlideOut();
+            }
+        } else {
+            // Should show menu
+            if (this.menuAnimationState === 'hidden' || this.menuAnimationState === 'sliding-out') {
+                this.startMenuSlideIn();
+            } else if (this.menuAnimationState === 'visible') {
+                // Make sure menu is actually visible (reset any stuck states)
+                this.ensureMenuVisible();
+            }
+        }
+        
+        // Handle overlay activation/deactivation
+        if (shouldBeInFullOverlay) {
+            if (this.wheelPointerAngle > bottomOverlayStart && !this.isNowPlayingOverlayActive) {
+                // Bottom overlay - now playing
                 this.isNowPlayingOverlayActive = true;
                 this.navigateToView('menu/playing');
                 this.fetchMediaInfo();
-            }
-        } else if (this.wheelPointerAngle < 155) { // top
-            if (!this.isNowPlayingOverlayActive) {
+            } else if (this.wheelPointerAngle < topOverlayStart && !this.isNowPlayingOverlayActive) {
+                // Top overlay - now showing
                 this.isNowPlayingOverlayActive = true;
                 this.navigateToView('menu/showing');
                 this.fetchAppleTVMediaInfo();
             }
-        } else if (this.isNowPlayingOverlayActive) {
+        } else if (this.isNowPlayingOverlayActive && !shouldBeInFullOverlay) {
+            // Exit overlay
             this.isNowPlayingOverlayActive = false;
             this.navigateToView(this.menuItems[this.selectedMenuItem]?.path || 'menu');
         }
@@ -620,24 +658,158 @@ class UIStore {
         this.topWheelPosition = 0;
     }
 
+    // Start time-based menu slide out animation
+    startMenuSlideOut() {
+        if (this.menuAnimationState === 'sliding-out' || this.menuAnimationState === 'hidden') return;
+        
+        console.log('Starting menu slide out animation');
+        this.menuAnimationState = 'sliding-out';
+        
+        // Clear any existing timeout
+        if (this.menuAnimationTimeout) {
+            clearTimeout(this.menuAnimationTimeout);
+        }
+        
+        // Get menu elements
+        const menuElements = this.getMenuElements();
+        if (menuElements.length === 0) {
+            console.warn('No menu elements found for slide out animation');
+            return;
+        }
+        
+        // Set CSS transitions for smooth animation
+        menuElements.forEach(element => {
+            element.style.transition = 'transform 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            element.style.transform = 'translateX(-200px)';
+            element.style.opacity = '0.1';
+        });
+        
+        // Ensure content stays visible
+        this.ensureContentVisible();
+        
+        // Set state to hidden after animation completes
+        this.menuAnimationTimeout = setTimeout(() => {
+            console.log('Menu slide out animation completed');
+            this.menuAnimationState = 'hidden';
+        }, 1500);
+    }
+    
+    // Start time-based menu slide in animation
+    startMenuSlideIn() {
+        if (this.menuAnimationState === 'sliding-in' || this.menuAnimationState === 'visible') return;
+        
+        console.log('Starting menu slide in animation');
+        this.menuAnimationState = 'sliding-in';
+        
+        // Clear any existing timeout
+        if (this.menuAnimationTimeout) {
+            clearTimeout(this.menuAnimationTimeout);
+        }
+        
+        // Get menu elements
+        const menuElements = this.getMenuElements();
+        if (menuElements.length === 0) {
+            console.warn('No menu elements found for slide in animation');
+            return;
+        }
+        
+        // Set CSS transitions for smooth animation
+        menuElements.forEach(element => {
+            element.style.transition = 'transform 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            element.style.transform = 'translateX(0px)';
+            element.style.opacity = '1';
+        });
+        
+        // Ensure content stays visible
+        this.ensureContentVisible();
+        
+        // Set state to visible after animation completes
+        this.menuAnimationTimeout = setTimeout(() => {
+            console.log('Menu slide in animation completed');
+            this.menuAnimationState = 'visible';
+        }, 1200);
+    }
+    
+    // Get menu elements for animation
+    getMenuElements() {
+        const menuItems = document.getElementById('menuItems');
+        const mainArc = document.querySelector('#mainMenu svg');
+        const anglePointer = document.getElementById('anglePointer');
+        return [menuItems, mainArc, anglePointer].filter(el => el);
+    }
+    
+    // Ensure content area stays visible during all animations
+    ensureContentVisible() {
+        const contentArea = document.getElementById('contentArea');
+        if (contentArea) {
+            // Remove any transform/opacity transitions that might interfere
+            contentArea.style.transition = 'none';
+            contentArea.style.transform = 'translateX(0px)';
+            contentArea.style.opacity = '1';
+            contentArea.style.visibility = 'visible';
+            
+            // Force a reflow to ensure styles are applied
+            contentArea.offsetHeight;
+        }
+    }
+    
+    // Ensure menu is visible and reset any stuck states
+    ensureMenuVisible() {
+        console.log('Ensuring menu is visible');
+        const menuElements = this.getMenuElements();
+        
+        menuElements.forEach(element => {
+            element.style.transition = 'none'; // Remove transitions for immediate effect
+            element.style.transform = 'translateX(0px)';
+            element.style.opacity = '1';
+            element.style.visibility = 'visible';
+        });
+        
+        // Force a reflow
+        if (menuElements.length > 0) {
+            menuElements[0].offsetHeight;
+        }
+        
+        // Reset state
+        this.menuAnimationState = 'visible';
+        
+        // Clear any pending timeouts
+        if (this.menuAnimationTimeout) {
+            clearTimeout(this.menuAnimationTimeout);
+            this.menuAnimationTimeout = null;
+        }
+    }
+    
+    // Cubic easing function for smooth animations
+    easeInOutCubic(t) {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    }
+
     navigateToView(path) {
         console.log('Navigating to path:', path);
         console.log('Available views:', Object.keys(this.views));
         
-        // First fade out content
-        const contentArea = document.getElementById('contentArea');
-        if (contentArea) {
-            contentArea.style.opacity = 0;
-            
-            // Wait for fade-out animation to complete before changing route
-            setTimeout(() => {
-                this.currentRoute = path;
-                this.updateView();
-            }, 250); // Match the transition duration in CSS
-        } else {
-            // No content area found, just update immediately
+        // For overlay transitions, update immediately to prevent content hiding
+        const isOverlayTransition = path === 'menu/playing' || path === 'menu/showing';
+        
+        if (isOverlayTransition) {
+            // Overlay transitions: update immediately and ensure content stays visible
             this.currentRoute = path;
             this.updateView();
+            this.ensureContentVisible(); // Force content to stay visible
+        } else {
+            // Regular menu navigation: use fade transition
+            const contentArea = document.getElementById('contentArea');
+            if (contentArea) {
+                contentArea.style.opacity = 0;
+                setTimeout(() => {
+                    this.currentRoute = path;
+                    this.updateView();
+                }, 250);
+            } else {
+                this.currentRoute = path;
+                this.updateView();
+            }
         }
     }
 
@@ -698,10 +870,17 @@ class UIStore {
         
         this.setupContentScroll();
         
-        // Fade the content back in
-        setTimeout(() => {
+        // Fade the content back in (but not for overlay transitions where we want it always visible)
+        const isOverlayView = this.currentRoute === 'menu/playing' || this.currentRoute === 'menu/showing';
+        if (isOverlayView) {
+            // For overlay views, ensure content is immediately visible
             contentArea.style.opacity = 1;
-        }, 50); // Small delay to ensure content is ready
+        } else {
+            // For regular navigation, fade back in
+            setTimeout(() => {
+                contentArea.style.opacity = 1;
+            }, 50);
+        }
     }
 
     setupContentScroll() {
