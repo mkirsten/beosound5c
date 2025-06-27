@@ -140,10 +140,16 @@ while true; do
         if [[ "$command" != "$last_command" ]]; then
           # New command - send webhook immediately
           echo "[EVENT] Press: $command (new)"
-          curl -G "${WEBHOOK}" \
+          if curl -G "${WEBHOOK}" \
             --silent --output /dev/null \
+            --connect-timeout 1 \
+            --max-time 2 \
             --data-urlencode "address=${address}" \
-            --data-urlencode "command=${command}"
+            --data-urlencode "command=${command}"; then
+            echo "[WEBHOOK] Success: $command sent to ${WEBHOOK}"
+          else
+            echo "[WEBHOOK] Failed: Could not send $command to ${WEBHOOK} (exit code: $?)"
+          fi
           last_command="$command"
           repeat_count=1
           pressed=true
@@ -154,10 +160,16 @@ while true; do
           # Send webhook on first press and after 3rd repeat, as debouncing logic
           if [[ $repeat_count -gt 3 ]]; then
             echo "[EVENT] Press: $command (repeat $repeat_count)"
-            curl -G "${WEBHOOK}" \
+            if curl -G "${WEBHOOK}" \
               --silent --output /dev/null \
+              --connect-timeout 1 \
+              --max-time 2 \
               --data-urlencode "address=${address}" \
-              --data-urlencode "command=${command}"
+              --data-urlencode "command=${command}"; then
+              echo "[WEBHOOK] Success: $command (repeat) sent to ${WEBHOOK}"
+            else
+              echo "[WEBHOOK] Failed: Could not send $command (repeat) to ${WEBHOOK} (exit code: $?)"
+            fi
           else
             echo "[EVENT] Press: $command (ignored repeat $repeat_count)"
           fi
