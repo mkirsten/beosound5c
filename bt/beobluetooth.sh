@@ -18,6 +18,7 @@ DESC2="0x0026"
 
 while true; do
   echo "=== CLEANUP ==="
+  echo ">>> Starting new connection attempt cycle"
   pkill -f "gatttool -b $MAC" 2>/dev/null || true
 
   # (1) Multiple ways exist to reset the bt controller, and the below appears to be working well
@@ -62,6 +63,7 @@ while true; do
         echo ">>> HCI function not implemented—doing full restart"
         kill "$GPID" 2>/dev/null || true
         sleep 2
+        echo ">>> Breaking out of all connection loops to restart"
         break 3  # exit all the way to outer loop → cleanup/HCI reset
 
       elif [[ "$line" == *"Too many open files"* ]]; then
@@ -78,6 +80,12 @@ while true; do
       fi
     done
   done
+
+  # Check if we should be listening or restarting
+  if ! kill -0 "$GPID" 2>/dev/null; then
+    echo ">>> gatttool process not running, restarting outer loop"
+    continue
+  fi
 
   # (3a) Awesome, let's listen for button events from the remote
   echo "=== LISTENING ==="
