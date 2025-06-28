@@ -275,12 +275,19 @@ class ArcList {
         
         // Listen for events from parent window (when in iframe)
         window.addEventListener('message', (event) => {
+            console.log(`📨 [IFRAME] Message received from parent:`, event.data);
+            
             if (event.data && event.data.type === 'button') {
-                console.log('Received button event from parent:', event.data.button);
+                console.log(`📨 [IFRAME] Button event from parent: ${event.data.button}`);
                 this.handleButtonFromParent(event.data.button);
             } else if (event.data && event.data.type === 'nav') {
-                console.log('Received nav event from parent:', event.data.data);
+                console.log(`📨 [IFRAME] Nav event from parent:`, event.data.data);
                 this.handleNavFromParent(event.data.data);
+            } else if (event.data && event.data.type === 'keyboard') {
+                console.log(`📨 [IFRAME] Keyboard event from parent: ${event.data.key}`);
+                this.handleKeyboardFromParent(event.data);
+            } else {
+                console.log(`📨 [IFRAME] Unknown message type:`, event.data);
             }
         });
     }
@@ -290,39 +297,47 @@ class ArcList {
      * Updates target scroll position and resets snap timer
      */
     handleKeyPress(e) {
+        console.log(`🎹 [IFRAME] Key press received: ${e.key} (code: ${e.code})`);
+        
         const now = Date.now();
         this.lastScrollTime = now; // Record when user last interacted
         
-        // Removed excessive keyboard navigation logging
-        
         if (e.key === 'ArrowUp') {
+            console.log(`🎹 [IFRAME] ArrowUp: ${this.targetIndex} -> ${Math.max(0, this.targetIndex - this.SCROLL_STEP)}`);
             // Move up in the list (decrease index) - use base scroll step for keyboard
             this.targetIndex = Math.max(0, this.targetIndex - this.SCROLL_STEP);
             this.setupSnapTimer(); // Reset auto-snap timer
         } else if (e.key === 'ArrowDown') {
+            console.log(`🎹 [IFRAME] ArrowDown: ${this.targetIndex} -> ${Math.min(this.items.length - 1, this.targetIndex + this.SCROLL_STEP)}`);
             // Move down in the list (increase index) - use base scroll step for keyboard
             this.targetIndex = Math.min(this.items.length - 1, this.targetIndex + this.SCROLL_STEP);
             this.setupSnapTimer(); // Reset auto-snap timer
         } else if (e.key === 'ArrowLeft') {
-            // Enter hierarchical view (same as WebSocket "left" button)
+            // Always send webhook for left button press
+            console.log('🎹 [IFRAME] Left arrow pressed - sending webhook');
+            this.sendButtonWebhook('left');
+            
+            // Also handle hierarchical navigation if applicable
             if (this.config.viewMode === 'hierarchical' && this.viewMode === 'parent') {
-                console.log('Keyboard: Left arrow pressed in parent mode - entering child view');
+                console.log('🎹 [IFRAME] Also entering child view (hierarchical mode)');
                 this.enterChildView();
-            } else {
-                console.log('Keyboard: Left arrow pressed but no action available');
             }
         } else if (e.key === 'ArrowRight') {
-            // Exit hierarchical view (same as WebSocket "right" button)
+            // Always send webhook for right button press  
+            console.log('🎹 [IFRAME] Right arrow pressed - sending webhook');
+            this.sendButtonWebhook('right');
+            
+            // Also handle hierarchical navigation if applicable
             if (this.config.viewMode === 'hierarchical' && this.viewMode === 'child') {
-                console.log('Keyboard: Right arrow pressed in child mode - exiting to parent');
+                console.log('🎹 [IFRAME] Also exiting to parent (hierarchical mode)');
                 this.exitChildView();
-            } else {
-                console.log('Keyboard: Right arrow pressed but no action available');
             }
         } else if (e.key === 'Enter') {
             // Trigger "go" action (same as WebSocket "go" button)
-            console.log('Keyboard: Enter pressed - sending webhook');
+            console.log('🎹 [IFRAME] Enter pressed - sending webhook');
             this.sendGoWebhook();
+        } else {
+            console.log(`🎹 [IFRAME] Unhandled key: ${e.key}`);
         }
     }
     
@@ -333,26 +348,52 @@ class ArcList {
         console.log('Processing button from parent:', button, 'current view mode:', this.viewMode);
         
         if (button === 'left') {
-            // Enter hierarchical view (same as keyboard left arrow)
+            // Always send webhook for left button press
+            console.log('Parent button: Left pressed - sending webhook');
+            this.sendButtonWebhook('left');
+            
+            // Also handle hierarchical navigation if applicable
             if (this.config.viewMode === 'hierarchical' && this.viewMode === 'parent') {
-                console.log('Parent button: Left pressed in parent mode - entering child view');
+                console.log('Parent button: Also entering child view (hierarchical mode)');
                 this.enterChildView();
-            } else {
-                console.log('Parent button: Left pressed but no action available');
             }
         } else if (button === 'right') {
-            // Exit hierarchical view (same as keyboard right arrow)
+            // Always send webhook for right button press
+            console.log('Parent button: Right pressed - sending webhook');
+            this.sendButtonWebhook('right');
+            
+            // Also handle hierarchical navigation if applicable
             if (this.config.viewMode === 'hierarchical' && this.viewMode === 'child') {
-                console.log('Parent button: Right pressed in child mode - exiting to parent');
+                console.log('Parent button: Also exiting to parent (hierarchical mode)');
                 this.exitChildView();
-            } else {
-                console.log('Parent button: Right pressed but no action available');
             }
         } else if (button === 'go') {
             // Trigger "go" action (same as keyboard Enter)
             console.log('Parent button: Go pressed - sending webhook');
             this.sendGoWebhook();
         }
+    }
+    
+    /**
+     * Handle keyboard events forwarded from parent window (when in iframe)
+     */
+    handleKeyboardFromParent(keyboardData) {
+        console.log('Processing keyboard from parent:', keyboardData.key);
+        
+        // Create a synthetic keyboard event object that matches what handleKeyPress expects
+        const syntheticEvent = {
+            key: keyboardData.key,
+            code: keyboardData.code,
+            ctrlKey: keyboardData.ctrlKey,
+            shiftKey: keyboardData.shiftKey,
+            altKey: keyboardData.altKey,
+            metaKey: keyboardData.metaKey,
+            preventDefault: () => {}, // Dummy function
+            stopPropagation: () => {} // Dummy function
+        };
+        
+        // Call the existing handleKeyPress method
+        this.handleKeyPress(syntheticEvent);
     }
     
     /**
@@ -711,10 +752,21 @@ class ArcList {
      */
     connectWebSocket() {
         try {
+            // Throttle WebSocket connection logging (max 1 per second)
+            const now = Date.now();
+            if (!this.lastWebSocketLogTime || now - this.lastWebSocketLogTime >= 1000) {
+                this.lastWebSocketLogTime = now;
+                this.shouldLogWebSocket = true;
+            } else {
+                this.shouldLogWebSocket = false;
+            }
+            
             this.ws = new WebSocket(this.config.webSocketUrl);
             
             this.ws.onopen = () => {
-                console.log('WebSocket connected');
+                if (this.shouldLogWebSocket) {
+                    console.log('WebSocket connected');
+                }
             };
             
             this.ws.onmessage = (event) => {
@@ -722,21 +774,29 @@ class ArcList {
                     const data = JSON.parse(event.data);
                     this.handleWebSocketMessage(data);
                 } catch (error) {
-                    console.error('Error parsing WebSocket message:', error);
+                    if (this.shouldLogWebSocket) {
+                        console.error('Error parsing WebSocket message:', error);
+                    }
                 }
             };
             
             this.ws.onclose = () => {
-                console.log('WebSocket disconnected');
+                if (this.shouldLogWebSocket) {
+                    console.log('WebSocket disconnected');
+                }
                 // Attempt to reconnect after 2 seconds
                 setTimeout(() => this.connectWebSocket(), 2000);
             };
             
             this.ws.onerror = (error) => {
-                console.error('WebSocket error:', error);
+                if (this.shouldLogWebSocket) {
+                    console.error('WebSocket error:', error);
+                }
             };
         } catch (error) {
-            console.error('Error creating WebSocket:', error);
+            if (this.shouldLogWebSocket) {
+                console.error('Error creating WebSocket:', error);
+            }
         }
     }
     
@@ -995,42 +1055,82 @@ class ArcList {
      * Send webhook with appropriate ID based on current view mode
      */
     async sendGoWebhook() {
-        if (this.items.length === 0) return;
+        console.log(`🟡 [IFRAME-WEBHOOK] sendGoWebhook called - viewMode: ${this.viewMode}, items: ${this.items.length}`);
+        
+        if (this.items.length === 0) {
+            console.log(`🔴 [IFRAME-WEBHOOK] No items available - aborting webhook`);
+            return;
+        }
         
         let id;
         let itemName;
+        let webhookData;
         
         // Get appropriate ID based on current mode
         if (this.viewMode === 'parent' || this.viewMode === 'single') {
             // Send parent item ID
             const currentItem = this.parentData[this.currentIndex] || this.items[this.currentIndex];
-            if (!currentItem) return;
+            if (!currentItem) {
+                console.log(`🔴 [IFRAME-WEBHOOK] No current item found at index ${this.currentIndex}`);
+                return;
+            }
             
             id = currentItem.id;
             itemName = currentItem.name || currentItem[this.config.parentNameKey];
-            console.log('Sending webhook for item:', itemName, 'ID:', id);
+            
+            // For music context, prepend Spotify URI prefix for playlists
+            if (this.config.context === 'music') {
+                id = `spotify:playlist:${id}`;
+                console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for playlist: ${itemName}, Spotify ID: ${id}`);
+            } else {
+                console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for parent item: ${itemName}, ID: ${id}`);
+            }
+            
+            // Use standardized format for all contexts
+            webhookData = {
+                device_type: "Panel",
+                panel_context: this.config.context,
+                button: "go",
+                id: id
+            };
         } else if (this.viewMode === 'child') {
             // Send child item ID
             const currentChild = this.selectedParent[this.config.parentKey][this.currentIndex];
-            if (!currentChild) return;
+            if (!currentChild) {
+                console.log(`🔴 [IFRAME-WEBHOOK] No current child item found at index ${this.currentIndex}`);
+                return;
+            }
             
             id = currentChild.id;
             itemName = currentChild.name || currentChild.title;
-            console.log('Sending webhook for child item:', itemName, 'ID:', id);
+            
+            // For music context, prepend Spotify URI prefix for tracks
+            if (this.config.context === 'music') {
+                id = `spotify:track:${id}`;
+                console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for track: ${itemName}, Spotify ID: ${id}`);
+            } else {
+                console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for child item: ${itemName}, ID: ${id}`);
+            }
+            
+            // Use standardized format for child items
+            webhookData = {
+                device_type: "Panel",
+                panel_context: this.config.context,
+                button: "go",
+                id: id
+            };
         } else {
+            console.log(`🔴 [IFRAME-WEBHOOK] Unknown view mode: ${this.viewMode} - aborting webhook`);
             return;
         }
         
+        console.log(`🟢 [IFRAME-WEBHOOK] Sending webhook to: ${this.config.webhookUrl}`);
+        console.log(`🟢 [IFRAME-WEBHOOK] Payload:`, JSON.stringify(webhookData, null, 2));
+        
+        const startTime = Date.now();
+        
         // Send webhook to Home Assistant
         try {
-            const webhookData = {
-                device_type: "Panel",
-                button: "go",
-                panel_context: this.config.context,
-                id: id,
-                name: itemName
-            };
-            
             const response = await fetch(this.config.webhookUrl, {
                 method: 'POST',
                 headers: {
@@ -1039,13 +1139,17 @@ class ArcList {
                 body: JSON.stringify(webhookData)
             });
             
+            const duration = Date.now() - startTime;
+            
             if (response.ok) {
-                console.log('Webhook sent successfully:', webhookData);
+                console.log(`✅ [IFRAME-WEBHOOK] SUCCESS: Webhook sent successfully (${duration}ms):`, webhookData);
             } else {
-                console.error('Webhook failed with status:', response.status);
+                console.log(`❌ [IFRAME-WEBHOOK] FAILED: Webhook failed with status ${response.status} ${response.statusText} (${duration}ms)`);
             }
         } catch (error) {
-            console.error('Error sending webhook:', error);
+            const duration = Date.now() - startTime;
+            console.log(`🔴 [IFRAME-WEBHOOK] ERROR: ${error.message} (${duration}ms)`);
+            console.log(`🔴 [IFRAME-WEBHOOK] Error details:`, error);
         }
     }
 }
