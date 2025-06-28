@@ -1052,6 +1052,49 @@ class ArcList {
     }
 
     /**
+     * Send webhook for button presses (left/right)
+     */
+    async sendButtonWebhook(button) {
+        console.log(`🟡 [IFRAME-WEBHOOK] sendButtonWebhook called for: ${button}`);
+        
+        // For button webhooks, we don't need an item ID, just use "1" as default
+        const webhookData = {
+            device_type: "Panel",
+            panel_context: this.config.context,
+            button: button,
+            id: "1"
+        };
+        
+        console.log(`🟢 [IFRAME-WEBHOOK] Sending ${button} button webhook to: ${this.config.webhookUrl}`);
+        console.log(`🟢 [IFRAME-WEBHOOK] Payload:`, JSON.stringify(webhookData, null, 2));
+        
+        const startTime = Date.now();
+        
+        // Send webhook to Home Assistant
+        try {
+            const response = await fetch(this.config.webhookUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(webhookData)
+            });
+            
+            const duration = Date.now() - startTime;
+            
+            if (response.ok) {
+                console.log(`✅ [IFRAME-WEBHOOK] SUCCESS: ${button} button webhook sent successfully (${duration}ms):`, webhookData);
+            } else {
+                console.log(`❌ [IFRAME-WEBHOOK] FAILED: ${button} button webhook failed with status ${response.status} ${response.statusText} (${duration}ms)`);
+            }
+        } catch (error) {
+            const duration = Date.now() - startTime;
+            console.log(`🔴 [IFRAME-WEBHOOK] ERROR: ${button} button webhook - ${error.message} (${duration}ms)`);
+            console.log(`🔴 [IFRAME-WEBHOOK] Error details:`, error);
+        }
+    }
+
+    /**
      * Send webhook with appropriate ID based on current view mode
      */
     async sendGoWebhook() {
