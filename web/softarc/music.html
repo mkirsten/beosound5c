@@ -28,6 +28,7 @@
                 storagePrefix: 'music_arclist',
                 title: 'Music',
                 context: 'music',
+                webhookUrl: 'http://homeassistant.local:8123/api/webhook/beosound5c',
                 childNameMapper: (track) => ({
                     id: track.id,
                     name: `${track.artist} - ${track.name}`,

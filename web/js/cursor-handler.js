@@ -77,6 +77,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add mouse wheel support for laptop testing
     addMouseWheelSupport();
     
+    // Add keyboard support for iframe pages
+    addKeyboardSupport();
+    
     // Add mousemove event listener to show cursor when moved
     document.addEventListener('mousemove', () => {
         showCursor();
@@ -304,34 +307,55 @@ function updateViaStore(angle) {
 }
 
 // WebSocket handling for all device events
+// Throttling for WebSocket connection logging
+let lastWebSocketLogTime = 0;
+const WEBSOCKET_LOG_THROTTLE = 1000; // 1 second
+
+function shouldLogWebSocket() {
+    const now = Date.now();
+    if (now - lastWebSocketLogTime >= WEBSOCKET_LOG_THROTTLE) {
+        lastWebSocketLogTime = now;
+        return true;
+    }
+    return false;
+}
+
 function initWebSocket() {
-    console.log('Attempting to connect to WebSocket at:', config.wsUrl);
+    if (shouldLogWebSocket()) {
+        console.log('Attempting to connect to WebSocket at:', config.wsUrl);
+    }
     
     const ws = new WebSocket(config.wsUrl);
     
     ws.onopen = () => {
-        console.log('WebSocket connected successfully');
-        // Log to debug overlay if available
-        if (window.uiStore && window.uiStore.logWebsocketMessage) {
-            window.uiStore.logWebsocketMessage('WebSocket connected successfully');
+        if (shouldLogWebSocket()) {
+            console.log('WebSocket connected successfully');
+            // Log to debug overlay if available
+            if (window.uiStore && window.uiStore.logWebsocketMessage) {
+                window.uiStore.logWebsocketMessage('WebSocket connected successfully');
+            }
         }
     };
     
     ws.onclose = (event) => {
-        console.log('WebSocket disconnected:', event.code, event.reason);
-        // Log to debug overlay if available
-        if (window.uiStore && window.uiStore.logWebsocketMessage) {
-            window.uiStore.logWebsocketMessage(`WebSocket disconnected: ${event.code} ${event.reason}`);
+        if (shouldLogWebSocket()) {
+            console.log('WebSocket disconnected:', event.code, event.reason);
+            // Log to debug overlay if available
+            if (window.uiStore && window.uiStore.logWebsocketMessage) {
+                window.uiStore.logWebsocketMessage(`WebSocket disconnected: ${event.code} ${event.reason}`);
+            }
+            console.log('Reconnecting in 1s...');
         }
-        console.log('Reconnecting in 1s...');
         setTimeout(initWebSocket, 1000);
     };
     
     ws.onerror = error => {
-        console.error('WebSocket error:', error);
-        // Log to debug overlay if available
-        if (window.uiStore && window.uiStore.logWebsocketMessage) {
-            window.uiStore.logWebsocketMessage(`WebSocket error: ${error}`);
+        if (shouldLogWebSocket()) {
+            console.error('WebSocket error:', error);
+            // Log to debug overlay if available
+            if (window.uiStore && window.uiStore.logWebsocketMessage) {
+                window.uiStore.logWebsocketMessage(`WebSocket error: ${error}`);
+            }
         }
     };
     
@@ -533,19 +557,19 @@ function startVolumeProcessor() {
 function handleButtonEvent(uiStore, data) {
     // Log current page/route
     const currentPage = uiStore.currentRoute || 'unknown';
-    console.log(`Button pressed: ${data.button} on page: ${currentPage}`);
+    console.log(`🔵 [BUTTON] Button pressed: ${data.button} on page: ${currentPage}`);
     
     // Log to debug overlay
     if (window.uiStore && window.uiStore.logWebsocketMessage) {
-        window.uiStore.logWebsocketMessage(`Button pressed: ${data.button} on page: ${currentPage}`);
+        window.uiStore.logWebsocketMessage(`🔵 Button pressed: ${data.button} on page: ${currentPage}`);
     }
     
     // Forward button events to iframe pages that handle their own navigation
     const localHandledPages = ['menu/music', 'menu/settings', 'menu/scenes'];
     if (localHandledPages.includes(currentPage)) {
-        console.log(`On ${currentPage} page - forwarding button to iframe`);
+        console.log(`🔵 [BUTTON] On ${currentPage} page - forwarding button to iframe`);
         if (window.uiStore && window.uiStore.logWebsocketMessage) {
-            window.uiStore.logWebsocketMessage(`On ${currentPage} page - forwarding button to iframe`);
+            window.uiStore.logWebsocketMessage(`🔵 On ${currentPage} page - forwarding button to iframe`);
         }
         
         // Forward the button event to the appropriate iframe
@@ -556,49 +580,70 @@ function handleButtonEvent(uiStore, data) {
         
         const iframe = document.getElementById(iframeName);
         if (iframe && iframe.contentWindow) {
+            console.log(`🔵 [BUTTON] Sending button event to iframe ${iframeName}`);
             // Send the button event to the iframe
             iframe.contentWindow.postMessage({
                 type: 'button',
                 button: data.button
             }, '*');
         } else {
-            console.log(`Iframe ${iframeName} not found or not ready`);
+            console.log(`🔴 [BUTTON] ERROR: Iframe ${iframeName} not found or not ready`);
         }
         return;
     }
     
-    switch (data.button) {
-        case 'left':
-            // Previous track
-            console.log('Previous track button pressed');
-            if (uiStore.sendMediaCommand) {
-                uiStore.sendMediaCommand('media_previous_track');
-            }
-            break;
-            
-        case 'right':
-            // Next track
-            console.log('Next track button pressed');
-            if (uiStore.sendMediaCommand) {
-                uiStore.sendMediaCommand('media_next_track');
-            }
-            break;
-            
-        case 'go':
-            // Play/Pause
-            console.log('Play/Pause button pressed');
-            if (uiStore.sendMediaCommand) {
-                uiStore.sendMediaCommand('media_play_pause');
-            }
-            break;
-            
-        case 'power':
-            // Power button handling if needed
-            console.log('Power button pressed');
-            break;
-            
-        default:
-            console.log('Unknown button:', data.button);
+    // Send webhook for all contexts
+    const contextMap = {
+        'menu/security': 'security',
+        'menu/playing': 'now_playing',
+        'menu/showing': 'now_showing',
+        'menu/music': 'music',
+        'menu/settings': 'settings', 
+        'menu/scenes': 'scenes'
+    };
+    
+    const panelContext = contextMap[currentPage] || 'unknown';
+    console.log(`🟡 [WEBHOOK] Preparing webhook for ${currentPage} (context: ${panelContext}): ${data.button}`);
+    if (window.uiStore && window.uiStore.logWebsocketMessage) {
+        window.uiStore.logWebsocketMessage(`🟡 Preparing webhook for ${panelContext}: ${data.button}`);
+    }
+    sendWebhook(panelContext, data.button);
+    
+    // For non-iframe pages, also send media commands for backward compatibility
+    if (!localHandledPages.includes(currentPage)) {
+        switch (data.button) {
+            case 'left':
+                // Previous track
+                console.log('Previous track button pressed');
+                if (uiStore.sendMediaCommand) {
+                    uiStore.sendMediaCommand('media_previous_track');
+                }
+                break;
+                
+            case 'right':
+                // Next track
+                console.log('Next track button pressed');
+                if (uiStore.sendMediaCommand) {
+                    uiStore.sendMediaCommand('media_next_track');
+                }
+                break;
+                
+            case 'go':
+                // Play/Pause
+                console.log('Play/Pause button pressed');
+                if (uiStore.sendMediaCommand) {
+                    uiStore.sendMediaCommand('media_play_pause');
+                }
+                break;
+                
+            case 'power':
+                // Power button handling if needed
+                console.log('Power button pressed');
+                break;
+                
+            default:
+                console.log('Unknown button:', data.button);
+        }
     }
 }
 
@@ -662,4 +707,117 @@ function addMouseWheelSupport() {
     }, { passive: false }); // passive: false allows preventDefault()
     
     console.log('Mouse wheel support added - you can now scroll to simulate laser pointer navigation');
+}
+
+// Send webhook for button events
+function sendWebhook(panelContext, button, id = '1') {
+    const webhookUrl = 'http://homeassistant.local:8123/api/webhook/beosound5c';
+    
+    const payload = {
+        device_type: 'Panel',
+        panel_context: panelContext,
+        button: button,
+        id: id
+    };
+    
+    console.log(`🟢 [WEBHOOK] Sending ${panelContext} webhook POST to: ${webhookUrl}`);
+    console.log(`🟢 [WEBHOOK] Payload:`, JSON.stringify(payload, null, 2));
+    
+    if (window.uiStore && window.uiStore.logWebsocketMessage) {
+        window.uiStore.logWebsocketMessage(`🟢 Sending ${panelContext} webhook: ${button}`);
+    }
+    
+    const startTime = Date.now();
+    
+    fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        timeout: 2000
+    })
+    .then(response => {
+        const duration = Date.now() - startTime;
+        if (response.ok) {
+            console.log(`✅ [WEBHOOK] SUCCESS: ${panelContext} ${button} sent to webhook (${duration}ms)`);
+            console.log(`✅ [WEBHOOK] Response status: ${response.status} ${response.statusText}`);
+            if (window.uiStore && window.uiStore.logWebsocketMessage) {
+                window.uiStore.logWebsocketMessage(`✅ ${panelContext} webhook SUCCESS: ${button} (${duration}ms)`);
+            }
+        } else {
+            console.log(`❌ [WEBHOOK] FAILED: ${panelContext} ${button} - HTTP ${response.status} ${response.statusText} (${duration}ms)`);
+            if (window.uiStore && window.uiStore.logWebsocketMessage) {
+                window.uiStore.logWebsocketMessage(`❌ ${panelContext} webhook FAILED: ${button} - HTTP ${response.status}`);
+            }
+        }
+    })
+    .catch(error => {
+        const duration = Date.now() - startTime;
+        console.log(`🔴 [WEBHOOK] ERROR: ${panelContext} ${button} - ${error.message} (${duration}ms)`);
+        console.log(`🔴 [WEBHOOK] Error details:`, error);
+        if (window.uiStore && window.uiStore.logWebsocketMessage) {
+            window.uiStore.logWebsocketMessage(`🔴 ${panelContext} webhook ERROR: ${button} - ${error.message}`);
+        }
+    });
+}
+
+// Add keyboard support for iframe pages
+function addKeyboardSupport() {
+    console.log('🎹 [KEYBOARD] Adding keyboard support for iframe pages');
+    
+    // Add keydown event listener to the document
+    document.addEventListener('keydown', (event) => {
+        console.log(`🎹 [KEYBOARD] Key pressed: ${event.key} (code: ${event.code})`);
+        
+        // Get current page/route
+        const uiStore = window.uiStore;
+        if (!uiStore) {
+            console.log(`🔴 [KEYBOARD] ERROR: UI Store not available`);
+            return;
+        }
+        
+        const currentPage = uiStore.currentRoute || 'unknown';
+        console.log(`🎹 [KEYBOARD] Current page: ${currentPage}`);
+        
+        const localHandledPages = ['menu/music', 'menu/settings', 'menu/scenes'];
+        
+        // Check if we're on a page that should handle keyboard events locally
+        if (localHandledPages.includes(currentPage)) {
+            console.log(`🎹 [KEYBOARD] On iframe page ${currentPage} - forwarding key: ${event.key}`);
+            
+            // Forward keyboard events to the appropriate iframe
+            let iframeName = '';
+            if (currentPage === 'menu/music') iframeName = 'music-iframe';
+            else if (currentPage === 'menu/settings') iframeName = 'settings-iframe';
+            else if (currentPage === 'menu/scenes') iframeName = 'scenes-iframe';
+            
+            const iframe = document.getElementById(iframeName);
+            if (iframe && iframe.contentWindow) {
+                console.log(`🎹 [KEYBOARD] Sending keyboard event to iframe ${iframeName}`);
+                // Send the keyboard event to the iframe
+                iframe.contentWindow.postMessage({
+                    type: 'keyboard',
+                    key: event.key,
+                    code: event.code,
+                    ctrlKey: event.ctrlKey,
+                    shiftKey: event.shiftKey,
+                    altKey: event.altKey,
+                    metaKey: event.metaKey
+                }, '*');
+                
+                // Prevent the event from being handled by the parent page
+                event.preventDefault();
+                event.stopPropagation();
+                console.log(`🎹 [KEYBOARD] Event forwarded and prevented from parent handling`);
+            } else {
+                console.log(`🔴 [KEYBOARD] ERROR: Iframe ${iframeName} not found or not ready`);
+            }
+        } else {
+            console.log(`🎹 [KEYBOARD] On non-iframe page ${currentPage} - parent will handle key: ${event.key}`);
+        }
+        // If not on an iframe page, let the parent handle the event normally
+    });
+    
+    console.log('🎹 [KEYBOARD] Keyboard support added - arrow keys and Enter will be forwarded to iframe pages');
 } 
