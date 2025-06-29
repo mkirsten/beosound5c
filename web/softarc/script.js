@@ -1147,21 +1147,31 @@ class ArcList {
             id = currentChild.id;
             itemName = currentChild.name || currentChild.title;
             
-            // For music context, prepend Spotify URI prefix for tracks
+            // For music context, prepend Spotify URI prefix for tracks and include parent playlist ID
             if (this.config.context === 'music') {
                 id = `spotify:track:${id}`;
-                console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for track: ${itemName}, Spotify ID: ${id}`);
+                const parentPlaylistId = `spotify:playlist:${this.selectedParent.id}`;
+                console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for track: ${itemName}, Spotify ID: ${id}, Parent Playlist: ${parentPlaylistId}`);
+                
+                // Include parent_id for music tracks
+                webhookData = {
+                    device_type: "Panel",
+                    panel_context: this.config.context,
+                    button: "go",
+                    id: id,
+                    parent_id: parentPlaylistId
+                };
             } else {
                 console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for child item: ${itemName}, ID: ${id}`);
+                
+                // Use standardized format for non-music child items
+                webhookData = {
+                    device_type: "Panel",
+                    panel_context: this.config.context,
+                    button: "go",
+                    id: id
+                };
             }
-            
-            // Use standardized format for child items
-            webhookData = {
-                device_type: "Panel",
-                panel_context: this.config.context,
-                button: "go",
-                id: id
-            };
         } else {
             console.log(`🔴 [IFRAME-WEBHOOK] Unknown view mode: ${this.viewMode} - aborting webhook`);
             return;
