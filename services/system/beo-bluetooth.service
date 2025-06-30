@@ -6,8 +6,8 @@ Requires=bluetooth.target
 
 [Service]
 Type=simple
-User=pi
-Group=pi
+User=kirsten
+Group=kirsten
 WorkingDirectory=/home/kirsten/beosound5c/services
 ExecStart=/home/kirsten/beosound5c/services/bluetooth.sh
 Restart=always
