@@ -1,5 +1,5 @@
 // Debug: Check if this file is loading
-console.log('🔥 cursor-handler.js is loading...');
+
 
 // Configuration
 const config = {
@@ -51,8 +51,6 @@ let shadowPointer = null;
 
 // Mouse cursor visibility control
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('🔥 DOMContentLoaded event fired!');
-    console.log("Cursor visibility setting:", config.showMouseCursor);
     
     // Add a style element for cursor control
     const style = document.createElement('style');
@@ -75,22 +73,16 @@ document.addEventListener('DOMContentLoaded', () => {
     updateTransitionStyles();
     
     // Initialize WebSocket for cursor and controls (non-blocking)
-    console.log('🔌 Initializing WebSocket connections...');
-    
-    // Use setTimeout to make WebSocket initialization completely asynchronous
     setTimeout(() => {
         try {
             initWebSocket();
-            console.log('✅ WebSocket initialization completed');
         } catch (error) {
             console.error('❌ WebSocket initialization failed:', error);
-            console.log('🔄 Continuing without WebSocket connections (standalone mode)');
         }
     }, 100); // Small delay to ensure it doesn't block
     
     // Process the initial laser position immediately
     if (lastLaserEvent && lastLaserEvent.position) {
-        console.log("Processing initial laser position:", lastLaserEvent.position);
         processLaserEvent(lastLaserEvent);
     }
     
@@ -228,9 +220,6 @@ function updateTransitionStyles() {
             }
         `;
         document.head.appendChild(transitionStyle);
-        console.log("Disabled transitions on pointer elements");
-    } else {
-        console.log("Enabled transitions on pointer elements");
     }
 }
 
@@ -263,8 +252,6 @@ function processWebSocketEvent(message) {
     const type = message.type;
     const data = message.data;
     
-    console.log(`[EVENT] Processing ${type} event:`, data);
-    
     switch (type) {
         case 'laser':
             processLaserEvent(data);
@@ -295,9 +282,6 @@ function processWebSocketEvent(message) {
 
 // Process a single laser event
 function processLaserEvent(data) {
-    // Log the original laser position (0-100)
-    console.log(`Laser position: ${data.position}`);
-    
     // Calibration points as variables
     const MIN_LASER_POS = 3;
     const MID_LASER_POS = 72;
@@ -326,9 +310,6 @@ function processLaserEvent(data) {
         // Above maximum
         angle = MAX_ANGLE;
     }
-    
-    // Log the calculated angle
-    console.log(`Laser position: ${pos}, Wheel angle: ${angle.toFixed(2)}`);
     
     // Store the last known angle
     lastKnownPointerAngle = angle;
@@ -390,14 +371,10 @@ let mediaWebSocketConnecting = false;
 let mainWebSocketConnecting = false;
 
 function initWebSocket() {
-    console.log('[WS] Initializing WebSocket connections...');
-    
     // Always start dummy hardware server first - it will handle keyboard/scroll input
     if (window.dummyHardwareManager) {
-        console.log('[WS] Starting dummy hardware manager...');
         const dummyServer = window.dummyHardwareManager.start();
         if (dummyServer) {
-            console.log('[WS] Dummy server started, creating fake WebSocket connection...');
             // Create a fake WebSocket connection for the UI
             const fakeWs = {
                 readyState: WebSocket.OPEN,
@@ -418,7 +395,6 @@ function initWebSocket() {
                     console.error('[DUMMY-HW] Error processing message:', error);
                 }
             };
-            console.log('[WS] Fake WebSocket connection established for dummy hardware');
         } else {
             console.error('[WS] Failed to start dummy hardware server');
         }
@@ -426,26 +402,28 @@ function initWebSocket() {
         console.error('[WS] Dummy hardware manager not available');
     }
     
-    // Try to connect to real hardware server (always try, regardless of logging setting)
-    console.log('[WS] Attempting to connect to hardware server...');
-    
+    // Try to connect to real hardware server (silent attempt)
     try {
         const ws = new WebSocket('ws://localhost:8765');
         
-        // Set a connection timeout
+        // Set a short connection timeout
         const connectionTimeout = setTimeout(() => {
-            console.log('[WS] Hardware server not available - using dummy server only');
             ws.close();
-        }, 2000);
+        }, 1000);
+        
+        // Prevent browser from logging WebSocket errors
+        ws.onerror = () => {
+            clearTimeout(connectionTimeout);
+            // Silent fallback - dummy server already running
+        };
         
         ws.onopen = () => {
             clearTimeout(connectionTimeout);
-            console.log('[WS] Connected to hardware server - switching to real hardware');
+            console.log('[WS] ✅ Real hardware connected - switching from emulation mode');
             
             // Real hardware server is available, disable dummy server
             if (window.dummyHardwareManager) {
                 window.dummyHardwareManager.stop();
-                console.log('[WS] Switched to real hardware server');
             }
         };
         
@@ -460,7 +438,11 @@ function initWebSocket() {
         
         ws.onclose = () => {
             clearTimeout(connectionTimeout);
-            console.log('[WS] Hardware server connection closed - switching back to dummy server');
+            
+            // Only log if we were previously connected (not initial connection failure)
+            if (ws.readyState === WebSocket.CLOSED && ws.protocol !== undefined) {
+                console.log('[WS] ⚠️  Hardware disconnected - switching back to emulation mode');
+            }
             
             // Start dummy server if real one disconnects
             setTimeout(() => {
@@ -470,13 +452,8 @@ function initWebSocket() {
             }, 1000);
         };
         
-        ws.onerror = (error) => {
-            clearTimeout(connectionTimeout);
-            console.log('[WS] Hardware server connection failed - using dummy server');
-        };
-        
     } catch (error) {
-        console.error('[WS] Error creating WebSocket:', error);
+        // Silent fallback - dummy server already running
     }
     
     // Also initialize media server connection
@@ -493,25 +470,27 @@ function initMediaWebSocket() {
         return;
     }
     
-    console.log('[MEDIA-WS] Connecting to media server...');
     mediaWebSocketConnecting = true;
     
     try {
         const mediaWs = new WebSocket('ws://localhost:8766');
         window.mediaWebSocket = mediaWs;
         
+        // Prevent browser from logging WebSocket errors
+        mediaWs.onerror = () => {
+            mediaWebSocketConnecting = false;
+            // Silent failure - media server is optional
+        };
+        
         mediaWs.onopen = () => {
-            console.log('[MEDIA-WS] Connected to media server');
+            console.log('[MEDIA] 🎵 Media server connected (Sonos artwork available)');
             mediaWebSocketConnecting = false;
             if (window.uiStore && window.uiStore.logWebsocketMessage) {
                 window.uiStore.logWebsocketMessage('Media server connected');
             }
-            
-            // Media server automatically pushes current data on connection
         };
         
         mediaWs.onclose = () => {
-            console.log('[MEDIA-WS] Media server disconnected');
             mediaWebSocketConnecting = false;
             window.mediaWebSocket = null;
             // Reconnect after delay
@@ -522,15 +501,9 @@ function initMediaWebSocket() {
             }, 3000);
         };
         
-        mediaWs.onerror = (error) => {
-            console.error('[MEDIA-WS] Media server connection error:', error);
-            mediaWebSocketConnecting = false;
-        };
-        
         mediaWs.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                // Remove redundant logging - handled in ui.js handleMediaUpdate
                 
                 if (data.type === 'media_update' && window.uiStore && window.uiStore.handleMediaUpdate) {
                     window.uiStore.handleMediaUpdate(data.data, data.reason);
@@ -540,8 +513,8 @@ function initMediaWebSocket() {
             }
         };
     } catch (error) {
-        console.error('[MEDIA-WS] Connection failed:', error);
         mediaWebSocketConnecting = false;
+        // Silent failure - media server is optional
     }
 }
 
