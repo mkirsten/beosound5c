@@ -132,7 +132,7 @@ class ArcList {
                 this.items = this.parentData.map((parent, index) => ({
                     id: parent.id,
                     name: parent[this.config.parentNameKey] || `Item ${index + 1}`,
-                    image: parent.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪',
+                    image: parent.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo=',
                     [this.config.parentKey]: parent[this.config.parentKey] // Preserve child data
                 }));
             } else if (this.config.dataType === 'custom') {
@@ -143,7 +143,7 @@ class ArcList {
                 this.items = this.parentData.map((item, index) => ({
                     id: item.id || `item-${index}`,
                     name: item.name || item.title || `Item ${index + 1}`,
-                    image: item.image || item.thumbnail || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+                    image: item.image || item.thumbnail || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
                 }));
             }
             
@@ -152,7 +152,7 @@ class ArcList {
             console.error('Error loading data:', error);
             // Fallback to dummy data if loading fails
             this.items = [
-                { id: 'fallback-1', name: 'Error Loading Data', image: 'https://via.placeholder.com/64x64/ff0000/ffffff?text=!' }
+                { id: 'fallback-1', name: 'Error Loading Data', image: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjZmYwMDAwIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj4hPC90ZXh0Pgo8L3N2Zz4K' }
             ];
         }
     }
@@ -242,7 +242,7 @@ class ArcList {
             this.items = children.map(child => ({
                 id: child.id,
                 name: child.name || child.title || 'Unnamed Item',
-                image: child.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+                image: child.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
             }));
         }
         
@@ -752,20 +752,22 @@ class ArcList {
      */
     connectWebSocket() {
         try {
-            // Throttle WebSocket connection logging (max 1 per second)
-            const now = Date.now();
-            if (!this.lastWebSocketLogTime || now - this.lastWebSocketLogTime >= 1000) {
-                this.lastWebSocketLogTime = now;
-                this.shouldLogWebSocket = true;
-            } else {
-                this.shouldLogWebSocket = false;
-            }
+            // WebSocket logging control - only log successful connections
+            const ENABLE_WEBSOCKET_LOGGING = true;
             
             this.ws = new WebSocket(this.config.webSocketUrl);
             
+            const timeout = setTimeout(() => {
+                if (this.ws.readyState === WebSocket.CONNECTING) {
+                    this.ws.close();
+                    this.ws = null;
+                }
+            }, 2000); // 2 second timeout
+            
             this.ws.onopen = () => {
-                if (this.shouldLogWebSocket) {
-                    console.log('WebSocket connected');
+                clearTimeout(timeout);
+                if (ENABLE_WEBSOCKET_LOGGING) {
+                    console.log('Main server WebSocket connected');
                 }
             };
             
@@ -774,29 +776,28 @@ class ArcList {
                     const data = JSON.parse(event.data);
                     this.handleWebSocketMessage(data);
                 } catch (error) {
-                    if (this.shouldLogWebSocket) {
-                        console.error('Error parsing WebSocket message:', error);
-                    }
+                    console.error('Error parsing WebSocket message:', error);
                 }
             };
             
             this.ws.onclose = () => {
-                if (this.shouldLogWebSocket) {
-                    console.log('WebSocket disconnected');
+                clearTimeout(timeout);
+                const wasConnected = this.ws !== null;
+                this.ws = null;
+                // Only attempt to reconnect if we had a successful connection before
+                if (wasConnected) {
+                    setTimeout(() => this.connectWebSocket(), 5000);
                 }
-                // Attempt to reconnect after 2 seconds
-                setTimeout(() => this.connectWebSocket(), 2000);
             };
             
-            this.ws.onerror = (error) => {
-                if (this.shouldLogWebSocket) {
-                    console.error('WebSocket error:', error);
-                }
+            this.ws.onerror = () => {
+                clearTimeout(timeout);
+                this.ws = null;
+                // Silently fail - main server not available (standalone mode)
             };
         } catch (error) {
-            if (this.shouldLogWebSocket) {
-                console.error('Error creating WebSocket:', error);
-            }
+            this.ws = null;
+            // Silently fail - main server not available (standalone mode)
         }
     }
     
@@ -878,24 +879,27 @@ class ArcList {
     sendClickCommand() {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
         
-        /*
-        const now = Date.now();
-        const CLICK_THROTTLE_MS = 5;
-        
-        // Rate limiting: only send if at least 50ms have passed since last send
-        if (now - (this.lastClickTime || 0) < CLICK_THROTTLE_MS) {
-            return;
+        try {
+            const now = Date.now();
+            const CLICK_THROTTLE_MS = 50; // 50ms throttle
+            
+            // Rate limiting: only send if at least 50ms have passed since last send
+            if (now - (this.lastClickTime || 0) < CLICK_THROTTLE_MS) {
+                return;
+            }
+            
+            this.lastClickTime = now;
+            
+            const message = {
+                type: 'command',
+                command: 'click',
+                params: {}
+            };
+            
+            this.ws.send(JSON.stringify(message));
+        } catch (error) {
+            // Silently fail if sending fails
         }
-        
-        this.lastClickTime = now;
-        */
-        const message = {
-            type: 'command',
-            command: 'click',
-            params: {}
-        };
-        
-        this.ws.send(JSON.stringify(message));
     }
     
     /**
@@ -986,7 +990,7 @@ class ArcList {
             this.items = childItems.map(item => ({
                 id: item.id,
                 name: item.name || item.title || 'Unnamed Item',
-                image: item.image || item.thumbnail || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+                image: item.image || item.thumbnail || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
             }));
         }
         
@@ -1036,7 +1040,7 @@ class ArcList {
             this.items = this.parentData.map((parent, index) => ({
                 id: parent.id,
                 name: parent.name || `Parent ${index + 1}`,
-                image: parent.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+                image: parent.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
             }));
             
             this.viewMode = 'parent';
