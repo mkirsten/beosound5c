@@ -55,7 +55,7 @@ while results:
     results = sp.next(results)
 
 # Write JSON
-with open('playlists_with_tracks.json', 'w') as f:
+with open('../../web/json/playlists_with_tracks.json', 'w') as f:
     json.dump(playlists, f, indent=2)
 
-print("✅ playlists_with_tracks.json written.")
+print("✅ web/json/playlists_with_tracks.json written.")

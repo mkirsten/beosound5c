@@ -176,7 +176,7 @@
         // Load playlists from JSON file
         async function loadPlaylists() {
             try {
-                const response = await fetch('../playlists_with_tracks.json');
+                const response = await fetch('../json/playlists_with_tracks.json');
                 playlistData = await response.json();
                 
                 // Convert playlist data to our items format (playlists only initially)
