@@ -15,11 +15,9 @@ class UIStore {
         this.wsMessages = [];
         this.maxWsMessages = 50;
         
-        // HA integration settings
+        // HA integration settings - ONLY for Apple TV display data fetching (read-only)
         this.HA_URL = 'http://homeassistant.local:8123';
         this.HA_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJlNTU1MjM0NmIzMTA0NTQxOWU4ZjczYmM3YjE4YzNiOSIsImlhdCI6MTc0NjA5ODMxMiwiZXhwIjoyMDYxNDU4MzEyfQ.ZDszs4w_8_bkcIy24cvwntEsyjCzy2VODjthZRpQvaQ';
-     
-        this.ENTITY = 'media_player.church_dining';
         
         // Media info
         this.mediaInfo = {
@@ -155,75 +153,91 @@ class UIStore {
             this.ensureMenuVisible();
         }, 100);
         
-        // Start fetching media info
-        this.fetchMediaInfo();
-        this.setupMediaInfoRefresh();
+        // Media info will be received via WebSocket from media server
         
         // Start fetching Apple TV media info
         this.setupAppleTVMediaInfoRefresh();
     }
     
-    // Helper to preload and cache images
+    // Helper to preload and cache images with better error handling
     preloadAndCacheImage(url) {
         return new Promise((resolve, reject) => {
             if (!url) return resolve(null);
             if (this.artworkCache[url] && this.artworkCache[url].complete) {
                 return resolve(this.artworkCache[url]);
             }
-            const img = new window.Image();
-            img.onload = () => {
-                this.artworkCache[url] = img;
-                resolve(img);
-            };
-            img.onerror = reject;
-            img.src = url;
+            
+            // First check if the URL returns any data
+            fetch(url, { headers: { 'Authorization': 'Bearer ' + this.HA_TOKEN } })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.blob();
+                })
+                .then(blob => {
+                    if (blob.size === 0) {
+                        throw new Error('Artwork URL returned 0 bytes (HA proxy issue)');
+                    }
+                    
+                    // Create object URL from blob and load image
+                    const objectUrl = URL.createObjectURL(blob);
+                    const img = new window.Image();
+                    img.onload = () => {
+                        this.artworkCache[url] = img;
+                        resolve(img);
+                        // Clean up object URL after loading
+                        URL.revokeObjectURL(objectUrl);
+                    };
+                    img.onerror = () => {
+                        URL.revokeObjectURL(objectUrl);
+                        reject(new Error('Failed to load image from blob'));
+                    };
+                    img.src = objectUrl;
+                })
+                .catch(error => {
+                    console.warn(`Artwork loading failed for ${url}:`, error.message);
+                    reject(error);
+                });
         });
     }
     
-    // Fetch media information from Home Assistant
-    async fetchMediaInfo() {
-        try {
-            //console.log(`Fetching media state from ${this.HA_URL}/api/states/${this.ENTITY}`);
-            const response = await fetch(`${this.HA_URL}/api/states/${this.ENTITY}`, {
-                headers: { 'Authorization': 'Bearer ' + this.HA_TOKEN }
-            });
-            
-            const data = await response.json();
-            const artworkUrl = data.attributes.entity_picture ? this.HA_URL + data.attributes.entity_picture : '';
-            
-            // Preload and cache artwork
-            if (artworkUrl) this.preloadAndCacheImage(artworkUrl);
-            
-            // Update media info
-            this.mediaInfo = {
-                title: data.attributes.media_title || '—',
-                artist: data.attributes.media_artist || '—',
-                album: data.attributes.media_album_name || '—',
-                artwork: artworkUrl,
-                state: data.state
+    // Request immediate media update from media server
+    requestMediaUpdate(reason = 'user_action') {
+        if (window.mediaWebSocket && window.mediaWebSocket.readyState === WebSocket.OPEN) {
+            const message = {
+                type: 'media_request',
+                immediate: true,
+                reason: reason
             };
-            
-            // Update volume if available
-            if (data.attributes.volume_level !== undefined) {
-                this.volume = Math.round(data.attributes.volume_level * 100);
-                this.updateVolumeArc();
-            }
-            
-            // Update the now playing view if it's active
-            if (this.currentRoute === 'menu/playing') {
-                this.updateNowPlayingView();
-            }
-            
-            //console.log('Media info updated:', this.mediaInfo);
-        } catch (error) {
-            console.error('Error fetching media info:', error);
+            window.mediaWebSocket.send(JSON.stringify(message));
+            console.log(`Requested immediate media update: ${reason}`);
+        } else {
+            console.warn('Media WebSocket not available for media request');
         }
     }
     
-    // Set up periodic refresh of media info
-    setupMediaInfoRefresh() {
-        // Refresh every 5 seconds
-        setInterval(() => this.fetchMediaInfo(), 1000);
+    // Handle media update from WebSocket
+    handleMediaUpdate(data, reason = 'update') {
+        console.log(`Received media update: ${reason}`, data);
+        
+        // Update media info
+        this.mediaInfo = {
+            title: data.title || '—',
+            artist: data.artist || '—',
+            album: data.album || '—',
+            artwork: data.artwork || '',
+            state: data.state || 'unknown',
+            position: data.position || '0:00',
+            duration: data.duration || '0:00'
+        };
+        
+        // Update the now playing view if it's active
+        if (this.currentRoute === 'menu/playing') {
+            this.updateNowPlayingView();
+        }
+        
+        console.log('Media info updated from WebSocket:', this.mediaInfo);
     }
     
     // Update the now playing view with current media info
@@ -246,60 +260,69 @@ class UIStore {
             playPauseBtn.textContent = this.mediaInfo.state === 'playing' ? '⏸' : '▶️';
         }
         
-        // Use cached image if available and loaded
+        // Handle artwork display
         const artworkUrl = this.mediaInfo.artwork;
-        if (artworkUrl && this.artworkCache[artworkUrl] && this.artworkCache[artworkUrl].complete) {
-            if (artworkEl.src !== this.artworkCache[artworkUrl].src) {
-                artworkEl.style.opacity = 0;
-                setTimeout(() => {
-                    artworkEl.src = this.artworkCache[artworkUrl].src;
-                    setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
-                }, 100);
-            }
-        } else if (artworkUrl) {
-            // Preload and cache for next time
-            this.preloadAndCacheImage(artworkUrl).then(img => {
-                if (img && artworkEl.src !== img.src) {
+        
+        if (artworkUrl) {
+            // Check if it's a data URL (from direct Sonos API)
+            if (artworkUrl.startsWith('data:')) {
+                // Direct data URL - set immediately
+                if (artworkEl.src !== artworkUrl) {
                     artworkEl.style.opacity = 0;
                     setTimeout(() => {
-                        artworkEl.src = img.src;
+                        artworkEl.src = artworkUrl;
                         setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
                     }, 100);
                 }
-            });
+            } else {
+                // Regular URL (from HA) - use caching system
+                if (this.artworkCache[artworkUrl] && this.artworkCache[artworkUrl].complete) {
+                    if (artworkEl.src !== this.artworkCache[artworkUrl].src) {
+                        artworkEl.style.opacity = 0;
+                        setTimeout(() => {
+                            artworkEl.src = this.artworkCache[artworkUrl].src;
+                            setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
+                        }, 100);
+                    }
+                } else {
+                    // Preload and cache for next time
+                    this.preloadAndCacheImage(artworkUrl).then(img => {
+                        if (img && artworkEl.src !== img.src) {
+                            artworkEl.style.opacity = 0;
+                            setTimeout(() => {
+                                artworkEl.src = img.src;
+                                setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
+                            }, 100);
+                        }
+                    }).catch(error => {
+                        console.error('Error loading now playing artwork:', error.message);
+                        if (error.message.includes('0 bytes')) {
+                            console.warn('Home Assistant media player proxy returned 0 bytes - this is a known issue with Sonos artwork URLs');
+                        }
+                        // Set a default placeholder image
+                        artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23333'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3EArtwork%3C/text%3E%3Ctext x='100' y='120' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3EUnavailable%3C/text%3E%3C/svg%3E";
+                        artworkEl.style.opacity = 1;
+                    });
+                }
+            }
+        } else {
+            // Show placeholder when no artwork URL is available
+            artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23333'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3ENo Artwork%3C/text%3E%3Ctext x='100' y='120' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3EAvailable%3C/text%3E%3C/svg%3E";
+            artworkEl.style.opacity = 1;
         }
     }
     
-    // Handle media controls
+    // Handle media controls - DISABLED: Now using webhooks only
     async sendMediaCommand(command) {
-        try {
-            const endpoint = `${this.HA_URL}/api/services/media_player/${command}`;
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                    'Authorization': 'Bearer ' + this.HA_TOKEN,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ entity_id: this.ENTITY })
-            });
-            
-            if (response.ok) {
-                console.log(`Media command ${command} sent successfully`);
-                // Fetch updated info after a short delay
-                setTimeout(() => this.fetchMediaInfo(), 500);
-            } else {
-                console.error(`Error sending media command: ${response.status}`);
-            }
-        } catch (error) {
-            console.error('Error sending media command:', error);
-        }
+        console.log(`🚫 [MEDIA] Direct media command disabled: ${command} - using webhooks instead`);
+        // Media commands are now handled via webhooks only
+        // This function is kept for compatibility but does nothing
     }
     
     // Fetch Apple TV media information from Home Assistant
     async fetchAppleTVMediaInfo() {
-        console.log("Starting Apple TV media fetch");
+        // Removed fetch logging
         try {
-            console.log(`Fetching Apple TV state from ${this.HA_URL}/api/states/media_player.loft_apple_tv`);
             const response = await fetch(`${this.HA_URL}/api/states/media_player.loft_apple_tv`, {
                 headers: { 'Authorization': 'Bearer ' + this.HA_TOKEN }
             });
@@ -310,7 +333,7 @@ class UIStore {
             }
             
             const data = await response.json();
-            console.log("Apple TV data received:", data);
+            // Removed data received logging
             
             const artworkUrl = data.attributes.entity_picture ? this.HA_URL + data.attributes.entity_picture : '';
             
@@ -326,14 +349,13 @@ class UIStore {
                 state: data.state
             };
             
-            console.log("Apple TV info processed x:", this.appleTVMediaInfo);
+            // Removed processed info logging
             
             // Update the Apple TV media view if it's active
             if (this.currentRoute === 'menu/showing') {
                 this.updateAppleTVMediaView();
-            } else {
-                console.log("Not updating view - current route is", this.currentRoute);
             }
+            // Removed route logging
         } catch (error) {
             console.error('Error fetching Apple TV media info:', error);
         }
@@ -341,7 +363,7 @@ class UIStore {
     
     // Update the Apple TV media view with current info
     updateAppleTVMediaView() {
-        console.log("Updating Apple TV media view");
+        // Removed view update logging
         const artworkEl = document.getElementById('apple-tv-artwork');
         const titleEl = document.getElementById('apple-tv-media-title');
         const detailsEl = document.getElementById('apple-tv-media-details');
@@ -386,6 +408,14 @@ class UIStore {
                         setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
                     }, 100);
                 }
+            }).catch(error => {
+                console.error('Error loading Apple TV artwork:', error.message);
+                if (error.message.includes('0 bytes')) {
+                    console.warn('Home Assistant media player proxy returned 0 bytes for Apple TV artwork');
+                }
+                // Set a default placeholder image
+                artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23222'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3EArtwork%3C/text%3E%3Ctext x='100' y='120' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3EUnavailable%3C/text%3E%3C/svg%3E";
+                artworkEl.style.opacity = 1;
             });
         } else {
             // Show a placeholder if no artwork
@@ -402,7 +432,7 @@ class UIStore {
         
         // Refresh every 5 seconds
         setInterval(() => {
-            console.log("Periodic Apple TV refresh");
+            // Removed periodic refresh logging
             this.fetchAppleTVMediaInfo();
         }, 5000);
     }
@@ -516,11 +546,17 @@ class UIStore {
         return isSelected;
     }
 
-    // Send click command to server
+    // Send click command to server (graceful fallback)
     sendClickCommand() {
         try {
             const ws = new WebSocket('ws://localhost:8765/ws');
+            
+            const timeout = setTimeout(() => {
+                ws.close();
+            }, 1000); // 1 second timeout
+            
             ws.onopen = () => {
+                clearTimeout(timeout);
                 const message = {
                     type: 'command',
                     command: 'click',
@@ -530,11 +566,17 @@ class UIStore {
                 console.log('Sent click command to server');
                 ws.close();
             };
-            ws.onerror = (error) => {
-                console.error('WebSocket error:', error);
+            
+            ws.onerror = () => {
+                clearTimeout(timeout);
+                // Silently fail - main server not available (standalone mode)
+            };
+            
+            ws.onclose = () => {
+                clearTimeout(timeout);
             };
         } catch (error) {
-            console.error('Error sending click command:', error);
+            // Silently fail - main server not available (standalone mode)
         }
     }
 
@@ -550,12 +592,22 @@ class UIStore {
                     this.handleWheelChange();
                     break;
                 case "ArrowLeft":
-                    this.volume = Math.max(0, this.volume - 5);
-                    this.updateVolumeArc();
+                    if (this.currentRoute === 'menu/playing') {
+                        // In now playing view, left arrow triggers media update (previous track)
+                        this.requestMediaUpdate('navigation_left');
+                    } else {
+                        this.volume = Math.max(0, this.volume - 5);
+                        this.updateVolumeArc();
+                    }
                     break;
                 case "ArrowRight":
-                    this.volume = Math.min(100, this.volume + 5);
-                    this.updateVolumeArc();
+                    if (this.currentRoute === 'menu/playing') {
+                        // In now playing view, right arrow triggers media update (next track)
+                        this.requestMediaUpdate('navigation_right');
+                    } else {
+                        this.volume = Math.min(100, this.volume + 5);
+                        this.updateVolumeArc();
+                    }
                     break;
             }
         });
@@ -581,14 +633,8 @@ class UIStore {
             }
         });
 
-        document.addEventListener('wheel', (event) => {
-            if (event.deltaY < 0) {
-                this.volume = Math.min(100, this.volume + 2);
-            } else {
-                this.volume = Math.max(0, this.volume - 2);
-            }
-            this.updateVolumeArc();
-        });
+        // Volume wheel handling removed - wheel events now ONLY control laser pointer
+        // Volume can be controlled via left/right arrow keys when not in now playing view
 
         document.getElementById('menuItems').addEventListener('click', (event) => {
             const clickedItem = event.target.closest('.list-item');
@@ -617,7 +663,11 @@ class UIStore {
         const shouldBeInFullOverlay = this.wheelPointerAngle > bottomOverlayStart || this.wheelPointerAngle < topOverlayStart;
         
         // Handle time-based menu sliding animations with better state management
-        console.log(`Menu state: ${this.menuAnimationState}, shouldBeInOverlayZone: ${shouldBeInOverlayZone}, angle: ${this.wheelPointerAngle.toFixed(1)}°`);
+        // Reduced logging - only log significant changes
+        if (!window.lastLoggedAngle || Math.abs(this.wheelPointerAngle - window.lastLoggedAngle) > 2.0) {
+            console.log(`Menu state: ${this.menuAnimationState}, shouldBeInOverlayZone: ${shouldBeInOverlayZone}, angle: ${this.wheelPointerAngle.toFixed(1)}°`);
+            window.lastLoggedAngle = this.wheelPointerAngle;
+        }
         
         if (shouldBeInOverlayZone) {
             // Should hide menu
@@ -640,7 +690,7 @@ class UIStore {
                 // Bottom overlay - now playing
                 this.isNowPlayingOverlayActive = true;
                 this.navigateToView('menu/playing');
-                this.fetchMediaInfo();
+                this.requestMediaUpdate('now_playing_view');
             } else if (this.wheelPointerAngle < topOverlayStart && !this.isNowPlayingOverlayActive) {
                 // Top overlay - now showing
                 this.isNowPlayingOverlayActive = true;
@@ -658,12 +708,12 @@ class UIStore {
         this.topWheelPosition = 0;
     }
 
-    // Start time-based menu slide out animation
+    // Hide menu immediately (no animation)
     startMenuSlideOut() {
-        if (this.menuAnimationState === 'sliding-out' || this.menuAnimationState === 'hidden') return;
+        if (this.menuAnimationState === 'hidden') return;
         
-        console.log('Starting menu slide out animation');
-        this.menuAnimationState = 'sliding-out';
+        console.log('Hiding menu (no animation)');
+        this.menuAnimationState = 'hidden';
         
         // Clear any existing timeout
         if (this.menuAnimationTimeout) {
@@ -673,33 +723,26 @@ class UIStore {
         // Get menu elements
         const menuElements = this.getMenuElements();
         if (menuElements.length === 0) {
-            console.warn('No menu elements found for slide out animation');
+            console.warn('No menu elements found for hiding');
             return;
         }
         
-        // Set CSS transitions for smooth animation
+        // Simply hide the menu without animation
         menuElements.forEach(element => {
-            element.style.transition = 'transform 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
-            element.style.transform = 'translateX(-200px)';
-            element.style.opacity = '0.1';
+            element.style.transition = 'none';
+            element.style.display = 'none';
         });
         
         // Ensure content stays visible
         this.ensureContentVisible();
-        
-        // Set state to hidden after animation completes
-        this.menuAnimationTimeout = setTimeout(() => {
-            console.log('Menu slide out animation completed');
-            this.menuAnimationState = 'hidden';
-        }, 1500);
     }
     
-    // Start time-based menu slide in animation
+    // Show menu immediately (no animation)
     startMenuSlideIn() {
-        if (this.menuAnimationState === 'sliding-in' || this.menuAnimationState === 'visible') return;
+        if (this.menuAnimationState === 'visible') return;
         
-        console.log('Starting menu slide in animation');
-        this.menuAnimationState = 'sliding-in';
+        console.log('Showing menu (no animation)');
+        this.menuAnimationState = 'visible';
         
         // Clear any existing timeout
         if (this.menuAnimationTimeout) {
@@ -709,25 +752,20 @@ class UIStore {
         // Get menu elements
         const menuElements = this.getMenuElements();
         if (menuElements.length === 0) {
-            console.warn('No menu elements found for slide in animation');
+            console.warn('No menu elements found for showing');
             return;
         }
         
-        // Set CSS transitions for smooth animation
+        // Simply show the menu without animation
         menuElements.forEach(element => {
-            element.style.transition = 'transform 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            element.style.transition = 'none';
+            element.style.display = 'block';
             element.style.transform = 'translateX(0px)';
             element.style.opacity = '1';
         });
         
         // Ensure content stays visible
         this.ensureContentVisible();
-        
-        // Set state to visible after animation completes
-        this.menuAnimationTimeout = setTimeout(() => {
-            console.log('Menu slide in animation completed');
-            this.menuAnimationState = 'visible';
-        }, 1200);
     }
     
     // Get menu elements for animation
@@ -742,11 +780,13 @@ class UIStore {
     ensureContentVisible() {
         const contentArea = document.getElementById('contentArea');
         if (contentArea) {
-            // Remove any transform/opacity transitions that might interfere
-            contentArea.style.transition = 'none';
+            // Only ensure visibility and position, don't interfere with opacity transitions
+            // that might be happening for artwork or other content
             contentArea.style.transform = 'translateX(0px)';
-            contentArea.style.opacity = '1';
             contentArea.style.visibility = 'visible';
+            
+            // Don't force opacity to 1 or remove transitions as this can interfere
+            // with artwork fade-in/fade-out animations
             
             // Force a reflow to ensure styles are applied
             contentArea.offsetHeight;
@@ -840,7 +880,7 @@ class UIStore {
         // Immediately update with cached info for playing view
         if (this.currentRoute === 'menu/playing') {
             this.updateNowPlayingView();
-            this.fetchMediaInfo();
+            this.requestMediaUpdate('view_navigation');
         }
         // Immediately update with cached info for showing view
         else if (this.currentRoute === 'menu/showing') {

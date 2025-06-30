@@ -3,10 +3,15 @@ import asyncio, threading, json, time, sys
 import hid, websockets
 import subprocess  # Add subprocess for xset commands
 import os  # For path operations
+import logging  # For media server communication logging
 
 VID, PID = 0x0cd4, 0x1112
 BTN_MAP = {0x20:'left', 0x10:'right', 0x40:'go', 0x80:'power'}
 clients = set()
+
+# Media server connection
+MEDIA_SERVER_URL = 'ws://localhost:8766'
+media_server_ws = None
 
 # ——— track current "byte1" state (LED/backlight bits) ———
 state_byte1 = 0x00
@@ -97,8 +102,16 @@ async def receive_commands(ws):
         try:
             msg = json.loads(raw)
             print('[WS RECEIVED]', msg)  # Log every received message
+            
+            # Handle media requests by forwarding to media server
+            if msg.get('type') == 'media_request':
+                await forward_to_media_server(raw)
+                continue
+                
+            # Handle hardware commands
             if msg.get('type') != 'command':
                 continue
+                
             cmd    = msg.get('command')
             params = msg.get('params', {})
             if cmd == 'click':
@@ -208,12 +221,66 @@ def scan_loop(loop):
         # set_backlight(True)
         time.sleep(0.001)
 
+# ——— Media server communication ———
+
+async def connect_to_media_server():
+    """Connect to the media server and handle bidirectional communication."""
+    global media_server_ws
+    
+    while True:
+        try:
+            print(f"[MEDIA] Connecting to media server at {MEDIA_SERVER_URL}")
+            media_server_ws = await websockets.connect(MEDIA_SERVER_URL)
+            print("[MEDIA] Connected to media server")
+            
+            # Listen for messages from media server
+            async for message in media_server_ws:
+                try:
+                    data = json.loads(message)
+                    print(f"[MEDIA] Received from media server: {data.get('type', 'unknown')}")
+                    
+                    # Forward media updates to web clients
+                    if data.get('type') == 'media_update':
+                        await broadcast(message)
+                        
+                except json.JSONDecodeError:
+                    print(f"[MEDIA] Invalid JSON from media server: {message}")
+                except Exception as e:
+                    print(f"[MEDIA] Error processing media server message: {e}")
+                    
+        except websockets.exceptions.ConnectionClosed:
+            print("[MEDIA] Media server connection closed, reconnecting in 5s...")
+            media_server_ws = None
+            await asyncio.sleep(5)
+        except Exception as e:
+            print(f"[MEDIA] Error connecting to media server: {e}, retrying in 5s...")
+            media_server_ws = None
+            await asyncio.sleep(5)
+
+async def forward_to_media_server(message):
+    """Forward messages from web clients to media server."""
+    if media_server_ws and not media_server_ws.closed:
+        try:
+            await media_server_ws.send(message)
+            print(f"[MEDIA] Forwarded to media server: {json.loads(message).get('type', 'unknown')}")
+        except Exception as e:
+            print(f"[MEDIA] Error forwarding to media server: {e}")
+    else:
+        print("[MEDIA] Media server not connected, cannot forward message")
+
 # ——— Main & server start ———
 
 async def main():
     ws_srv = await websockets.serve(handler, '0.0.0.0', 8765)
     print("WebSocket server listening on ws://0.0.0.0:8765")
+    
+    # Start HID scanning thread
     threading.Thread(target=scan_loop, args=(asyncio.get_event_loop(),), daemon=True).start()
+    
+    # Start media server connection task
+    media_task = asyncio.create_task(connect_to_media_server())
+    
+    # Wait for server to close
     await ws_srv.wait_closed()
 
 if __name__ == '__main__':

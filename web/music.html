@@ -183,7 +183,7 @@
                 items = playlistData.map((playlist, index) => ({
                     id: playlist.id,
                     name: playlist.name || `Playlist ${index + 1}`, // Handle empty names
-                    image: playlist.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪' // Placeholder for null images
+                    image: playlist.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo=' // Local SVG placeholder
                 }));
                 
                 // Initial render
@@ -192,7 +192,7 @@
                 console.error('Error loading playlists:', error);
                 // Fallback to dummy data if loading fails
                 items = [
-                    { id: 'fallback-1', name: 'Error Loading Playlists', image: 'https://via.placeholder.com/64x64/ff0000/ffffff?text=!' }
+                    { id: 'fallback-1', name: 'Error Loading Playlists', image: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjZmYwMDAwIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj4hPC90ZXh0Pgo8L3N2Zz4K' }
                 ];
                 render();
             }
@@ -228,7 +228,7 @@
             items = selectedPlaylist.tracks.map(track => ({
                 id: track.id,
                 name: `${track.artist} - ${track.name}`,
-                image: track.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+                image: track.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
             }));
             
             viewMode = 'songs';
@@ -243,7 +243,7 @@
             items = playlistData.map((playlist, index) => ({
                 id: playlist.id,
                 name: playlist.name || `Playlist ${index + 1}`,
-                image: playlist.image || 'https://via.placeholder.com/64x64/333333/ffffff?text=♪'
+                image: playlist.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
             }));
             
             viewMode = 'playlists';
@@ -405,8 +405,16 @@
             try {
                 ws = new WebSocket('ws://localhost:8765');
                 
+                const timeout = setTimeout(() => {
+                    if (ws.readyState === WebSocket.CONNECTING) {
+                        ws.close();
+                        ws = null;
+                    }
+                }, 2000); // 2 second timeout
+                
                 ws.onopen = () => {
-                    console.log('WebSocket connected');
+                    clearTimeout(timeout);
+                    console.log('Main server WebSocket connected');
                 };
                 
                 ws.onmessage = (event) => {
@@ -419,16 +427,22 @@
                 };
                 
                 ws.onclose = () => {
-                    console.log('WebSocket disconnected');
-                    // Attempt to reconnect after 2 seconds
-                    setTimeout(() => connectWebSocket(), 2000);
+                    clearTimeout(timeout);
+                    ws = null;
+                    // Only attempt to reconnect if we had a successful connection before
+                    if (ws !== null) {
+                        setTimeout(() => connectWebSocket(), 5000);
+                    }
                 };
                 
-                ws.onerror = (error) => {
-                    console.error('WebSocket error:', error);
+                ws.onerror = () => {
+                    clearTimeout(timeout);
+                    ws = null;
+                    // Silently fail - main server not available (standalone mode)
                 };
             } catch (error) {
-                console.error('Error creating WebSocket:', error);
+                ws = null;
+                // Silently fail - main server not available (standalone mode)
             }
         }
         
@@ -492,24 +506,27 @@
         function sendClickCommand() {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
             
-            const now = Date.now();
-            
-            // Rate limiting: only send if at least 200ms have passed since last send
-            if (now - lastClickTime < CLICK_THROTTLE_MS) {
-                console.log('Click command throttled - too soon');
-                return;
+            try {
+                const now = Date.now();
+                
+                // Rate limiting: only send if at least 27ms have passed since last send
+                if (now - lastClickTime < CLICK_THROTTLE_MS) {
+                    return;
+                }
+                
+                lastClickTime = now;
+                
+                const message = {
+                    type: 'command',
+                    command: 'click',
+                    params: {}
+                };
+                
+                ws.send(JSON.stringify(message));
+                console.log('Sent click command to server');
+            } catch (error) {
+                // Silently fail if sending fails
             }
-            
-            lastClickTime = now;
-            
-            const message = {
-                type: 'command',
-                command: 'click',
-                params: {}
-            };
-            
-            ws.send(JSON.stringify(message));
-            console.log('Sent click command to server');
         }
         
         async function sendGoWebhook() {

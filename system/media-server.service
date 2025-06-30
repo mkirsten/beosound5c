@@ -1,0 +1,19 @@
+[Unit]
+Description=Sonos Media Server
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=kirsten
+Group=kirsten
+WorkingDirectory=/Users/kirsten/Development/beosound5c
+Environment=PYTHONPATH=/Users/kirsten/Development/beosound5c/tools:/Users/kirsten/Development/beosound5c/tools/sonos_env/lib/python3.12/site-packages
+ExecStart=/Users/kirsten/Development/beosound5c/tools/sonos_env/bin/python /Users/kirsten/Development/beosound5c/hw/media.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target 

@@ -1,6 +1,9 @@
+// Debug: Check if this file is loading
+console.log('🔥 cursor-handler.js is loading...');
+
 // Configuration
 const config = {
-    showMouseCursor: false,  // Set to false to hide the mouse cursor by default
+    showMouseCursor: true,   // Set to true to show the mouse cursor by default
     wsUrl: 'ws://localhost:8765/ws',  // Updated to use the correct hostname
     skipFactor: 1,          // Process 1 out of every N events (higher = more skipping)
     disableTransitions: true, // Set to true to disable CSS transitions on the pointer
@@ -10,6 +13,11 @@ const config = {
     volumeProcessingDelay: 50, // Delay between volume updates processing in ms
     cursorHideDelay: 2000   // Delay in ms before hiding cursor after inactivity
 };
+
+// Reference to dummy hardware manager (from dummy-hardware.js)
+// Note: dummyHardwareManager is declared in dummy-hardware.js as window.dummyHardwareManager
+
+// Hardware simulation is now handled by dummy-hardware.js module
 
 // Global variables for laser event optimization
 let lastLaserEvent = { position: 93 };  // Initialize with position 93
@@ -43,21 +51,42 @@ let shadowPointer = null;
 
 // Mouse cursor visibility control
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('🔥 DOMContentLoaded event fired!');
     console.log("Cursor visibility setting:", config.showMouseCursor);
     
     // Add a style element for cursor control
     const style = document.createElement('style');
     style.id = 'cursor-style';
     
-    // Initially hide the cursor
-    style.textContent = '* { cursor: none !important; }';
+    // Set initial cursor visibility based on config
+    if (config.showMouseCursor) {
+        style.textContent = `
+            body, div, svg, path, ellipse { cursor: auto !important; }
+            #viewport { cursor: auto !important; }
+            .list-item { cursor: pointer !important; }
+            .flow-item { cursor: pointer !important; }
+        `;
+    } else {
+        style.textContent = '* { cursor: none !important; }';
+    }
     document.head.appendChild(style);
     
     // Create style for disabling transitions if needed
     updateTransitionStyles();
     
-    // Initialize WebSocket for cursor and controls
-    initWebSocket();
+    // Initialize WebSocket for cursor and controls (non-blocking)
+    console.log('🔌 Initializing WebSocket connections...');
+    
+    // Use setTimeout to make WebSocket initialization completely asynchronous
+    setTimeout(() => {
+        try {
+            initWebSocket();
+            console.log('✅ WebSocket initialization completed');
+        } catch (error) {
+            console.error('❌ WebSocket initialization failed:', error);
+            console.log('🔄 Continuing without WebSocket connections (standalone mode)');
+        }
+    }, 100); // Small delay to ensure it doesn't block
     
     // Process the initial laser position immediately
     if (lastLaserEvent && lastLaserEvent.position) {
@@ -71,14 +100,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Create shadow pointer for visual feedback
     createShadowPointer();
     
-    // Start the volume processor loop
-    startVolumeProcessor();
+    // Volume processor removed
     
-    // Add mouse wheel support for laptop testing
-    addMouseWheelSupport();
-    
-    // Add keyboard support for iframe pages
-    addKeyboardSupport();
+    // Dummy hardware manager is available as window.dummyHardwareManager
     
     // Add mousemove event listener to show cursor when moved
     document.addEventListener('mousemove', () => {
@@ -231,6 +255,44 @@ function processLaserEvents() {
     isAnimationRunning = true;
 }
 
+// Process WebSocket events (from real hardware or dummy server)
+function processWebSocketEvent(message) {
+    const uiStore = window.uiStore;
+    if (!uiStore) return;
+    
+    const type = message.type;
+    const data = message.data;
+    
+    console.log(`[EVENT] Processing ${type} event:`, data);
+    
+    switch (type) {
+        case 'laser':
+            processLaserEvent(data);
+            break;
+            
+        case 'nav':
+            handleNavEvent(uiStore, data);
+            break;
+            
+        case 'volume':
+            handleVolumeEvent(uiStore, data);
+            break;
+            
+        case 'button':
+            handleButtonEvent(uiStore, data);
+            break;
+            
+        case 'media_update':
+            if (uiStore.handleMediaUpdate) {
+                uiStore.handleMediaUpdate(data.data, data.reason);
+            }
+            break;
+            
+        default:
+            console.log(`[EVENT] Unknown event type: ${type}`);
+    }
+}
+
 // Process a single laser event
 function processLaserEvent(data) {
     // Log the original laser position (0-100)
@@ -310,8 +372,11 @@ function updateViaStore(angle) {
 // Throttling for WebSocket connection logging
 let lastWebSocketLogTime = 0;
 const WEBSOCKET_LOG_THROTTLE = 1000; // 1 second
+const ENABLE_WEBSOCKET_LOGGING = false; // Set to true to enable WebSocket connection logging
 
 function shouldLogWebSocket() {
+    if (!ENABLE_WEBSOCKET_LOGGING) return false; // Easy toggle for WebSocket logging
+    
     const now = Date.now();
     if (now - lastWebSocketLogTime >= WEBSOCKET_LOG_THROTTLE) {
         lastWebSocketLogTime = now;
@@ -320,129 +385,173 @@ function shouldLogWebSocket() {
     return false;
 }
 
+// Global variables to prevent multiple connections
+let mediaWebSocketConnecting = false;
+let mainWebSocketConnecting = false;
+
 function initWebSocket() {
-    if (shouldLogWebSocket()) {
-        console.log('Attempting to connect to WebSocket at:', config.wsUrl);
+    console.log('[WS] Initializing WebSocket connections...');
+    
+    // Always start dummy hardware server first - it will handle keyboard/scroll input
+    if (window.dummyHardwareManager) {
+        console.log('[WS] Starting dummy hardware manager...');
+        const dummyServer = window.dummyHardwareManager.start();
+        if (dummyServer) {
+            console.log('[WS] Dummy server started, creating fake WebSocket connection...');
+            // Create a fake WebSocket connection for the UI
+            const fakeWs = {
+                readyState: WebSocket.OPEN,
+                onmessage: null,
+                close: () => {},
+                send: () => {}
+            };
+            
+            // Add the fake connection to dummy server
+            dummyServer.addClient(fakeWs);
+            
+            // Set up message handling
+            fakeWs.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    processWebSocketEvent(msg);
+                } catch (error) {
+                    console.error('[DUMMY-HW] Error processing message:', error);
+                }
+            };
+            console.log('[WS] Fake WebSocket connection established for dummy hardware');
+        } else {
+            console.error('[WS] Failed to start dummy hardware server');
+        }
+    } else {
+        console.error('[WS] Dummy hardware manager not available');
     }
     
-    const ws = new WebSocket(config.wsUrl);
+    // Try to connect to real hardware server (always try, regardless of logging setting)
+    console.log('[WS] Attempting to connect to hardware server...');
     
-    ws.onopen = () => {
-        if (shouldLogWebSocket()) {
-            console.log('WebSocket connected successfully');
-            // Log to debug overlay if available
-            if (window.uiStore && window.uiStore.logWebsocketMessage) {
-                window.uiStore.logWebsocketMessage('WebSocket connected successfully');
-            }
-        }
-    };
-    
-    ws.onclose = (event) => {
-        if (shouldLogWebSocket()) {
-            console.log('WebSocket disconnected:', event.code, event.reason);
-            // Log to debug overlay if available
-            if (window.uiStore && window.uiStore.logWebsocketMessage) {
-                window.uiStore.logWebsocketMessage(`WebSocket disconnected: ${event.code} ${event.reason}`);
-            }
-            console.log('Reconnecting in 1s...');
-        }
-        setTimeout(initWebSocket, 1000);
-    };
-    
-    ws.onerror = error => {
-        if (shouldLogWebSocket()) {
-            console.error('WebSocket error:', error);
-            // Log to debug overlay if available
-            if (window.uiStore && window.uiStore.logWebsocketMessage) {
-                window.uiStore.logWebsocketMessage(`WebSocket error: ${error}`);
-            }
-        }
-    };
-    
-    // Counter for event skipping
-    let eventCounter = 0;
-    
-    ws.onmessage = event => {
-        try {
-            console.log('Raw WebSocket message received:', event.data);
-            const message = JSON.parse(event.data);
-            console.log('Parsed WebSocket message:', message);
+    try {
+        const ws = new WebSocket('ws://localhost:8765');
+        
+        // Set a connection timeout
+        const connectionTimeout = setTimeout(() => {
+            console.log('[WS] Hardware server not available - using dummy server only');
+            ws.close();
+        }, 2000);
+        
+        ws.onopen = () => {
+            clearTimeout(connectionTimeout);
+            console.log('[WS] Connected to hardware server - switching to real hardware');
             
-            // Extract event type and data
-            const type = message.kind || message.type;  // Handle both formats
-            const data = message.data || message;
-            
-            // Log to debug overlay if available
-            if (window.uiStore && window.uiStore.logWebsocketMessage) {
-                window.uiStore.logWebsocketMessage(`Received ${type} event: ${JSON.stringify(data)}`);
+            // Real hardware server is available, disable dummy server
+            if (window.dummyHardwareManager) {
+                window.dummyHardwareManager.stop();
+                console.log('[WS] Switched to real hardware server');
             }
+        };
+        
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                processWebSocketEvent(msg);
+            } catch (error) {
+                console.error('[WS] Error parsing message:', error);
+            }
+        };
+        
+        ws.onclose = () => {
+            clearTimeout(connectionTimeout);
+            console.log('[WS] Hardware server connection closed - switching back to dummy server');
             
-            // Special handling for laser events
-            if (type === 'laser') {
-                console.log('Processing laser event:', data);
-                // Increment the received counter
-                eventsReceived++;
-                
-                // Simple event skipping based on counter
-                eventCounter = (eventCounter + 1) % config.skipFactor;
-                
-                // Only process on certain intervals based on skipFactor
-                if (eventCounter === 0) {
-                    // Store the laser position for the debug overlay
-                    lastLaserEvent = data;
-                    
-                    // Bypass RAF for immediate processing if configured
-                    if (config.bypassRAF) {
-                        processLaserEvent(data);
-                    } else {
-                        // Ensure the animation loop is running
-                        if (!isAnimationRunning) {
-                            processLaserEvents();
-                        }
-                    }
-                } else {
-                    // Count skipped events
-                    skippedEvents++;
+            // Start dummy server if real one disconnects
+            setTimeout(() => {
+                if (window.dummyHardwareManager) {
+                    window.dummyHardwareManager.start();
                 }
-                
-                return; // Exit early
-            }
-            
-            // Non-laser events are logged normally
-            console.log(`Processing ${type} event:`, data);
-            
-            // Get reference to UI store for other event types
-            const uiStore = window.uiStore;
-            if (!uiStore) {
-                console.error('UI Store not found');
-                return;
-            }
-            
-            // Process non-laser events
-            switch (type) {
-                case 'nav':
-                    console.log('Handling nav event:', data);
-                    handleNavEvent(uiStore, data);
-                    break;
-                case 'volume':
-                    console.log('Handling volume event:', data);
-                    handleVolumeEvent(uiStore, data);
-                    break;
-                case 'button':
-                    console.log('Handling button event:', data);
-                    handleButtonEvent(uiStore, data);
-                    break;
-                default:
-                    console.log('Unknown event type:', type);
-            }
-        } catch (error) {
-            console.error('Error processing message:', error);
-            if (window.uiStore && window.uiStore.logWebsocketMessage) {
-                window.uiStore.logWebsocketMessage(`Error processing message: ${error}`);
-            }
-        }
-    };
+            }, 1000);
+        };
+        
+        ws.onerror = (error) => {
+            clearTimeout(connectionTimeout);
+            console.log('[WS] Hardware server connection failed - using dummy server');
+        };
+        
+    } catch (error) {
+        console.error('[WS] Error creating WebSocket:', error);
+    }
+    
+    // Also initialize media server connection
+    initMediaWebSocket();
 }
+
+// Separate function for media server connection
+function initMediaWebSocket() {
+    if (window.mediaWebSocket && window.mediaWebSocket.readyState === WebSocket.OPEN) {
+        return;
+    }
+    
+    if (mediaWebSocketConnecting) {
+        return;
+    }
+    
+    console.log('[MEDIA-WS] Connecting to media server...');
+    mediaWebSocketConnecting = true;
+    
+    try {
+        const mediaWs = new WebSocket('ws://localhost:8766');
+        window.mediaWebSocket = mediaWs;
+        
+        mediaWs.onopen = () => {
+            console.log('[MEDIA-WS] Connected to media server');
+            mediaWebSocketConnecting = false;
+            if (window.uiStore && window.uiStore.logWebsocketMessage) {
+                window.uiStore.logWebsocketMessage('Media server connected');
+            }
+            
+            // Request current media data on startup
+            mediaWs.send(JSON.stringify({
+                type: 'media_request',
+                immediate: true,
+                reason: 'startup'
+            }));
+            console.log('[MEDIA-WS] Requested initial media data');
+        };
+        
+        mediaWs.onclose = () => {
+            console.log('[MEDIA-WS] Media server disconnected');
+            mediaWebSocketConnecting = false;
+            window.mediaWebSocket = null;
+            // Reconnect after delay
+            setTimeout(() => {
+                if (!window.mediaWebSocket) {
+                    initMediaWebSocket();
+                }
+            }, 3000);
+        };
+        
+        mediaWs.onerror = (error) => {
+            console.error('[MEDIA-WS] Media server connection error:', error);
+            mediaWebSocketConnecting = false;
+        };
+        
+        mediaWs.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                console.log('[MEDIA-WS] Received:', data.type);
+                
+                if (data.type === 'media_update' && window.uiStore && window.uiStore.handleMediaUpdate) {
+                    window.uiStore.handleMediaUpdate(data.data, data.reason);
+                }
+            } catch (error) {
+                console.error('[MEDIA-WS] Error processing message:', error);
+            }
+        };
+    } catch (error) {
+        console.error('[MEDIA-WS] Connection failed:', error);
+        mediaWebSocketConnecting = false;
+    }
+}
+
+// Dummy server functionality moved to dummy-hardware.js module
 
 // Handle navigation wheel events
 function handleNavEvent(uiStore, data) {
@@ -592,6 +701,14 @@ function handleButtonEvent(uiStore, data) {
         return;
     }
     
+    // Request media update for "go" button on music page (playlist/track selection)
+    if (currentPage === 'menu/music' && data.button === 'go') {
+        console.log(`🎵 [MEDIA] Requesting media update for music "go" button`);
+        if (uiStore.requestMediaUpdate) {
+            uiStore.requestMediaUpdate('playlist_track_play');
+        }
+    }
+    
     // Send webhook for all contexts
     const contextMap = {
         'menu/security': 'security',
@@ -608,105 +725,6 @@ function handleButtonEvent(uiStore, data) {
         window.uiStore.logWebsocketMessage(`🟡 Preparing webhook for ${panelContext}: ${data.button}`);
     }
     sendWebhook(panelContext, data.button);
-    
-    // For non-iframe pages, also send media commands for backward compatibility
-    if (!localHandledPages.includes(currentPage)) {
-        switch (data.button) {
-            case 'left':
-                // Previous track
-                console.log('Previous track button pressed');
-                if (uiStore.sendMediaCommand) {
-                    uiStore.sendMediaCommand('media_previous_track');
-                }
-                break;
-                
-            case 'right':
-                // Next track
-                console.log('Next track button pressed');
-                if (uiStore.sendMediaCommand) {
-                    uiStore.sendMediaCommand('media_next_track');
-                }
-                break;
-                
-            case 'go':
-                // Play/Pause
-                console.log('Play/Pause button pressed');
-                if (uiStore.sendMediaCommand) {
-                    uiStore.sendMediaCommand('media_play_pause');
-                }
-                break;
-                
-            case 'power':
-                // Power button handling if needed
-                console.log('Power button pressed');
-                break;
-                
-            default:
-                console.log('Unknown button:', data.button);
-        }
-    }
-}
-
-// Add mouse wheel support for laptop testing
-function addMouseWheelSupport() {
-    console.log('Adding mouse wheel support for laptop testing');
-    
-    // Add wheel event listener to the document
-    document.addEventListener('wheel', (event) => {
-        // Prevent default scrolling behavior
-        event.preventDefault();
-        
-        // Calculate scroll direction and speed
-        const deltaY = event.deltaY;
-        const deltaX = event.deltaX;
-        
-        // Use the larger delta for direction (vertical takes precedence)
-        const primaryDelta = Math.abs(deltaY) > Math.abs(deltaX) ? deltaY : deltaX;
-        
-        // Determine direction (positive = down/right, negative = up/left)
-        const direction = primaryDelta > 0 ? 'clock' : 'counter';
-        
-        // Calculate speed based on delta magnitude
-        // Mouse wheel typically gives values like 100, trackpad can give smaller values
-        const speed = Math.min(127, Math.max(1, Math.abs(primaryDelta) / 3));
-        
-        console.log(`Mouse wheel: direction=${direction}, speed=${speed}, deltaY=${deltaY}, deltaX=${deltaX}`);
-        
-        // Create navigation event data similar to WebSocket
-        const navData = {
-            direction: direction,
-            speed: speed
-        };
-        
-        // Get UI store and simulate laser pointer movement
-        const uiStore = window.uiStore;
-        if (uiStore) {
-            console.log('Simulating laser pointer movement from mouse wheel');
-            
-            // Calculate new angle based on current position and scroll direction
-            const currentAngle = uiStore.wheelPointerAngle;
-            const angleStep = speed * 0.3; // Convert speed to angle step (adjust multiplier for sensitivity)
-            
-            let newAngle;
-            if (direction === 'clock') {
-                // Scroll down = move clockwise = increase angle
-                newAngle = Math.min(210, currentAngle + angleStep);
-            } else {
-                // Scroll up = move counter-clockwise = decrease angle
-                newAngle = Math.max(150, currentAngle - angleStep);
-            }
-            
-            console.log(`Mouse wheel: ${currentAngle}° → ${newAngle}° (${direction}, speed=${speed})`);
-            
-            // Update the wheel pointer angle directly (like laser pointer does)
-            uiStore.wheelPointerAngle = newAngle;
-            uiStore.handleWheelChange();
-        } else {
-            console.log('UI Store not available for mouse wheel simulation');
-        }
-    }, { passive: false }); // passive: false allows preventDefault()
-    
-    console.log('Mouse wheel support added - you can now scroll to simulate laser pointer navigation');
 }
 
 // Send webhook for button events
@@ -761,63 +779,3 @@ function sendWebhook(panelContext, button, id = '1') {
         }
     });
 }
-
-// Add keyboard support for iframe pages
-function addKeyboardSupport() {
-    console.log('🎹 [KEYBOARD] Adding keyboard support for iframe pages');
-    
-    // Add keydown event listener to the document
-    document.addEventListener('keydown', (event) => {
-        console.log(`🎹 [KEYBOARD] Key pressed: ${event.key} (code: ${event.code})`);
-        
-        // Get current page/route
-        const uiStore = window.uiStore;
-        if (!uiStore) {
-            console.log(`🔴 [KEYBOARD] ERROR: UI Store not available`);
-            return;
-        }
-        
-        const currentPage = uiStore.currentRoute || 'unknown';
-        console.log(`🎹 [KEYBOARD] Current page: ${currentPage}`);
-        
-        const localHandledPages = ['menu/music', 'menu/settings', 'menu/scenes'];
-        
-        // Check if we're on a page that should handle keyboard events locally
-        if (localHandledPages.includes(currentPage)) {
-            console.log(`🎹 [KEYBOARD] On iframe page ${currentPage} - forwarding key: ${event.key}`);
-            
-            // Forward keyboard events to the appropriate iframe
-            let iframeName = '';
-            if (currentPage === 'menu/music') iframeName = 'music-iframe';
-            else if (currentPage === 'menu/settings') iframeName = 'settings-iframe';
-            else if (currentPage === 'menu/scenes') iframeName = 'scenes-iframe';
-            
-            const iframe = document.getElementById(iframeName);
-            if (iframe && iframe.contentWindow) {
-                console.log(`🎹 [KEYBOARD] Sending keyboard event to iframe ${iframeName}`);
-                // Send the keyboard event to the iframe
-                iframe.contentWindow.postMessage({
-                    type: 'keyboard',
-                    key: event.key,
-                    code: event.code,
-                    ctrlKey: event.ctrlKey,
-                    shiftKey: event.shiftKey,
-                    altKey: event.altKey,
-                    metaKey: event.metaKey
-                }, '*');
-                
-                // Prevent the event from being handled by the parent page
-                event.preventDefault();
-                event.stopPropagation();
-                console.log(`🎹 [KEYBOARD] Event forwarded and prevented from parent handling`);
-            } else {
-                console.log(`🔴 [KEYBOARD] ERROR: Iframe ${iframeName} not found or not ready`);
-            }
-        } else {
-            console.log(`🎹 [KEYBOARD] On non-iframe page ${currentPage} - parent will handle key: ${event.key}`);
-        }
-        // If not on an iframe page, let the parent handle the event normally
-    });
-    
-    console.log('🎹 [KEYBOARD] Keyboard support added - arrow keys and Enter will be forwarded to iframe pages');
-} 
