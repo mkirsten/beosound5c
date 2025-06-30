@@ -30,6 +30,10 @@ echo "📁 Script directory: $SCRIPT_DIR"
 echo "📁 Target directory: $SERVICE_DIR"
 echo ""
 
+# Ensure we are updated
+sudo systemctl daemon-reload
+sudo systemctl reset-failed
+
 # Copy service files to systemd directory
 echo "📋 Copying service files..."
 for service in "${SERVICES[@]}"; do
@@ -79,7 +83,9 @@ echo "  🖥️  Starting UI service..."
 systemctl enable beo-ui.service
 systemctl start beo-ui.service
 
-echo ""
+echo "Reloading daemon services"
+sudo systemctl daemon-reload
+sudo systemctl reset-failed
 
 # Check status of all services
 echo "📊 Service Status Check:"
