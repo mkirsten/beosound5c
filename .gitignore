@@ -1,4 +1,5 @@
 .venv/
 .venv
 __pycache__
+sonos_env
 .DS_Store

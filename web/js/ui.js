@@ -202,24 +202,16 @@ class UIStore {
         });
     }
     
-    // Request immediate media update from media server
-    requestMediaUpdate(reason = 'user_action') {
-        if (window.mediaWebSocket && window.mediaWebSocket.readyState === WebSocket.OPEN) {
-            const message = {
-                type: 'media_request',
-                immediate: true,
-                reason: reason
-            };
-            window.mediaWebSocket.send(JSON.stringify(message));
-            console.log(`Requested immediate media update: ${reason}`);
-        } else {
-            console.warn('Media WebSocket not available for media request');
-        }
-    }
+    // REMOVED: requestMediaUpdate - now using push-based updates from media server
+    // Media server automatically pushes updates when:
+    // 1. Client connects
+    // 2. Track changes  
+    // 3. External control detected
     
     // Handle media update from WebSocket
     handleMediaUpdate(data, reason = 'update') {
-        console.log(`Received media update: ${reason}`, data);
+        // Only log the reason, not the full data object
+        console.log(`[MEDIA-WS] ${reason}: ${data.title} - ${data.artist}`);
         
         // Update media info
         this.mediaInfo = {
@@ -236,8 +228,6 @@ class UIStore {
         if (this.currentRoute === 'menu/playing') {
             this.updateNowPlayingView();
         }
-        
-        console.log('Media info updated from WebSocket:', this.mediaInfo);
     }
     
     // Update the now playing view with current media info
@@ -310,13 +300,6 @@ class UIStore {
             artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23333'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3ENo Artwork%3C/text%3E%3Ctext x='100' y='120' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3EAvailable%3C/text%3E%3C/svg%3E";
             artworkEl.style.opacity = 1;
         }
-    }
-    
-    // Handle media controls - DISABLED: Now using webhooks only
-    async sendMediaCommand(command) {
-        console.log(`🚫 [MEDIA] Direct media command disabled: ${command} - using webhooks instead`);
-        // Media commands are now handled via webhooks only
-        // This function is kept for compatibility but does nothing
     }
     
     // Fetch Apple TV media information from Home Assistant
@@ -593,8 +576,7 @@ class UIStore {
                     break;
                 case "ArrowLeft":
                     if (this.currentRoute === 'menu/playing') {
-                        // In now playing view, left arrow triggers media update (previous track)
-                        this.requestMediaUpdate('navigation_left');
+                        // Webhook handled by dummy hardware system
                     } else {
                         this.volume = Math.max(0, this.volume - 5);
                         this.updateVolumeArc();
@@ -602,8 +584,7 @@ class UIStore {
                     break;
                 case "ArrowRight":
                     if (this.currentRoute === 'menu/playing') {
-                        // In now playing view, right arrow triggers media update (next track)
-                        this.requestMediaUpdate('navigation_right');
+                        // Webhook handled by dummy hardware system
                     } else {
                         this.volume = Math.min(100, this.volume + 5);
                         this.updateVolumeArc();
@@ -690,7 +671,7 @@ class UIStore {
                 // Bottom overlay - now playing
                 this.isNowPlayingOverlayActive = true;
                 this.navigateToView('menu/playing');
-                this.requestMediaUpdate('now_playing_view');
+                // Media info will be pushed automatically by media server
             } else if (this.wheelPointerAngle < topOverlayStart && !this.isNowPlayingOverlayActive) {
                 // Top overlay - now showing
                 this.isNowPlayingOverlayActive = true;
@@ -880,7 +861,7 @@ class UIStore {
         // Immediately update with cached info for playing view
         if (this.currentRoute === 'menu/playing') {
             this.updateNowPlayingView();
-            this.requestMediaUpdate('view_navigation');
+            // Media info will be pushed automatically by media server
         }
         // Immediately update with cached info for showing view
         else if (this.currentRoute === 'menu/showing') {
