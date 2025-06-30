@@ -507,13 +507,7 @@ function initMediaWebSocket() {
                 window.uiStore.logWebsocketMessage('Media server connected');
             }
             
-            // Request current media data on startup
-            mediaWs.send(JSON.stringify({
-                type: 'media_request',
-                immediate: true,
-                reason: 'startup'
-            }));
-            console.log('[MEDIA-WS] Requested initial media data');
+            // Media server automatically pushes current data on connection
         };
         
         mediaWs.onclose = () => {
@@ -536,7 +530,7 @@ function initMediaWebSocket() {
         mediaWs.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                console.log('[MEDIA-WS] Received:', data.type);
+                // Remove redundant logging - handled in ui.js handleMediaUpdate
                 
                 if (data.type === 'media_update' && window.uiStore && window.uiStore.handleMediaUpdate) {
                     window.uiStore.handleMediaUpdate(data.data, data.reason);
@@ -701,13 +695,7 @@ function handleButtonEvent(uiStore, data) {
         return;
     }
     
-    // Request media update for "go" button on music page (playlist/track selection)
-    if (currentPage === 'menu/music' && data.button === 'go') {
-        console.log(`🎵 [MEDIA] Requesting media update for music "go" button`);
-        if (uiStore.requestMediaUpdate) {
-            uiStore.requestMediaUpdate('playlist_track_play');
-        }
-    }
+
     
     // Send webhook for all contexts
     const contextMap = {

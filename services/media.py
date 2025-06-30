@@ -42,12 +42,14 @@ WEBSOCKET_PORT = 8766
 POLL_INTERVAL = 2.0  # seconds between change checks
 MAX_ARTWORK_SIZE = 500 * 1024  # 500KB limit for artwork
 
-# Global state
+# Global variables for caching and state
 clients = set()
 current_track_id = None
 current_position = None
-last_update_time = 0
 cached_media_data = None
+last_update_time = 0
+cached_artwork_url = None  # Track artwork URL to avoid re-fetching same artwork
+cached_artwork_data = None  # Cache the actual artwork data
 sonos_viewer = None
 
 # Logging setup
@@ -142,24 +144,24 @@ class MediaServer:
             
     async def handle_client(self, websocket):
         """Handle new WebSocket client connections."""
-        global clients
+        global clients, cached_media_data
         
         clients.add(websocket)
         client_info = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
         logger.info(f"Client connected: {client_info}")
         
         try:
-            # Don't send data automatically - wait for client to request it
+            # Immediately send current media info to new client
+            if cached_media_data:
+                await self.send_media_update(websocket, cached_media_data, 'client_connect')
+            else:
+                # Fetch fresh data for first-time connection
+                media_data = await self.fetch_media_data()
+                if media_data:
+                    await self.send_media_update(websocket, media_data, 'client_connect')
             
-            # Listen for client messages
-            async for message in websocket:
-                try:
-                    data = json.loads(message)
-                    await self.handle_client_message(websocket, data)
-                except json.JSONDecodeError:
-                    logger.warning(f"Invalid JSON from client {client_info}: {message}")
-                except Exception as e:
-                    logger.error(f"Error handling message from {client_info}: {e}")
+            # Keep connection alive (no message handling - push only)
+            await websocket.wait_closed()
                     
         except websockets.exceptions.ConnectionClosed:
             pass
@@ -168,39 +170,6 @@ class MediaServer:
         finally:
             clients.discard(websocket)
             logger.info(f"Client disconnected: {client_info}")
-            
-    async def handle_client_message(self, websocket, data):
-        """Handle messages from WebSocket clients."""
-        global cached_media_data
-        
-        message_type = data.get('type')
-        
-        if message_type == 'media_request':
-            # Client requesting immediate media update
-            immediate = data.get('immediate', False)
-            reason = data.get('reason', 'client_request')
-            
-            logger.info(f"Media request from client: immediate={immediate}, reason={reason}")
-            
-            if immediate:
-                # Force fresh fetch
-                media_data = await self.fetch_media_data()
-                if media_data:
-                    await self.broadcast_media_update(media_data, reason)
-            else:
-                # Send cached data if available
-                if cached_media_data:
-                    await websocket.send(json.dumps({
-                        'type': 'media_update',
-                        'reason': reason,
-                        'data': cached_media_data
-                    }))
-                    
-        elif message_type == 'media_command':
-            # Handle media control commands (future expansion)
-            command = data.get('command')
-            logger.info(f"Media command received: {command}")
-            # Could implement play/pause/skip commands here
             
     async def monitor_sonos(self):
         """Background task to monitor Sonos for changes."""
@@ -371,6 +340,20 @@ class MediaServer:
         except:
             pass
         return 0
+
+    async def send_media_update(self, websocket, media_data, reason):
+        """Send fresh media data to a specific client."""
+        message = {
+            'type': 'media_update',
+            'reason': reason,
+            'data': media_data
+        }
+        
+        try:
+            await websocket.send(json.dumps(message))
+            logger.info(f"Sent media update to client: {reason}")
+        except Exception as e:
+            logger.error(f"Error sending media update: {e}")
 
 def signal_handler(signum, frame):
     """Handle shutdown signals."""
