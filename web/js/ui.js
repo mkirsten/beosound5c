@@ -644,11 +644,6 @@ class UIStore {
         const shouldBeInFullOverlay = this.wheelPointerAngle > bottomOverlayStart || this.wheelPointerAngle < topOverlayStart;
         
         // Handle time-based menu sliding animations with better state management
-        // Reduced logging - only log significant changes
-        if (!window.lastLoggedAngle || Math.abs(this.wheelPointerAngle - window.lastLoggedAngle) > 2.0) {
-            console.log(`Menu state: ${this.menuAnimationState}, shouldBeInOverlayZone: ${shouldBeInOverlayZone}, angle: ${this.wheelPointerAngle.toFixed(1)}°`);
-            window.lastLoggedAngle = this.wheelPointerAngle;
-        }
         
         if (shouldBeInOverlayZone) {
             // Should hide menu
@@ -693,7 +688,6 @@ class UIStore {
     startMenuSlideOut() {
         if (this.menuAnimationState === 'hidden') return;
         
-        console.log('Hiding menu (no animation)');
         this.menuAnimationState = 'hidden';
         
         // Clear any existing timeout
@@ -722,7 +716,6 @@ class UIStore {
     startMenuSlideIn() {
         if (this.menuAnimationState === 'visible') return;
         
-        console.log('Showing menu (no animation)');
         this.menuAnimationState = 'visible';
         
         // Clear any existing timeout
@@ -776,7 +769,6 @@ class UIStore {
     
     // Ensure menu is visible and reset any stuck states
     ensureMenuVisible() {
-        console.log('Ensuring menu is visible');
         const menuElements = this.getMenuElements();
         
         menuElements.forEach(element => {
@@ -807,8 +799,6 @@ class UIStore {
     }
 
     navigateToView(path) {
-        console.log('Navigating to path:', path);
-        console.log('Available views:', Object.keys(this.views));
         
         // For overlay transitions, update immediately to prevent content hiding
         const isOverlayTransition = path === 'menu/playing' || path === 'menu/showing';
@@ -835,9 +825,6 @@ class UIStore {
     }
 
     updateView() {
-        console.log('updateView called with currentRoute:', this.currentRoute);
-        console.log('Available views:', Object.keys(this.views));
-        console.log('Views object:', this.views);
         
         const contentArea = document.getElementById('contentArea');
         if (!contentArea) {
@@ -856,7 +843,6 @@ class UIStore {
 
         // Update content while it's faded out
         contentArea.innerHTML = view.content;
-        console.log(`Updated content area for route: ${this.currentRoute}`);
         
         // Immediately update with cached info for playing view
         if (this.currentRoute === 'menu/playing') {
@@ -878,7 +864,6 @@ class UIStore {
                 
                 // Add a loading indicator if needed
                 securityIframe.onload = () => {
-                    console.log('Security camera dashboard loaded');
                     securityIframe.classList.add('loaded');
                 };
                 

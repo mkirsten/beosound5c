@@ -55,7 +55,10 @@ class DummyWebSocketServer {
         if (!this.isRunning) return;
         
         const messageStr = JSON.stringify(message);
-        console.log(`[DUMMY-HW] Broadcasting: ${messageStr}`);
+        // Only log non-laser events to reduce spam
+        if (message.type !== 'laser') {
+            console.log(`[DUMMY-HW] Broadcasting: ${messageStr}`);
+        }
         
         this.clients.forEach(client => {
             if (client.readyState === WebSocket.OPEN) {
@@ -117,8 +120,6 @@ class LaserPointerSimulator {
         if (this.isEnabled) return;
         this.isEnabled = true;
         
-        console.log('[DUMMY-HW] Enabling trackpad/mouse wheel for laser pointer control');
-        
         // Add wheel event listener
         document.addEventListener('wheel', this.handleWheelEvent.bind(this), { passive: false });
     }
@@ -127,17 +128,13 @@ class LaserPointerSimulator {
         if (!this.isEnabled) return;
         this.isEnabled = false;
         
-        console.log('[DUMMY-HW] Disabling trackpad/mouse wheel control');
         document.removeEventListener('wheel', this.handleWheelEvent.bind(this));
     }
 
     handleWheelEvent(event) {
         if (!this.isEnabled || !this.server.isRunning) {
-            console.log(`[DUMMY-HW] Wheel event ignored - enabled: ${this.isEnabled}, server running: ${this.server.isRunning}`);
             return;
         }
-        
-        console.log(`[DUMMY-HW] Wheel event received - deltaY: ${event.deltaY}`);
         
         try {
             // Prevent default scrolling behavior
@@ -146,7 +143,6 @@ class LaserPointerSimulator {
             // Only process significant movements to reduce noise
             const MIN_DELTA_THRESHOLD = 1; // More sensitive
             if (Math.abs(event.deltaY) < MIN_DELTA_THRESHOLD) {
-                console.log(`[DUMMY-HW] Wheel delta too small: ${event.deltaY}`);
                 return;
             }
             
@@ -154,29 +150,9 @@ class LaserPointerSimulator {
             const sensitivity = 0.4; // Much more responsive
             const deltaPosition = event.deltaY * sensitivity;
             
-            console.log(`[DUMMY-HW] Processing wheel: deltaY=${event.deltaY}, deltaPosition=${deltaPosition}, currentPos=${this.currentLaserPosition}`);
-            
             // Update laser position with correct bounds (3-123, same as real hardware)
             const newPosition = Math.max(this.MIN_LASER_POS, Math.min(this.MAX_LASER_POS, this.currentLaserPosition + deltaPosition));
             this.currentLaserPosition = newPosition;
-            
-            // Convert position to angle for logging using the same calibration as real hardware
-            let angle;
-            const pos = this.currentLaserPosition;
-            
-            if (pos <= this.MIN_LASER_POS) {
-                angle = 150;
-            } else if (pos < this.MID_LASER_POS) {
-                const slope = (180 - 150) / (this.MID_LASER_POS - this.MIN_LASER_POS);
-                angle = 150 + slope * (pos - this.MIN_LASER_POS);
-            } else if (pos <= this.MAX_LASER_POS) {
-                const slope = (210 - 180) / (this.MAX_LASER_POS - this.MID_LASER_POS);
-                angle = 180 + slope * (pos - this.MID_LASER_POS);
-            } else {
-                angle = 210;
-            }
-            
-            console.log(`[DUMMY-HW] New laser position: ${Math.round(this.currentLaserPosition)} (${angle.toFixed(1)}°)`);
             
             // Send laser event
             this.server.sendLaserEvent(Math.round(this.currentLaserPosition));
@@ -198,8 +174,6 @@ class KeyboardSimulator {
         if (this.isEnabled) return;
         this.isEnabled = true;
         
-        console.log('[DUMMY-HW] Enabling keyboard simulation for hardware controls');
-        
         // Add keyboard event listener
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
     }
@@ -208,7 +182,6 @@ class KeyboardSimulator {
         if (!this.isEnabled) return;
         this.isEnabled = false;
         
-        console.log('[DUMMY-HW] Disabling keyboard simulation');
         document.removeEventListener('keydown', this.handleKeyDown.bind(this));
     }
 
@@ -227,37 +200,31 @@ class KeyboardSimulator {
             // Map keyboard keys to hardware events
             switch(event.key) {
                 case 'ArrowLeft':
-                    console.log('[DUMMY-HW] Left arrow -> left button');
                     this.server.sendButtonEvent('left');
                     handled = true;
                     break;
                     
                 case 'ArrowRight':
-                    console.log('[DUMMY-HW] Right arrow -> right button');
                     this.server.sendButtonEvent('right');
                     handled = true;
                     break;
                     
                 case 'Enter':
-                    console.log('[DUMMY-HW] Enter -> go button');
                     this.server.sendButtonEvent('go');
                     handled = true;
                     break;
                     
                 case ' ': // Space bar as alternative go button
-                    console.log('[DUMMY-HW] Space -> go button');
                     this.server.sendButtonEvent('go');
                     handled = true;
                     break;
                     
                 case 'ArrowUp':
-                    console.log('[DUMMY-HW] Up arrow -> navigation wheel counter-clockwise');
                     this.server.sendNavEvent('counter', 20);
                     handled = true;
                     break;
                     
                 case 'ArrowDown':
-                    console.log('[DUMMY-HW] Down arrow -> navigation wheel clockwise');
                     this.server.sendNavEvent('clock', 20);
                     handled = true;
                     break;
@@ -265,7 +232,6 @@ class KeyboardSimulator {
                 case 'PageUp':
                 case '+':
                 case '=':
-                    console.log('[DUMMY-HW] PageUp/+ -> volume up');
                     this.server.sendVolumeEvent('clock', 20);
                     handled = true;
                     break;
@@ -273,13 +239,11 @@ class KeyboardSimulator {
                 case 'PageDown':
                 case '-':
                 case '_':
-                    console.log('[DUMMY-HW] PageDown/- -> volume down');
                     this.server.sendVolumeEvent('counter', 20);
                     handled = true;
                     break;
                     
                 case 'Escape':
-                    console.log('[DUMMY-HW] Escape -> power button');
                     this.server.sendButtonEvent('power');
                     handled = true;
                     break;
@@ -306,7 +270,6 @@ class DummyHardwareManager {
 
     start() {
         if (this.isActive) {
-            console.log('[DUMMY-HW] Already active');
             return this.server;
         }
 
@@ -320,18 +283,13 @@ class DummyHardwareManager {
         this.laserSimulator = new LaserPointerSimulator(this.server);
         this.keyboardSimulator = new KeyboardSimulator(this.server);
         
-        console.log('[DUMMY-HW] Created simulators, enabling...');
-        
         // Enable simulators
         this.laserSimulator.enable();
         this.keyboardSimulator.enable();
         
         this.isActive = true;
         
-        console.log('[DUMMY-HW] Dummy hardware ready - keyboard/trackpad will simulate real hardware');
-        console.log(`[DUMMY-HW] Laser simulator enabled: ${this.laserSimulator.isEnabled}`);
-        console.log(`[DUMMY-HW] Keyboard simulator enabled: ${this.keyboardSimulator.isEnabled}`);
-        console.log(`[DUMMY-HW] Server running: ${this.server.isRunning}`);
+        console.log('[DUMMY-HW] Dummy hardware ready - keyboard/trackpad active');
         
         return this.server;
     }
@@ -370,4 +328,4 @@ const dummyHardwareManager = new DummyHardwareManager();
 window.DummyHardwareManager = DummyHardwareManager;
 window.dummyHardwareManager = dummyHardwareManager;
 
-console.log('[DUMMY-HW] Dummy hardware module loaded'); 
+// Dummy hardware module loaded 

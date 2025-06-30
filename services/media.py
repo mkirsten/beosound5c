@@ -5,7 +5,7 @@ Monitors Sonos player for changes and sends updates via WebSocket.
 Handles both automatic change detection and on-demand requests.
 
 This runs as a separate service to avoid interfering with the latency-sensitive
-USB event processing in server.py.
+USB event processing in other services
 """
 
 import asyncio
@@ -65,11 +65,60 @@ class SonosArtworkViewer:
     def __init__(self, sonos_ip):
         self.sonos_ip = sonos_ip
         self.sonos = SoCo(sonos_ip)
+        self._cached_coordinator = None
+        self._coordinator_check_time = 0
         
+    def get_coordinator(self):
+        """Get the group coordinator for this player with caching."""
+        current_time = time.time()
+        
+        # Refresh coordinator info every 30 seconds or on first call
+        if (self._cached_coordinator is None or 
+            current_time - self._coordinator_check_time > 30):
+            
+            try:
+                # If this player is part of a group, get the coordinator
+                # If it's standalone, it will be its own coordinator
+                coordinator = self.sonos.group.coordinator
+                
+                # Verify coordinator is reachable
+                if coordinator and coordinator.ip_address:
+                    self._cached_coordinator = coordinator
+                    self._coordinator_check_time = current_time
+                    
+                    # Log if coordinator changed
+                    if hasattr(self, '_last_coordinator_ip'):
+                        if self._last_coordinator_ip != coordinator.ip_address:
+                            logger.info(f"Coordinator changed from {self._last_coordinator_ip} to {coordinator.ip_address}")
+                    self._last_coordinator_ip = coordinator.ip_address
+                    
+                    return coordinator
+                else:
+                    logger.debug("Coordinator not reachable, using original player")
+                    self._cached_coordinator = self.sonos
+                    self._coordinator_check_time = current_time
+                    return self.sonos
+                    
+            except Exception as e:
+                logger.debug(f"Error getting coordinator, using original player: {e}")
+                self._cached_coordinator = self.sonos
+                self._coordinator_check_time = current_time
+                return self.sonos
+        
+        return self._cached_coordinator
+            
     def get_current_track_info(self):
-        """Get current track information from Sonos player."""
+        """Get current track information from Sonos player or its coordinator."""
         try:
-            track_info = self.sonos.get_current_track_info()
+            # Always use the coordinator to get track info
+            # This ensures we get the correct info regardless of which player we're querying
+            coordinator = self.get_coordinator()
+            track_info = coordinator.get_current_track_info()
+            
+            # Log coordinator info for debugging
+            if coordinator != self.sonos:
+                logger.debug(f"Using coordinator {coordinator.ip_address} instead of {self.sonos_ip}")
+            
             return track_info
         except Exception as e:
             logger.error(f"Error getting track info: {e}")
@@ -87,8 +136,11 @@ class SonosArtworkViewer:
             return None
         
         # Handle relative URLs by making them absolute
+        # Use the coordinator's IP for artwork URLs to ensure consistency
         if artwork_url.startswith('/'):
-            artwork_url = f"http://{self.sonos_ip}:1400{artwork_url}"
+            coordinator = self.get_coordinator()
+            coordinator_ip = coordinator.ip_address
+            artwork_url = f"http://{coordinator_ip}:1400{artwork_url}"
         
         return artwork_url
     
@@ -175,11 +227,21 @@ class MediaServer:
         """Background task to monitor Sonos for changes."""
         global current_track_id, current_position, last_update_time, cached_media_data
         
-        logger.info("Starting Sonos monitoring")
+        logger.info(f"Starting Sonos monitoring for {SONOS_IP}")
+        
+        # Log initial coordinator info
+        try:
+            coordinator = self.sonos_viewer.get_coordinator()
+            if coordinator.ip_address != SONOS_IP:
+                logger.info(f"Player {SONOS_IP} is grouped, using coordinator {coordinator.ip_address}")
+            else:
+                logger.info(f"Player {SONOS_IP} is standalone or group coordinator")
+        except Exception as e:
+            logger.warning(f"Could not determine coordinator status: {e}")
         
         while self.running:
             try:
-                # Get current track info
+                # Get current track info (automatically uses coordinator)
                 track_info = self.sonos_viewer.get_current_track_info()
                 
                 if track_info:
@@ -234,9 +296,10 @@ class MediaServer:
         global cached_media_data, last_update_time
         
         try:
-            # Get track info
+            # Get track info (automatically uses coordinator)
             track_info = self.sonos_viewer.get_current_track_info()
             if not track_info:
+                logger.debug("No track info available")
                 return None
                 
             # Get artwork

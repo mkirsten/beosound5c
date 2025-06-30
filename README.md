@@ -4,6 +4,12 @@
 
 This project recreates the Bang & Olufsen BeoSound 5 experience using modern web technologies and hardware interfacing. It provides a touch-based circular UI that mimics the original BeoSound 5's interface while integrating with modern audio systems like Sonos and Spotify.
 
+You can test it out without any BS5 hardware through emulation of the key hardware features. The emulator starts automatically if there is no BS5 hardware driver loaded. You navigate as follows:
+
+ - *Laser pointer* up/down - Scroll mouse/trackpad up/down
+ - *Navigation wheel* clockwise/counter-clockwise - Arrow up/down
+ - *Buttons* left/right/go - left/right/enter (power on/off not emulated) 
+
 ## 🏗️ Codebase Structure
 
 ### 📁 Directory Overview
@@ -141,7 +147,7 @@ Sonos Player → media.py (port 8766) → WebSocket clients
 Web Browser ← ui.sh ← HTTP Server (port 8000) ← Static files
 ```
 
-## 🚀 Quick Start
+## 🚀 Quick Start BS5c
 
 1. **Install System Services**:
    ```bash
@@ -152,6 +158,28 @@ Web Browser ← ui.sh ← HTTP Server (port 8000) ← Static files
 2. **Access Interface**:
    - Main UI: `http://localhost:8000`
 ---
+
+
+## 🚀 Quick Start - Emulation Mode (No Hardware Required)
+
+*Note: The web interface includes built-in emulation that simulates the BeoSound 5c hardware using your keyboard and mouse/trackpad.*
+
+1. **Start Web Server** (from project root):
+   ```bash
+   cd web
+   python3 -m http.server 8000
+   ```
+
+2. **Start Media Server** (for Sonos artwork, optional):
+   ```bash
+   cd services
+   python3 media.py
+   ```
+
+3. **Access Interface**:
+   - Main UI: `http://localhost:8000`
+---
+
 
 ### 🖥 BeoSound 5 Panel — Forced HDMI Settings (1024×768 @ 60Hz)
 ```ini
