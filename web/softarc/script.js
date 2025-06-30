@@ -175,7 +175,7 @@ class ArcList {
                     }));
                 }
             }
-            console.log('State saved:', this.viewMode, this.currentIndex);
+            // State saved silently
         } catch (error) {
             console.error('Error saving state:', error);
         }
