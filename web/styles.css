@@ -184,6 +184,16 @@ html, body {
   opacity: 1;
 }
 
+/* Ensure security iframe is fully interactive */
+#security-iframe {
+  pointer-events: auto !important;
+  z-index: 1000 !important;
+}
+
+#security-container {
+  pointer-events: none !important;
+}
+
 /* Add styles for scrollable content */
 .scrollable-content {
   overflow-y: auto;

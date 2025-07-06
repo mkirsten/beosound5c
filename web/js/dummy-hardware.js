@@ -136,6 +136,12 @@ class LaserPointerSimulator {
             return;
         }
         
+        // Don't intercept wheel events when security iframe is active
+        const securityIframe = document.getElementById('security-iframe');
+        if (securityIframe && event.target.closest('#security-iframe')) {
+            return; // Let the iframe handle its own scroll events
+        }
+        
         try {
             // Prevent default scrolling behavior
             event.preventDefault();
@@ -189,9 +195,10 @@ class KeyboardSimulator {
         if (!this.isEnabled || !this.server.isRunning) return;
         
         try {
-            // Only handle if no input elements are focused
+            // Only handle if no input elements or iframes are focused
             if (document.activeElement.tagName === 'INPUT' || 
-                document.activeElement.tagName === 'TEXTAREA') {
+                document.activeElement.tagName === 'TEXTAREA' ||
+                document.activeElement.tagName === 'IFRAME') {
                 return;
             }
             
