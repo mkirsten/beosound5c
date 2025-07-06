@@ -104,8 +104,13 @@ class UIStore {
             'menu/security': {
                 title: 'SECURITY',
                 content: `
-                    <div id="security-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                        <iframe id="security-iframe" style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);" allowfullscreen></iframe>
+                    <div id="security-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
+                        <iframe id="security-iframe" 
+                                style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); pointer-events: auto;" 
+                                allowfullscreen 
+                                tabindex="0"
+                                sandbox="allow-same-origin allow-scripts allow-forms allow-pointer-lock allow-popups allow-popups-to-escape-sandbox"
+                                allow="camera; microphone; geolocation"></iframe>
                     </div>
                 `
             },
@@ -497,11 +502,14 @@ class UIStore {
             });
 
             itemElement.addEventListener('mouseenter', () => {
+                // Always update pointer angle and check selection (isSelectedItem has its own overlay logic)
+                console.log(`[HOVER DEBUG] Mouse entered item ${index} (${item.title}) - setting angle to ${itemAngle}`);
                 this.wheelPointerAngle = itemAngle;
                 this.isSelectedItem(index);
                 this.handleWheelChange();
             });
 
+            // Check if this item should be selected
             if (this.isSelectedItem(index)) {
                 itemElement.classList.add('selectedItem');
             }
@@ -519,7 +527,14 @@ class UIStore {
         const itemAngle = this.getStartItemAngle() + index * this.angleStep;
         const isSelected = Math.abs(this.wheelPointerAngle - itemAngle) <= 2;
         
+        // Debug logging
+        if (isSelected) {
+            console.log(`[MENU DEBUG] Item ${index} (${this.menuItems[index].title}) - angle: ${itemAngle}, current: ${this.wheelPointerAngle.toFixed(1)}, selectedMenuItem: ${this.selectedMenuItem}`);
+        }
+        
+        // Trigger navigation if selected and not already selected
         if (isSelected && this.selectedMenuItem !== index) {
+            console.log(`[MENU DEBUG] Navigating to ${this.menuItems[index].title} (${this.menuItems[index].path})`);
             this.selectedMenuItem = index;
             this.navigateToView(this.menuItems[index].path);
             
@@ -528,6 +543,8 @@ class UIStore {
         }
         return isSelected;
     }
+
+
 
     // Send click command to server (graceful fallback)
     sendClickCommand() {
@@ -634,10 +651,20 @@ class UIStore {
 
     handleWheelChange() {
         // Define transition zones for menu sliding
-        const bottomOverlayStart = 203;
-        const bottomTransitionStart = 195;
-        const topOverlayStart = 155;
-        const topTransitionStart = 163;
+        // Moved further from the limits to prevent fast scrolling issues
+        const bottomOverlayStart = 200;  // Moved down from 203 (210 is max)
+        const bottomTransitionStart = 192; // Moved down from 195
+        const topOverlayStart = 160;     // Moved up from 155 (150 is min)
+        const topTransitionStart = 168;  // Moved up from 163
+        
+        // Ensure wheelPointerAngle is within valid bounds (150-210)
+        const oldAngle = this.wheelPointerAngle;
+        this.wheelPointerAngle = Math.max(150, Math.min(210, this.wheelPointerAngle));
+        
+        // Debug logging for fast scrolling
+        if (Math.abs(oldAngle - this.wheelPointerAngle) > 5) {
+            console.log(`[DEBUG] Fast scroll detected: ${oldAngle.toFixed(1)} -> ${this.wheelPointerAngle.toFixed(1)}`);
+        }
         
         // Determine if we should be in overlay zone
         const shouldBeInOverlayZone = this.wheelPointerAngle > bottomTransitionStart || this.wheelPointerAngle < topTransitionStart;
@@ -664,19 +691,25 @@ class UIStore {
         if (shouldBeInFullOverlay) {
             if (this.wheelPointerAngle > bottomOverlayStart && !this.isNowPlayingOverlayActive) {
                 // Bottom overlay - now playing
+                console.log(`[DEBUG] Activating bottom overlay (now playing) at angle ${this.wheelPointerAngle.toFixed(1)}`);
                 this.isNowPlayingOverlayActive = true;
                 this.navigateToView('menu/playing');
                 // Media info will be pushed automatically by media server
             } else if (this.wheelPointerAngle < topOverlayStart && !this.isNowPlayingOverlayActive) {
                 // Top overlay - now showing
+                console.log(`[DEBUG] Activating top overlay (now showing) at angle ${this.wheelPointerAngle.toFixed(1)}`);
                 this.isNowPlayingOverlayActive = true;
                 this.navigateToView('menu/showing');
                 this.fetchAppleTVMediaInfo();
             }
         } else if (this.isNowPlayingOverlayActive && !shouldBeInFullOverlay) {
-            // Exit overlay
+            // Exit overlay - always return to playing view (the expected behavior)
+            console.log(`[DEBUG] Exiting overlay at angle ${this.wheelPointerAngle.toFixed(1)}`);
             this.isNowPlayingOverlayActive = false;
-            this.navigateToView(this.menuItems[this.selectedMenuItem]?.path || 'menu');
+            // Always go to playing view when exiting overlay
+            this.selectedMenuItem = 5; // Index of PLAYING menu item
+            console.log(`[DEBUG] Navigating to: menu/playing`);
+            this.navigateToView('menu/playing');
         }
 
         this.updatePointer();
@@ -858,19 +891,60 @@ class UIStore {
         // If navigating to security view, set up the iframe
         if (this.currentRoute === 'menu/security') {
             const securityIframe = document.getElementById('security-iframe');
+            const securityContainer = document.getElementById('security-container');
+            const mainMenu = document.getElementById('mainMenu');
+            
             if (securityIframe) {
                 // Set the iframe source to the Home Assistant camera dashboard
                 securityIframe.src = `${this.HA_URL}/dashboard-cameras/home&kiosk`;
                 
+                // Make iframe fully interactive
+                securityIframe.style.pointerEvents = 'auto';
+                securityIframe.style.zIndex = '1000';
+                securityIframe.style.position = 'relative';
+                securityIframe.setAttribute('tabindex', '0');
+                
+                // Ensure all parent containers don't interfere with clicks
+                if (securityContainer) {
+                    securityContainer.style.pointerEvents = 'none';
+                }
+                if (contentArea) {
+                    contentArea.style.pointerEvents = 'none';
+                }
+                if (mainMenu) {
+                    mainMenu.style.pointerEvents = 'none';
+                }
+                
                 // Add a loading indicator if needed
                 securityIframe.onload = () => {
                     securityIframe.classList.add('loaded');
+                    console.log('Security iframe loaded successfully');
+                    // Give the iframe focus so it can receive keyboard input
+                    setTimeout(() => {
+                        securityIframe.focus();
+                        console.log('Security iframe focused');
+                    }, 200);
                 };
                 
                 securityIframe.onerror = (error) => {
                     console.error('Error loading security camera dashboard:', error);
-                    // Maybe show an error message
                 };
+                
+                // Force iframe to be interactive
+                setTimeout(() => {
+                    securityIframe.style.pointerEvents = 'auto';
+                    securityIframe.style.isolation = 'isolate';
+                    console.log('Security iframe pointer events enabled');
+                }, 100);
+            }
+        } else {
+            // Reset pointer events for other views
+            const mainMenu = document.getElementById('mainMenu');
+            if (contentArea) {
+                contentArea.style.pointerEvents = 'auto';
+            }
+            if (mainMenu) {
+                mainMenu.style.pointerEvents = 'auto';
             }
         }
         

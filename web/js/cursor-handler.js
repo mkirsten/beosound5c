@@ -63,9 +63,13 @@ document.addEventListener('DOMContentLoaded', () => {
             #viewport { cursor: auto !important; }
             .list-item { cursor: pointer !important; }
             .flow-item { cursor: pointer !important; }
+            iframe, #security-iframe { cursor: auto !important; pointer-events: auto !important; z-index: 1000 !important; }
         `;
     } else {
-        style.textContent = '* { cursor: none !important; }';
+        style.textContent = `
+            * { cursor: none !important; }
+            iframe, #security-iframe { cursor: auto !important; pointer-events: auto !important; z-index: 1000 !important; }
+        `;
     }
     document.head.appendChild(style);
     
@@ -108,6 +112,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // Set a new timeout to hide the cursor after delay
         cursorHideTimeout = setTimeout(hideCursor, config.cursorHideDelay);
     });
+    
+    // Debug click events on security iframe
+    document.addEventListener('click', (e) => {
+        const securityIframe = document.getElementById('security-iframe');
+        if (securityIframe) {
+            console.log(`[CLICK DEBUG] Click on:`, e.target.tagName, e.target.id || 'no-id');
+            if (e.target === securityIframe || e.target.closest('#security-iframe')) {
+                console.log(`[CLICK DEBUG] Security iframe clicked!`);
+            }
+        }
+    }, true); // Use capture phase to catch events first
 });
 
 // Function to show the cursor
