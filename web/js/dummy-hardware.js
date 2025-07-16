@@ -112,7 +112,7 @@ class LaserPointerSimulator {
         this.MIN_LASER_POS = 3;
         this.MID_LASER_POS = 72;
         this.MAX_LASER_POS = 123;
-        this.currentLaserPosition = this.MID_LASER_POS; // Start in middle (180°)
+        this.currentLaserPosition = 90; // Start at NOW PLAYING menu item (~192.5°)
         this.isEnabled = false;
     }
 
@@ -122,6 +122,18 @@ class LaserPointerSimulator {
         
         // Add wheel event listener
         document.addEventListener('wheel', this.handleWheelEvent.bind(this), { passive: false });
+        
+        // Send initial laser position to set the starting view
+        setTimeout(() => {
+            const roundedPosition = Math.round(this.currentLaserPosition);
+            this.server.sendLaserEvent(roundedPosition);
+            
+            // Debug logging for initial position
+            if (window.LaserPositionMapper) {
+                const viewInfo = window.LaserPositionMapper.getViewForLaserPosition(roundedPosition);
+                console.log(`[DUMMY-HW] Initial: position ${roundedPosition} -> ${viewInfo.path} (${viewInfo.reason})`);
+            }
+        }, 100);
     }
 
     disable() {
@@ -158,10 +170,21 @@ class LaserPointerSimulator {
             
             // Update laser position with correct bounds (3-123, same as real hardware)
             const newPosition = Math.max(this.MIN_LASER_POS, Math.min(this.MAX_LASER_POS, this.currentLaserPosition + deltaPosition));
-            this.currentLaserPosition = newPosition;
             
-            // Send laser event
-            this.server.sendLaserEvent(Math.round(this.currentLaserPosition));
+            // Only send if position actually changed
+            if (Math.abs(newPosition - this.currentLaserPosition) > 0.5) {
+                this.currentLaserPosition = newPosition;
+                const roundedPosition = Math.round(this.currentLaserPosition);
+                
+                // Send laser event
+                this.server.sendLaserEvent(roundedPosition);
+                
+                // Debug logging (can be removed later)
+                if (window.LaserPositionMapper) {
+                    const viewInfo = window.LaserPositionMapper.getViewForLaserPosition(roundedPosition);
+                    console.log(`[DUMMY-HW] Scroll: position ${roundedPosition} -> ${viewInfo.path} (${viewInfo.reason})`);
+                }
+            }
             
         } catch (error) {
             console.error('[DUMMY-HW] Error in wheel handler:', error);

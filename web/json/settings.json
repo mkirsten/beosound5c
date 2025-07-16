@@ -2,80 +2,80 @@
   {
     "id": "display",
     "name": "Display",
-    "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='displayGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%234facfe'/%3E%3Cstop offset='100%25' style='stop-color:%2300f2fe'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23displayGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='24' font-family='Arial'%3E🖥️%3C/text%3E%3C/svg%3E",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='80' font-family='Arial'%3E🖥️%3C/text%3E%3C/svg%3E",
     "settings": [
       {
         "id": "brightness_high",
         "name": "Brightness High",
-        "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='brightGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23fff9c4'/%3E%3Cstop offset='100%25' style='stop-color:%23f9ca24'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23brightGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='%23333' font-size='20' font-family='Arial'%3E☀️%3C/text%3E%3C/svg%3E"
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E☀️%3C/text%3E%3C/svg%3E"
       },
       {
         "id": "brightness_medium",
         "name": "Brightness Medium",
-        "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='medGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23ffeaa7'/%3E%3Cstop offset='100%25' style='stop-color:%23fab1a0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23medGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='%23333' font-size='20' font-family='Arial'%3E🌤️%3C/text%3E%3C/svg%3E"
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E🌤️%3C/text%3E%3C/svg%3E"
       },
       {
         "id": "brightness_low",
         "name": "Brightness Low",
-        "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='lowGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%234c669f'/%3E%3Cstop offset='100%25' style='stop-color:%233b5998'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23lowGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='20' font-family='Arial'%3E🌙%3C/text%3E%3C/svg%3E"
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E🌙%3C/text%3E%3C/svg%3E"
       }
     ]
   },
   {
     "id": "audio",
     "name": "Audio",
-    "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='audioGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23667eea'/%3E%3Cstop offset='100%25' style='stop-color:%23764ba2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23audioGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='24' font-family='Arial'%3E🔊%3C/text%3E%3C/svg%3E",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='80' font-family='Arial'%3E🔊%3C/text%3E%3C/svg%3E",
     "settings": [
       {
         "id": "volume_up",
         "name": "Volume Up",
-        "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='volUpGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%2300b894'/%3E%3Cstop offset='100%25' style='stop-color:%2355a3ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23volUpGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='20' font-family='Arial'%3E🔊%3C/text%3E%3C/svg%3E"
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E🔊%3C/text%3E%3C/svg%3E"
       },
       {
         "id": "volume_down",
         "name": "Volume Down",
-        "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='volDownGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23fd79a8'/%3E%3Cstop offset='100%25' style='stop-color:%23fdcb6e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23volDownGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='20' font-family='Arial'%3E🔉%3C/text%3E%3C/svg%3E"
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E🔉%3C/text%3E%3C/svg%3E"
       },
       {
         "id": "mute",
         "name": "Mute",
-        "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='muteGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23636e72'/%3E%3Cstop offset='100%25' style='stop-color:%232d3436'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23muteGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='20' font-family='Arial'%3E🔇%3C/text%3E%3C/svg%3E"
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E🔇%3C/text%3E%3C/svg%3E"
       }
     ]
   },
   {
     "id": "network",
     "name": "Network",
-    "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='networkGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%2300cec9'/%3E%3Cstop offset='100%25' style='stop-color:%2355a3ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23networkGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='24' font-family='Arial'%3E📶%3C/text%3E%3C/svg%3E",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='80' font-family='Arial'%3E📶%3C/text%3E%3C/svg%3E",
     "settings": null
   },
   {
     "id": "system",
     "name": "System",
-    "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='systemGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23a29bfe'/%3E%3Cstop offset='100%25' style='stop-color:%236c5ce7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23systemGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='24' font-family='Arial'%3E⚙️%3C/text%3E%3C/svg%3E",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='80' font-family='Arial'%3E⚙️%3C/text%3E%3C/svg%3E",
     "settings": [
       {
         "id": "restart",
         "name": "Restart",
-        "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='restartGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23fd79a8'/%3E%3Cstop offset='100%25' style='stop-color:%23fdcb6e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23restartGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='20' font-family='Arial'%3E🔄%3C/text%3E%3C/svg%3E"
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E🔄%3C/text%3E%3C/svg%3E"
       },
       {
         "id": "shutdown",
         "name": "Shutdown",
-        "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='shutdownGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23e17055'/%3E%3Cstop offset='100%25' style='stop-color:%23d63031'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23shutdownGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='20' font-family='Arial'%3E⏻%3C/text%3E%3C/svg%3E"
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E⏻%3C/text%3E%3C/svg%3E"
       }
     ]
   },
   {
     "id": "about",
     "name": "About",
-    "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='aboutGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%2374b9ff'/%3E%3Cstop offset='100%25' style='stop-color:%230984e3'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23aboutGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='24' font-family='Arial'%3Eℹ️%3C/text%3E%3C/svg%3E",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='80' font-family='Arial'%3Eℹ️%3C/text%3E%3C/svg%3E",
     "settings": null
   },
   {
     "id": "backup",
     "name": "Backup",
-    "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='backupGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%2300b894'/%3E%3Cstop offset='100%25' style='stop-color:%2300a085'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23backupGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='24' font-family='Arial'%3E💾%3C/text%3E%3C/svg%3E",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='80' font-family='Arial'%3E💾%3C/text%3E%3C/svg%3E",
     "settings": null
   }
 ] 
