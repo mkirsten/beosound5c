@@ -89,6 +89,41 @@ Web files → HTTP server (8000) → ui.sh → Chromium kiosk
 - **Display**: Configured for 1024×768 @ 60Hz HDMI output
 - **Input**: Supports both physical BS5 hardware and keyboard/mouse emulation
 
+### **CRITICAL: Separate Hardware Input Systems**
+The BeoSound 5c has **FOUR DISTINCT** hardware input systems that must be kept separate:
+
+1. **Laser Pointer** (`laser` events):
+   - Physical laser beam pointing at screen positions
+   - Maps to positions 3-123 on the circular arc
+   - Controls view navigation and menu selection
+   - Emulated by: Mouse wheel/trackpad scrolling
+   - WebSocket event: `{type: 'laser', data: {position: 93}}`
+
+2. **Navigation Wheel** (`nav` events):
+   - Physical rotary wheel separate from laser pointer
+   - Used for scrolling within views (softarc navigation in iframes)
+   - Controls `topWheelPosition` (-1, 0, 1)
+   - Forwarded to iframe pages (music, settings, scenes) for internal navigation
+   - Does NOT affect laser position or main menu navigation
+   - Emulated by: Arrow Up/Down keys
+   - WebSocket event: `{type: 'nav', data: {direction: 'clock', speed: 20}}`
+
+3. **Volume Wheel** (`volume` events):
+   - Physical volume control wheel
+   - Separate from both laser pointer and navigation wheel
+   - Controls volume level adjustments
+   - Emulated by: PageUp/PageDown, +/- keys
+   - WebSocket event: `{type: 'volume', data: {direction: 'counter', speed: 15}}`
+
+4. **Button System** (`button` events):
+   - Physical hardware buttons separate from all wheels
+   - Three distinct buttons: LEFT, RIGHT, GO
+   - Context-aware routing (webhooks vs iframe forwarding)
+   - Emulated by: Arrow Left/Right keys, Enter, Space bar
+   - WebSocket event: `{type: 'button', data: {button: 'go'}}`
+
+**DO NOT CONFUSE** these systems - they serve completely different purposes and must remain separate!
+
 ### WebSocket Communication
 - **Port 8765**: Hardware input events (navigation, buttons, volume)
 - **Port 8766**: Media updates (track info, artwork, playback state)
