@@ -1,6 +1,5 @@
 class UIStore {
     constructor() {
-        this.volume = 50;
         this.wheelPointerAngle = 180;
         this.topWheelPosition = 0;
         this.isNowPlayingOverlayActive = false;
@@ -53,9 +52,8 @@ class UIStore {
         this.radius = 1000;
         this.angleStep = 5;
         
-        // Menu animation state
-        this.menuAnimationState = 'visible'; // 'visible', 'sliding-out', 'hidden', 'sliding-in'
-        this.menuAnimationTimeout = null;
+        // Menu visibility state (simplified)
+        this.menuVisible = true;
         
         // Initialize views first
         this.views = {
@@ -124,20 +122,6 @@ class UIStore {
                         </div>
                     </div>`
             },
-            'menu/nowshowing': {
-                title: 'NOW SHOWING',
-                content: `
-                    <div id="status-page" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; text-align: center; background-color: rgba(0,0,0,0.4);">
-                        <div id="apple-tv-artwork-container" style="width: 60%; aspect-ratio: 1; margin: 20px; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
-                            <img id="apple-tv-artwork" src="" alt="Apple TV Media" style="width: 100%; height: 100%; object-fit: contain; transition: opacity 0.6s ease;">
-                        </div>
-                        <div id="apple-tv-media-info" style="width: 80%; padding: 10px;">
-                            <div id="apple-tv-media-title" style="font-size: 24px; font-weight: bold; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
-                            <div id="apple-tv-media-details" style="font-size: 18px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
-                            <div id="apple-tv-state">Unknown</span></div>
-                        </div>
-                    </div>`
-            }
         };
 
         // Set initial route
@@ -436,20 +420,6 @@ class UIStore {
         this.updatePointer();
     }
 
-    updateVolumeArc() {
-        // Volume arc removed - this function is now a no-op
-        const volumeArc = document.getElementById('volumeArc');
-        if (!volumeArc) {
-            // Element doesn't exist, just return without error
-            return;
-        }
-        
-        // If the element exists, update it (for backward compatibility)
-        const startAngle = 95;
-        const endAngle = 265;
-        const volumeAngle = ((this.volume - 0) * (endAngle - startAngle)) / (100 - 0) + startAngle;
-        volumeArc.setAttribute('d', arcs.drawArc(arcs.cx, arcs.cy, 270, startAngle, volumeAngle));
-    }
 
     updatePointer() {
         const pointerDot = document.getElementById('pointerDot');
@@ -501,7 +471,7 @@ class UIStore {
                 // Always update pointer angle and check selection (isSelectedItem has its own overlay logic)
                 console.log(`[HOVER DEBUG] Mouse entered item ${index} (${item.title}) - setting angle to ${itemAngle}`);
                 this.wheelPointerAngle = itemAngle;
-                this.isSelectedItem(index);
+                // Legacy method removed - using laser position system
                 this.handleWheelChange();
             });
 
@@ -519,26 +489,6 @@ class UIStore {
         return 180 - totalSpan / 2;
     }
 
-    isSelectedItem(index) {
-        const itemAngle = this.getStartItemAngle() + index * this.angleStep;
-        const isSelected = Math.abs(this.wheelPointerAngle - itemAngle) <= 2;
-        
-        // Debug logging
-        if (isSelected) {
-            console.log(`[MENU DEBUG] Item ${index} (${this.menuItems[index].title}) - angle: ${itemAngle}, current: ${this.wheelPointerAngle.toFixed(1)}, selectedMenuItem: ${this.selectedMenuItem}`);
-        }
-        
-        // Trigger navigation if selected and not already selected
-        if (isSelected && this.selectedMenuItem !== index) {
-            console.log(`[MENU DEBUG] Navigating to ${this.menuItems[index].title} (${this.menuItems[index].path})`);
-            this.selectedMenuItem = index;
-            this.navigateToView(this.menuItems[index].path);
-            
-            // Send click command to server
-            this.sendClickCommand();
-        }
-        return isSelected;
-    }
     
     isSelectedItemForLaserPosition(index) {
         // Use laser position mapper to determine if this menu item should be highlighted
@@ -626,16 +576,14 @@ class UIStore {
                     if (this.currentRoute === 'menu/playing') {
                         // Webhook handled by dummy hardware system
                     } else {
-                        this.volume = Math.max(0, this.volume - 5);
-                        this.updateVolumeArc();
+                        // Volume control removed
                     }
                     break;
                 case "ArrowRight":
                     if (this.currentRoute === 'menu/playing') {
                         // Webhook handled by dummy hardware system
                     } else {
-                        this.volume = Math.min(100, this.volume + 5);
-                        this.updateVolumeArc();
+                        // Volume control removed
                     }
                     break;
             }
@@ -672,7 +620,7 @@ class UIStore {
             const index = Array.from(clickedItem.parentElement.children).indexOf(clickedItem);
             const itemAngle = this.getStartItemAngle() + index * this.angleStep;
             this.wheelPointerAngle = itemAngle;
-            this.isSelectedItem(index);
+            // Legacy method removed - using laser position system
             this.handleWheelChange();
             
             // Send click command to server
@@ -690,13 +638,21 @@ class UIStore {
             console.log(`[DEBUG] Fast scroll detected: ${oldAngle.toFixed(1)} -> ${this.wheelPointerAngle.toFixed(1)}`);
         }
         
-        // Use laser position mapper if laser position is available
-        if (this.laserPosition && window.LaserPositionMapper) {
-            this.handleWheelChangeWithMapper();
-        } else {
-            // Fallback to original angle-based logic
-            this.handleWheelChangeOriginal();
+        // Navigation wheel should NOT affect laser position - it's for softarc navigation within views
+        // topWheelPosition is handled by iframe forwarding in cursor-handler.js
+        if (this.topWheelPosition !== 0) {
+            console.log(`[DEBUG] Navigation wheel: ${this.topWheelPosition > 0 ? 'clockwise' : 'counterclockwise'} (topWheelPosition: ${this.topWheelPosition})`);
+            // Navigation wheel events are forwarded to iframe pages by cursor-handler.js
+            // They should NOT modify the laser position - that's the laser pointer's job
         }
+        
+        // Laser position system is now the only supported method
+        if (!this.laserPosition || !window.LaserPositionMapper) {
+            console.error('[UI] Laser position system required but not available');
+            return;
+        }
+        
+        this.handleWheelChangeWithMapper();
 
         this.updatePointer();
         this.renderMenuItems();
@@ -720,16 +676,13 @@ class UIStore {
         // Handle menu visibility based on whether we're in an overlay
         if (viewInfo.isOverlay) {
             // Should hide menu
-            if (this.menuAnimationState === 'visible' || this.menuAnimationState === 'sliding-in') {
-                this.startMenuSlideOut();
+            if (this.menuVisible) {
+                this.setMenuVisible(false);
             }
         } else {
             // Should show menu
-            if (this.menuAnimationState === 'hidden' || this.menuAnimationState === 'sliding-out') {
-                this.startMenuSlideIn();
-            } else if (this.menuAnimationState === 'visible') {
-                // Make sure menu is actually visible (reset any stuck states)
-                this.ensureMenuVisible();
+            if (!this.menuVisible) {
+                this.setMenuVisible(true);
             }
         }
         
@@ -770,112 +723,26 @@ class UIStore {
         }
     }
     
-    handleWheelChangeOriginal() {
-        // Original logic for fallback when laser position mapper not available
-        // Define transition zones for menu sliding
-        const bottomOverlayStart = 200;  // Moved down from 203 (210 is max)
-        const bottomTransitionStart = 192; // Moved down from 195
-        const topOverlayStart = 160;     // Moved up from 155 (150 is min)
-        const topTransitionStart = 168;  // Moved up from 163
-        
-        // Determine if we should be in overlay zone
-        const shouldBeInOverlayZone = this.wheelPointerAngle > bottomTransitionStart || this.wheelPointerAngle < topTransitionStart;
-        const shouldBeInFullOverlay = this.wheelPointerAngle > bottomOverlayStart || this.wheelPointerAngle < topOverlayStart;
-        
-        // Handle time-based menu sliding animations with better state management
-        if (shouldBeInOverlayZone) {
-            // Should hide menu
-            if (this.menuAnimationState === 'visible' || this.menuAnimationState === 'sliding-in') {
-                this.startMenuSlideOut();
-            }
-        } else {
-            // Should show menu
-            if (this.menuAnimationState === 'hidden' || this.menuAnimationState === 'sliding-out') {
-                this.startMenuSlideIn();
-            } else if (this.menuAnimationState === 'visible') {
-                // Make sure menu is actually visible (reset any stuck states)
-                this.ensureMenuVisible();
-            }
-        }
-        
-        // Handle overlay activation/deactivation
-        if (shouldBeInFullOverlay) {
-            if (this.wheelPointerAngle > bottomOverlayStart && !this.isNowPlayingOverlayActive) {
-                // Bottom overlay - now playing
-                console.log(`[DEBUG] Activating bottom overlay (now playing) at angle ${this.wheelPointerAngle.toFixed(1)}`);
-                this.isNowPlayingOverlayActive = true;
-                this.navigateToView('menu/playing');
-                // Media info will be pushed automatically by media server
-            } else if (this.wheelPointerAngle < topOverlayStart && !this.isNowPlayingOverlayActive) {
-                // Top overlay - now showing
-                console.log(`[DEBUG] Activating top overlay (now showing) at angle ${this.wheelPointerAngle.toFixed(1)}`);
-                this.isNowPlayingOverlayActive = true;
-                this.navigateToView('menu/showing');
-                this.fetchAppleTVMediaInfo();
-            }
-        } else if (this.isNowPlayingOverlayActive && !shouldBeInFullOverlay) {
-            // Exit overlay - always return to playing view (the expected behavior)
-            console.log(`[DEBUG] Exiting overlay at angle ${this.wheelPointerAngle.toFixed(1)}`);
-            this.isNowPlayingOverlayActive = false;
-            // Always go to playing view when exiting overlay
-            this.selectedMenuItem = 5; // Index of PLAYING menu item
-            console.log(`[DEBUG] Navigating to: menu/playing`);
-            this.navigateToView('menu/playing');
-        }
-    }
 
-    // Hide menu immediately (no animation)
-    startMenuSlideOut() {
-        if (this.menuAnimationState === 'hidden') return;
+    // Simplified menu visibility control
+    setMenuVisible(visible) {
+        if (this.menuVisible === visible) return; // No change needed
         
-        this.menuAnimationState = 'hidden';
-        
-        // Clear any existing timeout
-        if (this.menuAnimationTimeout) {
-            clearTimeout(this.menuAnimationTimeout);
-        }
+        this.menuVisible = visible;
         
         // Get menu elements
         const menuElements = this.getMenuElements();
         if (menuElements.length === 0) {
-            console.warn('No menu elements found for hiding');
+            console.warn('No menu elements found for visibility control');
             return;
         }
         
-        // Simply hide the menu without animation
+        // Update visibility immediately
         menuElements.forEach(element => {
             element.style.transition = 'none';
-            element.style.display = 'none';
-        });
-        
-        // Ensure content stays visible
-        this.ensureContentVisible();
-    }
-    
-    // Show menu immediately (no animation)
-    startMenuSlideIn() {
-        if (this.menuAnimationState === 'visible') return;
-        
-        this.menuAnimationState = 'visible';
-        
-        // Clear any existing timeout
-        if (this.menuAnimationTimeout) {
-            clearTimeout(this.menuAnimationTimeout);
-        }
-        
-        // Get menu elements
-        const menuElements = this.getMenuElements();
-        if (menuElements.length === 0) {
-            console.warn('No menu elements found for showing');
-            return;
-        }
-        
-        // Simply show the menu without animation
-        menuElements.forEach(element => {
-            element.style.transition = 'none';
-            element.style.display = 'block';
+            element.style.display = visible ? 'block' : 'none';
+            element.style.opacity = visible ? '1' : '0';
             element.style.transform = 'translateX(0px)';
-            element.style.opacity = '1';
         });
         
         // Ensure content stays visible
@@ -907,36 +774,7 @@ class UIStore {
         }
     }
     
-    // Ensure menu is visible and reset any stuck states
-    ensureMenuVisible() {
-        const menuElements = this.getMenuElements();
-        
-        menuElements.forEach(element => {
-            element.style.transition = 'none'; // Remove transitions for immediate effect
-            element.style.transform = 'translateX(0px)';
-            element.style.opacity = '1';
-            element.style.visibility = 'visible';
-        });
-        
-        // Force a reflow
-        if (menuElements.length > 0) {
-            menuElements[0].offsetHeight;
-        }
-        
-        // Reset state
-        this.menuAnimationState = 'visible';
-        
-        // Clear any pending timeouts
-        if (this.menuAnimationTimeout) {
-            clearTimeout(this.menuAnimationTimeout);
-            this.menuAnimationTimeout = null;
-        }
-    }
     
-    // Cubic easing function for smooth animations
-    easeInOutCubic(t) {
-        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-    }
 
     navigateToView(path) {
         
