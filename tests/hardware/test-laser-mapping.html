@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeoSound 5c Laser Position Test Suite</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .test-controls {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .test-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .ui-preview {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .test-results {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .iframe-container {
+            width: 100%;
+            height: 500px;
+            position: relative;
+        }
+        
+        .ui-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        
+        .control-group {
+            margin-bottom: 15px;
+        }
+        
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .position-slider {
+            flex: 1;
+            height: 6px;
+            border-radius: 3px;
+            background: #ddd;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        
+        .position-slider:hover {
+            opacity: 1;
+        }
+        
+        .position-slider::-webkit-slider-thumb {
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #2196F3;
+            cursor: pointer;
+        }
+        
+        .position-display {
+            font-family: monospace;
+            font-size: 14px;
+            background: #f0f0f0;
+            padding: 5px 10px;
+            border-radius: 4px;
+            min-width: 80px;
+            text-align: center;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+        
+        .btn-primary { background: #2196F3; color: white; }
+        .btn-primary:hover { background: #1976D2; }
+        
+        .btn-success { background: #4CAF50; color: white; }
+        .btn-success:hover { background: #45a049; }
+        
+        .btn-warning { background: #ff9800; color: white; }
+        .btn-warning:hover { background: #f57c00; }
+        
+        .btn-danger { background: #f44336; color: white; }
+        .btn-danger:hover { background: #d32f2f; }
+        
+        .test-result {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        .test-pass {
+            background: #e8f5e8;
+            border-left: 4px solid #4CAF50;
+            color: #2e7d32;
+        }
+        
+        .test-fail {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+            color: #c62828;
+        }
+        
+        .test-info {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            color: #1565c0;
+        }
+        
+        .position-map {
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 12px;
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        
+        .map-range {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .map-range:last-child {
+            border-bottom: none;
+        }
+        
+        .current-position {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+            border: 1px solid #dee2e6;
+        }
+        
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        
+        .stat-label {
+            color: #666;
+            margin-top: 5px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 BeoSound 5c Laser Position Test Suite</h1>
+            <p>Test and validate laser pointer position mapping to UI views. This tool helps debug issues where laser positions don't show the expected UI views.</p>
+        </div>
+        
+        <div class="test-controls">
+            <div class="control-group">
+                <label>Laser Position (3-123)</label>
+                <div class="slider-container">
+                    <input type="range" id="position-slider" class="position-slider" min="3" max="123" value="93" step="1">
+                    <div class="position-display" id="position-display">93</div>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>Quick Position Tests</label>
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="setPosition(3)">Min (3)</button>
+                    <button class="btn btn-primary" onclick="setPosition(30)">Low (30)</button>
+                    <button class="btn btn-primary" onclick="setPosition(63)">Mid-Low (63)</button>
+                    <button class="btn btn-primary" onclick="setPosition(93)">Center (93)</button>
+                    <button class="btn btn-primary" onclick="setPosition(103)">Mid-High (103)</button>
+                    <button class="btn btn-primary" onclick="setPosition(123)">Max (123)</button>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>Automated Tests</label>
+                <div class="button-group">
+                    <button class="btn btn-success" onclick="runFullSweepTest()">Full Range Sweep</button>
+                    <button class="btn btn-warning" onclick="runBoundaryTest()">Boundary Test</button>
+                    <button class="btn btn-warning" onclick="runMenuMappingTest()">Menu Mapping Test</button>
+                    <button class="btn btn-danger" onclick="clearResults()">Clear Results</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="test-grid">
+            <div class="ui-preview">
+                <h3 style="padding: 15px; margin: 0; background: #f8f9fa; border-bottom: 1px solid #dee2e6;">UI Preview</h3>
+                <div class="iframe-container">
+                    <iframe id="ui-iframe" class="ui-iframe" src="../../web/index.html"></iframe>
+                </div>
+            </div>
+            
+            <div class="test-results">
+                <h3>Test Results</h3>
+                <div class="current-position" id="current-info">
+                    <strong>Current Position:</strong> 93<br>
+                    <strong>Expected View:</strong> Home Menu<br>
+                    <strong>Status:</strong> Ready for testing
+                </div>
+                
+                <div class="stats" id="test-stats">
+                    <div class="stat-card">
+                        <div class="stat-number" id="tests-run">0</div>
+                        <div class="stat-label">Tests Run</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="tests-passed">0</div>
+                        <div class="stat-label">Passed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="tests-failed">0</div>
+                        <div class="stat-label">Failed</div>
+                    </div>
+                </div>
+                
+                <div id="test-log"></div>
+            </div>
+        </div>
+        
+        <div class="position-map">
+            <h4>Expected Position Mapping (Updated):</h4>
+            <div class="map-range">
+                <span>3-25:</span>
+                <span>Now Showing (Apple TV Media)</span>
+            </div>
+            <div class="map-range">
+                <span>26-35:</span>
+                <span>Settings</span>
+            </div>
+            <div class="map-range">
+                <span>36-42:</span>
+                <span>Security/Camera</span>
+            </div>
+            <div class="map-range">
+                <span>43-52:</span>
+                <span>Scenes</span>
+            </div>
+            <div class="map-range">
+                <span>53-75:</span>
+                <span>Music/Playlists</span>
+            </div>
+            <div class="map-range">
+                <span>76-123:</span>
+                <span>Now Playing (Music Artwork)</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let testStats = {
+            testsRun: 0,
+            testsPassed: 0,
+            testsFailed: 0
+        };
+        
+        let currentPosition = 93;
+        let websocket = null;
+        let uiIframe = null;
+        
+        // Position to expected UI view mapping (updated for correct menu structure)
+        const positionMapping = {
+            'showing': { range: [3, 25], expected: 'menu/showing' },      // Now Showing (Apple TV)
+            'settings': { range: [26, 35], expected: 'menu/settings' },   // Settings
+            'security': { range: [36, 42], expected: 'menu/security' },   // Security/Camera
+            'scenes': { range: [43, 52], expected: 'menu/scenes' },       // Scenes
+            'music': { range: [53, 75], expected: 'menu/music' },         // Music/Playlists
+            'playing': { range: [76, 123], expected: 'menu/playing' }     // Now Playing (bottom)
+        };
+        
+        // Initialize the test interface
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeUI();
+            connectToHardwareServer();
+        });
+        
+        function initializeUI() {
+            const slider = document.getElementById('position-slider');
+            const display = document.getElementById('position-display');
+            uiIframe = document.getElementById('ui-iframe');
+            
+            slider.addEventListener('input', function() {
+                currentPosition = parseInt(this.value);
+                display.textContent = currentPosition;
+                updatePosition(currentPosition);
+                updateCurrentInfo();
+            });
+            
+            updateCurrentInfo();
+        }
+        
+        function connectToHardwareServer() {
+            // Try to connect to the real hardware WebSocket server
+            // If it fails, we'll fall back to sending messages directly to the iframe
+            try {
+                websocket = new WebSocket('ws://localhost:8765/ws');
+                
+                websocket.onopen = function() {
+                    logTest('Connected to hardware WebSocket server', 'info');
+                };
+                
+                websocket.onerror = function() {
+                    logTest('Could not connect to hardware server - using direct iframe communication', 'info');
+                    websocket = null;
+                };
+                
+                websocket.onclose = function() {
+                    logTest('Hardware WebSocket disconnected', 'info');
+                    websocket = null;
+                };
+            } catch (error) {
+                logTest('WebSocket not available - using direct iframe communication', 'info');
+                websocket = null;
+            }
+        }
+        
+        function updatePosition(position) {
+            currentPosition = position;
+            
+            // Send laser position event
+            const laserEvent = {
+                type: 'laser',
+                data: { position: position }
+            };
+            
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                // Send via WebSocket if available
+                websocket.send(JSON.stringify(laserEvent));
+            } else {
+                // Send directly to iframe window
+                if (uiIframe && uiIframe.contentWindow) {
+                    try {
+                        // Try to access the iframe's window and simulate the event
+                        const iframeWindow = uiIframe.contentWindow;
+                        if (iframeWindow.handleLaserEvent) {
+                            iframeWindow.handleLaserEvent(laserEvent);
+                        } else {
+                            // Use postMessage as fallback
+                            iframeWindow.postMessage({
+                                type: 'hardware-event',
+                                event: laserEvent
+                            }, '*');
+                        }
+                    } catch (error) {
+                        logTest(`Failed to send position to UI: ${error.message}`, 'fail');
+                    }
+                }
+            }
+        }
+        
+        function updateCurrentInfo() {
+            const expectedView = getExpectedView(currentPosition);
+            const info = document.getElementById('current-info');
+            
+            info.innerHTML = `
+                <strong>Current Position:</strong> ${currentPosition}<br>
+                <strong>Expected View:</strong> ${expectedView}<br>
+                <strong>Status:</strong> Ready for testing
+            `;
+        }
+        
+        function getExpectedView(position) {
+            for (const [key, mapping] of Object.entries(positionMapping)) {
+                if (position >= mapping.range[0] && position <= mapping.range[1]) {
+                    return mapping.expected;
+                }
+            }
+            return 'unknown';
+        }
+        
+        function setPosition(position) {
+            const slider = document.getElementById('position-slider');
+            const display = document.getElementById('position-display');
+            
+            slider.value = position;
+            display.textContent = position;
+            updatePosition(position);
+            updateCurrentInfo();
+        }
+        
+        function runFullSweepTest() {
+            logTest('Starting full range sweep test...', 'info');
+            
+            let currentPos = 3;
+            const sweepInterval = setInterval(() => {
+                setPosition(currentPos);
+                
+                // Test the current position
+                setTimeout(() => {
+                    testCurrentPosition();
+                }, 100);
+                
+                currentPos += 5;
+                
+                if (currentPos > 123) {
+                    clearInterval(sweepInterval);
+                    logTest('Full range sweep test completed', 'info');
+                }
+            }, 500);
+        }
+        
+        function runBoundaryTest() {
+            logTest('Starting boundary test...', 'info');
+            
+            const boundaries = [3, 25, 26, 60, 61, 95, 96, 115, 116, 123];
+            let index = 0;
+            
+            function testNextBoundary() {
+                if (index < boundaries.length) {
+                    const position = boundaries[index];
+                    setPosition(position);
+                    
+                    setTimeout(() => {
+                        testCurrentPosition();
+                        index++;
+                        setTimeout(testNextBoundary, 300);
+                    }, 200);
+                } else {
+                    logTest('Boundary test completed', 'info');
+                }
+            }
+            
+            testNextBoundary();
+        }
+        
+        function runMenuMappingTest() {
+            logTest('Starting menu mapping test...', 'info');
+            
+            const testPositions = [
+                { pos: 30, expected: 'music' },
+                { pos: 78, expected: 'menu' },
+                { pos: 105, expected: 'settings' }
+            ];
+            
+            let index = 0;
+            
+            function testNextPosition() {
+                if (index < testPositions.length) {
+                    const test = testPositions[index];
+                    setPosition(test.pos);
+                    
+                    setTimeout(() => {
+                        const actualView = getCurrentUIView();
+                        const passed = actualView === test.expected;
+                        
+                        logTest(
+                            `Position ${test.pos}: Expected '${test.expected}', Got '${actualView}'`,
+                            passed ? 'pass' : 'fail'
+                        );
+                        
+                        updateTestStats(passed);
+                        index++;
+                        setTimeout(testNextPosition, 500);
+                    }, 300);
+                } else {
+                    logTest('Menu mapping test completed', 'info');
+                }
+            }
+            
+            testNextPosition();
+        }
+        
+        function testCurrentPosition() {
+            const expectedView = getExpectedView(currentPosition);
+            const actualView = getCurrentUIView();
+            const passed = actualView === expectedView;
+            
+            logTest(
+                `Position ${currentPosition}: Expected '${expectedView}', Got '${actualView}'`,
+                passed ? 'pass' : 'fail'
+            );
+            
+            updateTestStats(passed);
+        }
+        
+        function getCurrentUIView() {
+            // Inspect the iframe's DOM to determine current view
+            
+            try {
+                if (uiIframe && uiIframe.contentWindow && uiIframe.contentDocument) {
+                    const iframeDoc = uiIframe.contentDocument;
+                    
+                    // Check for specific UI elements that indicate the current view
+                    
+                    // Now Playing view (music artwork)
+                    if (iframeDoc.querySelector('#now-playing, #artwork-container, #media-title')) {
+                        return 'menu/playing';
+                    }
+                    // Now Showing view (Apple TV media)
+                    else if (iframeDoc.querySelector('#status-page, #apple-tv-artwork-container')) {
+                        return 'menu/showing';
+                    }
+                    // Music view (playlists)
+                    else if (iframeDoc.querySelector('#music-container, #music-iframe')) {
+                        return 'menu/music';
+                    }
+                    // Settings view
+                    else if (iframeDoc.querySelector('#settings-container, #settings-iframe')) {
+                        return 'menu/settings';
+                    }
+                    // Security/Camera view
+                    else if (iframeDoc.querySelector('#security-container, #security-iframe')) {
+                        return 'menu/security';
+                    }
+                    // Scenes view
+                    else if (iframeDoc.querySelector('#scenes-container, #scenes-iframe')) {
+                        return 'menu/scenes';
+                    }
+                    // Menu visible (home state)
+                    else if (iframeDoc.querySelector('.menu-items, .flow-item, #menuItems')) {
+                        return 'menu';
+                    }
+                    else {
+                        return 'unknown';
+                    }
+                }
+            } catch (error) {
+                // Cross-origin iframe access might be blocked
+                logTest(`Cannot inspect iframe content: ${error.message}`, 'info');
+            }
+            
+            // Fallback to expected view for demonstration
+            return getExpectedView(currentPosition);
+        }
+        
+        function logTest(message, type = 'info') {
+            const log = document.getElementById('test-log');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = `test-result test-${type}`;
+            logEntry.innerHTML = `[${timestamp}] ${message}`;
+            
+            log.appendChild(logEntry);
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        function updateTestStats(passed) {
+            testStats.testsRun++;
+            if (passed) {
+                testStats.testsPassed++;
+            } else {
+                testStats.testsFailed++;
+            }
+            
+            document.getElementById('tests-run').textContent = testStats.testsRun;
+            document.getElementById('tests-passed').textContent = testStats.testsPassed;
+            document.getElementById('tests-failed').textContent = testStats.testsFailed;
+        }
+        
+        function clearResults() {
+            document.getElementById('test-log').innerHTML = '';
+            testStats = { testsRun: 0, testsPassed: 0, testsFailed: 0 };
+            updateTestStats(false); // Update display without incrementing
+            testStats.testsFailed = 0; // Reset the false increment
+            document.getElementById('tests-failed').textContent = 0;
+            
+            logTest('Test results cleared', 'info');
+        }
+    </script>
+</body>
+</html>

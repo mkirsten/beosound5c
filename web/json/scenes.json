@@ -1,47 +1,74 @@
 [
   {
-    "id": "movie_night",
-    "name": "Movie Night",
-    "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='movieGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23667eea'/%3E%3Cstop offset='100%25' style='stop-color:%23764ba2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23movieGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='24' font-family='Arial'%3E🎬%3C/text%3E%3C/svg%3E",
+    "id": "dinner",
+    "name": "Dinner",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🍽️%3C/text%3E%3C/svg%3E",
     "scenes": null
   },
   {
-    "id": "morning_routine",
-    "name": "Morning Routine", 
-    "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='morningGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23f093fb'/%3E%3Cstop offset='100%25' style='stop-color:%23f5576c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23morningGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='24' font-family='Arial'%3E☀️%3C/text%3E%3C/svg%3E",
+    "id": "cozy",
+    "name": "Cozy",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🕯️%3C/text%3E%3C/svg%3E",
     "scenes": null
   },
   {
-    "id": "lights",
-    "name": "Lights",
-    "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='lightsGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23ffecd2'/%3E%3Cstop offset='100%25' style='stop-color:%23fcb69f'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23lightsGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='%23333' font-size='24' font-family='Arial'%3E💡%3C/text%3E%3C/svg%3E",
+    "id": "night",
+    "name": "Night",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E💤%3C/text%3E%3C/svg%3E",
+    "scenes": null
+  },
+  {
+    "id": "frame",
+    "name": "Frame",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🖼️%3C/text%3E%3C/svg%3E",
     "scenes": [
       {
-        "id": "lights_high",
-        "name": "High",
-        "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='highGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23fff9c4'/%3E%3Cstop offset='100%25' style='stop-color:%23f9ca24'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23highGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='%23333' font-size='20' font-family='Arial'%3E🔆%3C/text%3E%3C/svg%3E"
+        "id": "frame_artmode",
+        "name": "Art Mode",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🎨%3C/text%3E%3C/svg%3E"
       },
       {
-        "id": "lights_cozy", 
-        "name": "Cozy",
-        "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='cozyGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23ff9a9e'/%3E%3Cstop offset='100%25' style='stop-color:%23fecfef'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23cozyGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='%23333' font-size='20' font-family='Arial'%3E🕯️%3C/text%3E%3C/svg%3E"
+        "id": "frame_netflix",
+        "name": "Netflix",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Crect x='32' y='32' width='64' height='64' fill='%23E50914' rx='8'/%3E%3Ctext x='64' y='72' text-anchor='middle' fill='white' font-size='20' font-family='Arial, sans-serif' font-weight='bold'%3EN%3C/text%3E%3C/svg%3E"
       },
       {
-        "id": "lights_off",
-        "name": "Off", 
-        "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='offGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%234c669f'/%3E%3Cstop offset='100%25' style='stop-color:%233b5998'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23offGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='20' font-family='Arial'%3E🌙%3C/text%3E%3C/svg%3E"
+        "id": "frame_svtplay",
+        "name": "SVT Play",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Crect x='32' y='32' width='64' height='64' fill='%23FF6600' rx='8'/%3E%3Ctext x='64' y='72' text-anchor='middle' fill='white' font-size='18' font-family='Arial, sans-serif' font-weight='bold'%3ESVT%3C/text%3E%3C/svg%3E"
       },
       {
-        "id": "lights_spaceballs",
-        "name": "Spaceballs",
-        "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='spaceGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23654ea3'/%3E%3Cstop offset='100%25' style='stop-color:%23eaafc8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23spaceGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='18' font-family='Arial'%3E🌌%3C/text%3E%3C/svg%3E"
+        "id": "frame_spotify",
+        "name": "Spotify",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ccircle cx='64' cy='64' r='32' fill='%231DB954'/%3E%3Cpath d='M54 58 Q64 54 74 58 M54 64 Q64 60 74 64 M54 70 Q64 66 74 70' stroke='white' stroke-width='2' fill='none'/%3E%3C/svg%3E"
       }
     ]
   },
   {
-    "id": "bedtime",
-    "name": "Bedtime",
-    "image": "data:image/svg+xml,%3Csvg width='64' height='64' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='bedGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%235f72bd'/%3E%3Cstop offset='100%25' style='stop-color:%239b23ea'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23bedGrad)' rx='8'/%3E%3Ctext x='32' y='38' text-anchor='middle' fill='white' font-size='20' font-family='Arial'%3E😴%3C/text%3E%3C/svg%3E",
-    "scenes": null
+    "id": "lights",
+    "name": "Lights",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E💡%3C/text%3E%3C/svg%3E",
+    "scenes": [
+      {
+        "id": "lights_all_on",
+        "name": "All On",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🔆%3C/text%3E%3C/svg%3E"
+      },
+      {
+        "id": "lights_cozy",
+        "name": "Cozy",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🕯️%3C/text%3E%3C/svg%3E"
+      },
+      {
+        "id": "lights_spaceballs",
+        "name": "Spaceballs",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🌌%3C/text%3E%3C/svg%3E"
+      },
+      {
+        "id": "lights_all_off",
+        "name": "All Off",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🌙%3C/text%3E%3C/svg%3E"
+      }
+    ]
   }
 ] 

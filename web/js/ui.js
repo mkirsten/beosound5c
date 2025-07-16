@@ -59,10 +59,6 @@ class UIStore {
         
         // Initialize views first
         this.views = {
-            'menu': {
-                title: 'HOME',
-                content: ''
-            },
             'menu/showing': {
                 title: 'SHOWING',
                 content: `
@@ -509,8 +505,8 @@ class UIStore {
                 this.handleWheelChange();
             });
 
-            // Check if this item should be selected
-            if (this.isSelectedItem(index)) {
+            // Check if this item should be selected based on laser position
+            if (this.isSelectedItemForLaserPosition(index)) {
                 itemElement.classList.add('selectedItem');
             }
 
@@ -542,6 +538,41 @@ class UIStore {
             this.sendClickCommand();
         }
         return isSelected;
+    }
+    
+    isSelectedItemForLaserPosition(index) {
+        // Use laser position mapper to determine if this menu item should be highlighted
+        if (!this.laserPosition || !window.LaserPositionMapper) {
+            return false;
+        }
+        
+        const { getViewForLaserPosition } = window.LaserPositionMapper;
+        const viewInfo = getViewForLaserPosition(this.laserPosition);
+        
+        // Only highlight if we're in a menu view (not overlay) and this is the selected item
+        if (viewInfo.isOverlay) {
+            return false;
+        }
+        
+        // Check if this menu item matches the current view
+        const expectedPath = this.menuItems[index].path;
+        return viewInfo.path === expectedPath;
+    }
+    
+    updateMenuHighlighting() {
+        // Efficiently update menu item highlighting without recreating DOM elements
+        const menuContainer = document.getElementById('menuItems');
+        if (!menuContainer) return;
+        
+        const menuItems = menuContainer.querySelectorAll('.list-item');
+        
+        menuItems.forEach((itemElement, index) => {
+            if (this.isSelectedItemForLaserPosition(index)) {
+                itemElement.classList.add('selectedItem');
+            } else {
+                itemElement.classList.remove('selectedItem');
+            }
+        });
     }
 
 
@@ -650,13 +681,6 @@ class UIStore {
     }
 
     handleWheelChange() {
-        // Define transition zones for menu sliding
-        // Moved further from the limits to prevent fast scrolling issues
-        const bottomOverlayStart = 200;  // Moved down from 203 (210 is max)
-        const bottomTransitionStart = 192; // Moved down from 195
-        const topOverlayStart = 160;     // Moved up from 155 (150 is min)
-        const topTransitionStart = 168;  // Moved up from 163
-        
         // Ensure wheelPointerAngle is within valid bounds (150-210)
         const oldAngle = this.wheelPointerAngle;
         this.wheelPointerAngle = Math.max(150, Math.min(210, this.wheelPointerAngle));
@@ -666,12 +690,99 @@ class UIStore {
             console.log(`[DEBUG] Fast scroll detected: ${oldAngle.toFixed(1)} -> ${this.wheelPointerAngle.toFixed(1)}`);
         }
         
+        // Use laser position mapper if laser position is available
+        if (this.laserPosition && window.LaserPositionMapper) {
+            this.handleWheelChangeWithMapper();
+        } else {
+            // Fallback to original angle-based logic
+            this.handleWheelChangeOriginal();
+        }
+
+        this.updatePointer();
+        this.renderMenuItems();
+        this.topWheelPosition = 0;
+    }
+    
+    handleWheelChangeWithMapper() {
+        const { getViewForLaserPosition } = window.LaserPositionMapper;
+        
+        // Get view mapping from laser position
+        const viewInfo = getViewForLaserPosition(this.laserPosition);
+        
+        // Ensure we have valid view info
+        if (!viewInfo || !viewInfo.path) {
+            console.error(`[DEBUG] Invalid view info for position ${this.laserPosition}:`, viewInfo);
+            return;
+        }
+        
+        console.log(`[DEBUG] Laser position ${this.laserPosition} -> ${viewInfo.path} (${viewInfo.reason})`);
+        
+        // Handle menu visibility based on whether we're in an overlay
+        if (viewInfo.isOverlay) {
+            // Should hide menu
+            if (this.menuAnimationState === 'visible' || this.menuAnimationState === 'sliding-in') {
+                this.startMenuSlideOut();
+            }
+        } else {
+            // Should show menu
+            if (this.menuAnimationState === 'hidden' || this.menuAnimationState === 'sliding-out') {
+                this.startMenuSlideIn();
+            } else if (this.menuAnimationState === 'visible') {
+                // Make sure menu is actually visible (reset any stuck states)
+                this.ensureMenuVisible();
+            }
+        }
+        
+        // DETERMINISTIC NAVIGATION: Position always determines view
+        // Only navigate if the view actually changed (prevents flicker)
+        const viewChanged = this.currentRoute !== viewInfo.path;
+        
+        console.log(`[DEBUG] Position ${this.laserPosition} -> ${viewInfo.path} (${viewInfo.reason}) ${viewChanged ? '[NAVIGATE]' : '[SAME]'}`);
+        
+        if (viewChanged) {
+            this.navigateToView(viewInfo.path);
+        }
+        
+        // Update state AFTER navigation (not before) to track current position
+        if (viewInfo.isOverlay) {
+            this.isNowPlayingOverlayActive = true;
+            
+            // Fetch media info if needed (only when view changes)
+            if (viewChanged && viewInfo.path === 'menu/showing') {
+                this.fetchAppleTVMediaInfo();
+            }
+        } else {
+            // Not in overlay zone
+            this.isNowPlayingOverlayActive = false;
+            
+            // Update selected menu item state
+            if (viewInfo.menuItem) {
+                this.selectedMenuItem = viewInfo.menuItem.index;
+                
+                // Send click command only when exactly on menu item AND view changed
+                if (viewInfo.reason === 'menu_item_selected' && viewChanged) {
+                    this.sendClickCommand();
+                }
+            }
+            
+            // Update menu highlighting to reflect current laser position
+            this.updateMenuHighlighting();
+        }
+    }
+    
+    handleWheelChangeOriginal() {
+        // Original logic for fallback when laser position mapper not available
+        // Define transition zones for menu sliding
+        const bottomOverlayStart = 200;  // Moved down from 203 (210 is max)
+        const bottomTransitionStart = 192; // Moved down from 195
+        const topOverlayStart = 160;     // Moved up from 155 (150 is min)
+        const topTransitionStart = 168;  // Moved up from 163
+        
         // Determine if we should be in overlay zone
         const shouldBeInOverlayZone = this.wheelPointerAngle > bottomTransitionStart || this.wheelPointerAngle < topTransitionStart;
         const shouldBeInFullOverlay = this.wheelPointerAngle > bottomOverlayStart || this.wheelPointerAngle < topOverlayStart;
         
         // Handle time-based menu sliding animations with better state management
-        
         if (shouldBeInOverlayZone) {
             // Should hide menu
             if (this.menuAnimationState === 'visible' || this.menuAnimationState === 'sliding-in') {
@@ -711,10 +822,6 @@ class UIStore {
             console.log(`[DEBUG] Navigating to: menu/playing`);
             this.navigateToView('menu/playing');
         }
-
-        this.updatePointer();
-        this.renderMenuItems();
-        this.topWheelPosition = 0;
     }
 
     // Hide menu immediately (no animation)
@@ -868,8 +975,8 @@ class UIStore {
         const view = this.views[this.currentRoute];
         if (!view) {
             console.error('View not found for route:', this.currentRoute);
-            // Fallback to menu view if route not found
-            this.currentRoute = 'menu';
+            // Fallback to playing view if route not found
+            this.currentRoute = 'menu/playing';
             this.updateView();
             return;
         }

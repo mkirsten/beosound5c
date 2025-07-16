@@ -297,33 +297,34 @@ function processWebSocketEvent(message) {
 
 // Process a single laser event
 function processLaserEvent(data) {
-    // Calibration points as variables
-    const MIN_LASER_POS = 3;
-    const MID_LASER_POS = 72;
-    const MAX_LASER_POS = 123;
-    
-    const MIN_ANGLE = 150;
-    const MID_ANGLE = 180;
-    const MAX_ANGLE = 210;
-    
-    // Custom mapping based on calibration points
-    let angle;
     const pos = data.position;
+    let angle;
     
-    if (pos <= MIN_LASER_POS) {
-        // At or below minimum
-        angle = MIN_ANGLE;
-    } else if (pos < MID_LASER_POS) {
-        // Between min and mid, map to MIN_ANGLE-MID_ANGLE
-        const slope = (MID_ANGLE - MIN_ANGLE) / (MID_LASER_POS - MIN_LASER_POS);
-        angle = MIN_ANGLE + slope * (pos - MIN_LASER_POS);
-    } else if (pos <= MAX_LASER_POS) {
-        // Between mid and max, map to MID_ANGLE-MAX_ANGLE
-        const slope = (MAX_ANGLE - MID_ANGLE) / (MAX_LASER_POS - MID_LASER_POS);
-        angle = MID_ANGLE + slope * (pos - MID_LASER_POS);
+    // Use laser position mapper if available
+    if (window.LaserPositionMapper) {
+        const { laserPositionToAngle } = window.LaserPositionMapper;
+        angle = laserPositionToAngle(pos);
     } else {
-        // Above maximum
-        angle = MAX_ANGLE;
+        // Fallback to original calibration logic
+        const MIN_LASER_POS = 3;
+        const MID_LASER_POS = 72;
+        const MAX_LASER_POS = 123;
+        
+        const MIN_ANGLE = 150;
+        const MID_ANGLE = 180;
+        const MAX_ANGLE = 210;
+        
+        if (pos <= MIN_LASER_POS) {
+            angle = MIN_ANGLE;
+        } else if (pos < MID_LASER_POS) {
+            const slope = (MID_ANGLE - MIN_ANGLE) / (MID_LASER_POS - MIN_LASER_POS);
+            angle = MIN_ANGLE + slope * (pos - MIN_LASER_POS);
+        } else if (pos <= MAX_LASER_POS) {
+            const slope = (MAX_ANGLE - MID_ANGLE) / (MAX_LASER_POS - MID_LASER_POS);
+            angle = MID_ANGLE + slope * (pos - MID_LASER_POS);
+        } else {
+            angle = MAX_ANGLE;
+        }
     }
     
     // Store the last known angle
@@ -332,8 +333,8 @@ function processLaserEvent(data) {
     // First, update shadow pointer for immediate visual feedback
     updateShadowPointer(angle);
     
-    // Update via store
-    updateViaStore(angle);
+    // Update via store, including laser position
+    updateViaStore(angle, pos);
     
     // Clear the event and increment counter
     lastLaserEvent = null;
@@ -341,12 +342,17 @@ function processLaserEvent(data) {
 }
 
 // Update via the uiStore (default method)
-function updateViaStore(angle) {
+function updateViaStore(angle, laserPosition) {
     const uiStore = window.uiStore;
     if (!uiStore) return;
     
     // Direct update with no prediction or smoothing
     uiStore.wheelPointerAngle = angle;
+    
+    // Store laser position for new mapping system
+    if (laserPosition !== undefined) {
+        uiStore.laserPosition = laserPosition;
+    }
     
     // Try to bypass any transition effects by forcing immediate update
     if (config.disableTransitions) {
@@ -358,7 +364,7 @@ function updateViaStore(angle) {
     
     // Update laser position in debug overlay if available
     if (uiStore.setLaserPosition) {
-        uiStore.setLaserPosition(lastLaserEvent?.position || 0);
+        uiStore.setLaserPosition(laserPosition || lastLaserEvent?.position || 0);
     }
     
     uiStore.handleWheelChange();
