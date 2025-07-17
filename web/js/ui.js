@@ -576,14 +576,26 @@ class UIStore {
                     if (this.currentRoute === 'menu/playing') {
                         // Webhook handled by dummy hardware system
                     } else {
-                        // Volume control removed
+                        // Forward left button to active iframe for hierarchical navigation
+                        this.forwardButtonToActiveIframe('left');
+                        // Also forward keyboard event for iframe handling
+                        this.forwardKeyboardToActiveIframe(event);
                     }
                     break;
                 case "ArrowRight":
                     if (this.currentRoute === 'menu/playing') {
                         // Webhook handled by dummy hardware system
                     } else {
-                        // Volume control removed
+                        // Forward right button to active iframe for hierarchical navigation
+                        this.forwardButtonToActiveIframe('right');
+                        // Also forward keyboard event for iframe handling
+                        this.forwardKeyboardToActiveIframe(event);
+                    }
+                    break;
+                case "Enter":
+                    // Forward Enter key to active iframe for "go" functionality
+                    if (this.currentRoute !== 'menu/playing') {
+                        this.forwardKeyboardToActiveIframe(event);
                     }
                     break;
             }
@@ -973,6 +985,93 @@ class UIStore {
     // Set the current laser position
     setLaserPosition(position) {
         this.laserPosition = position;
+    }
+    
+    /**
+     * Forward button press to active iframe for hierarchical navigation
+     */
+    forwardButtonToActiveIframe(button) {
+        console.log(`🔍 DEBUG: forwardButtonToActiveIframe called with button: ${button}`);
+        console.log(`🔍 DEBUG: currentRoute: ${this.currentRoute}`);
+        
+        // Map current route to iframe IDs
+        const iframeIdMap = {
+            'menu/music': 'music-iframe',
+            'menu/scenes': 'scenes-iframe', 
+            'menu/settings': 'settings-iframe'
+        };
+        
+        const iframeId = iframeIdMap[this.currentRoute];
+        console.log(`🔍 DEBUG: mapped iframeId: ${iframeId}`);
+        
+        if (!iframeId) {
+            console.log(`❌ No iframe to forward button to for route: ${this.currentRoute}`);
+            return;
+        }
+        
+        const iframe = document.getElementById(iframeId);
+        console.log(`🔍 DEBUG: iframe element found:`, iframe);
+        
+        if (!iframe) {
+            console.log(`❌ Iframe not found: ${iframeId}`);
+            return;
+        }
+        
+        // Check if iframe is loaded
+        if (!iframe.contentWindow) {
+            console.log(`❌ Iframe contentWindow not available: ${iframeId}`);
+            return;
+        }
+        
+        // Send button press to iframe
+        const message = {
+            type: 'button',
+            button: button
+        };
+        
+        console.log(`✅ Forwarding ${button} button press to iframe: ${iframeId}`, message);
+        try {
+            iframe.contentWindow.postMessage(message, '*');
+            console.log(`✅ postMessage sent successfully`);
+        } catch (error) {
+            console.error(`❌ Error sending postMessage:`, error);
+        }
+    }
+    
+    /**
+     * Forward keyboard event to active iframe for enhanced navigation
+     */
+    forwardKeyboardToActiveIframe(event) {
+        // Map current route to iframe IDs
+        const iframeIdMap = {
+            'menu/music': 'music-iframe',
+            'menu/scenes': 'scenes-iframe', 
+            'menu/settings': 'settings-iframe'
+        };
+        
+        const iframeId = iframeIdMap[this.currentRoute];
+        if (!iframeId) {
+            return;
+        }
+        
+        const iframe = document.getElementById(iframeId);
+        if (!iframe) {
+            return;
+        }
+        
+        // Send keyboard event to iframe
+        const message = {
+            type: 'keyboard',
+            key: event.key,
+            code: event.code,
+            ctrlKey: event.ctrlKey,
+            shiftKey: event.shiftKey,
+            altKey: event.altKey,
+            metaKey: event.metaKey
+        };
+        
+        console.log(`Forwarding keyboard event (${event.key}) to iframe: ${iframeId}`);
+        iframe.contentWindow.postMessage(message, '*');
     }
 }
 
