@@ -102,8 +102,10 @@ class ArcList {
         }
         
         // Load data
+        console.log('🔍 [INIT] About to load data from:', this.config.dataSource);
         await this.loadData();
-        console.log('Loaded', this.items.length, 'items from', this.config.dataSource);
+        console.log('🔍 [INIT] Loaded', this.items.length, 'items from', this.config.dataSource);
+        console.log('🔍 [INIT] Items preview:', this.items.slice(0, 3).map(item => item.name));
         
         // Restore saved position and view mode
         this.restoreState();
@@ -275,19 +277,20 @@ class ArcList {
         
         // Listen for events from parent window (when in iframe)
         window.addEventListener('message', (event) => {
-            console.log(`📨 [IFRAME] Message received from parent:`, event.data);
+            console.log(`🔍 [IFRAME] DEBUG: Message received from parent:`, event.data);
+            console.log(`🔍 [IFRAME] DEBUG: Event origin:`, event.origin);
             
             if (event.data && event.data.type === 'button') {
-                console.log(`📨 [IFRAME] Button event from parent: ${event.data.button}`);
+                console.log(`✅ [IFRAME] Button event from parent: ${event.data.button}`);
                 this.handleButtonFromParent(event.data.button);
             } else if (event.data && event.data.type === 'nav') {
-                console.log(`📨 [IFRAME] Nav event from parent:`, event.data.data);
+                console.log(`✅ [IFRAME] Nav event from parent:`, event.data.data);
                 this.handleNavFromParent(event.data.data);
             } else if (event.data && event.data.type === 'keyboard') {
-                console.log(`📨 [IFRAME] Keyboard event from parent: ${event.data.key}`);
+                console.log(`✅ [IFRAME] Keyboard event from parent: ${event.data.key}`);
                 this.handleKeyboardFromParent(event.data);
             } else {
-                console.log(`📨 [IFRAME] Unknown message type:`, event.data);
+                console.log(`❌ [IFRAME] Unknown message type or malformed message:`, event.data);
             }
         });
     }
@@ -345,17 +348,21 @@ class ArcList {
      * Handle button events forwarded from parent window (when in iframe)
      */
     handleButtonFromParent(button) {
-        console.log('Processing button from parent:', button, 'current view mode:', this.viewMode);
+        console.log(`🔍 [IFRAME] DEBUG: Processing button from parent:`, button, 'current view mode:', this.viewMode);
+        console.log(`🔍 [IFRAME] DEBUG: config.viewMode:`, this.config.viewMode);
+        console.log(`🔍 [IFRAME] DEBUG: this.viewMode:`, this.viewMode);
         
         if (button === 'left') {
             // Always send webhook for left button press
-            console.log('Parent button: Left pressed - sending webhook');
+            console.log('✅ [IFRAME] Parent button: Left pressed - sending webhook');
             this.sendButtonWebhook('left');
             
             // Also handle hierarchical navigation if applicable
             if (this.config.viewMode === 'hierarchical' && this.viewMode === 'parent') {
-                console.log('Parent button: Also entering child view (hierarchical mode)');
+                console.log('✅ [IFRAME] Parent button: Also entering child view (hierarchical mode)');
                 this.enterChildView();
+            } else {
+                console.log(`❌ [IFRAME] Conditions not met for enterChildView - viewMode: ${this.viewMode}, config.viewMode: ${this.config.viewMode}`);
             }
         } else if (button === 'right') {
             // Always send webhook for right button press
@@ -431,6 +438,11 @@ class ArcList {
             this.targetIndex = Math.max(0, this.targetIndex - scrollStep);
             this.setupSnapTimer(); // Reset auto-snap timer
         }
+        
+        // If animation isn't running (test environment), update immediately
+        if (!this.animationFrame) {
+            this.currentIndex = this.targetIndex;
+        }
     }
     
     /**
@@ -460,6 +472,8 @@ class ArcList {
      * This runs continuously and smoothly moves items to their target positions
      */
     startAnimation() {
+        console.log('🔍 [ANIMATION] Starting animation loop with', this.items.length, 'items');
+        
         const animate = () => {
             // Smooth interpolation between current and target position
             const diff = this.targetIndex - this.currentIndex;
@@ -600,8 +614,11 @@ class ArcList {
      * This is called every animation frame to update positions and visibility
      */
     render() {
+        console.log('🔍 [RENDER] render() called, isAnimating:', this.isAnimating, 'viewMode:', this.viewMode);
+        
         // Don't render if we're in the middle of an animation
         if (this.isAnimating) {
+            console.log('🔍 [RENDER] Skipping render due to animation');
             return;
         }
         
@@ -613,9 +630,18 @@ class ArcList {
         }
         
         // Clear the container completely to prevent element reuse issues
-        this.container.innerHTML = '';
+        console.log('🔍 [RENDER] Clearing container, current children:', this.container.children.length);
+        // Don't use innerHTML = '' as it's too aggressive, remove children selectively
+        const children = Array.from(this.container.children);
+        children.forEach(child => {
+            // Remove all children except breadcrumbs (in case we're transitioning)
+            if (!child.classList.contains('breadcrumb')) {
+                child.remove();
+            }
+        });
         
         const visibleItems = this.getVisibleItems();
+        console.log('🔍 [RENDER] Got visibleItems:', visibleItems.length);
         
         // Create fresh DOM elements for each visible item
         visibleItems.forEach((item, index) => {
@@ -656,27 +682,30 @@ class ArcList {
             itemElement.appendChild(imgEl);
             
             // Add item to the main container
+            console.log('🔍 [RENDER] Adding item to container:', item.name);
             this.container.appendChild(itemElement);
         });
+        
+        console.log('🔍 [RENDER] Finished rendering, container children:', this.container.children.length);
     }
     
     /**
      * Render child items while preserving the animated parent item
      */
     renderChildItems() {
-        // Hide all parent items except the animated one
-        const parentItems = document.querySelectorAll('.arc-item:not([data-child-item="true"])');
-        parentItems.forEach(item => {
-            // Only hide if it's not the animated parent item
-            if (!item.dataset.animatedParent) {
-                // Hide non-animated parent items
-                item.style.display = 'none';
+        console.log('🔍 [RENDER-CHILD] Starting renderChildItems');
+        
+        // Find the breadcrumb element (animated parent) in our container
+        const breadcrumb = this.container.querySelector('.arc-item.breadcrumb');
+        console.log('🔍 [RENDER-CHILD] Found breadcrumb:', breadcrumb);
+        
+        // Clear container but preserve breadcrumb
+        const children = Array.from(this.container.children);
+        children.forEach(child => {
+            if (!child.classList.contains('breadcrumb')) {
+                child.remove();
             }
         });
-        
-        // Remove any existing child items
-        const childItems = document.querySelectorAll('.arc-item[data-child-item="true"]');
-        childItems.forEach(item => item.remove());
         
         const visibleItems = this.getVisibleItems();
         
@@ -918,58 +947,375 @@ class ArcList {
     }
 
     /**
-     * Enter child view - show children from the selected parent
+     * Enhanced animation orchestration helper methods
      */
-    enterChildView() {
-        console.log('enterChildView called, current mode:', this.viewMode, 'currentIndex:', this.currentIndex);
+    
+    /**
+     * Orchestrate smooth hierarchy transition animations
+     */
+    async animateHierarchyTransition(phase, direction = 'enter') {
+        const hierarchyBg = document.getElementById('hierarchy-background');
         
-        if (this.viewMode !== 'parent' || !this.parentData[this.currentIndex]) {
-            console.log('Cannot enter child view - conditions not met');
+        if (phase === 'background') {
+            // Activate/deactivate hierarchy background
+            if (direction === 'enter') {
+                hierarchyBg?.classList.add('active');
+            } else {
+                hierarchyBg?.classList.remove('active');
+            }
+            await this.delay(100);
+        }
+    }
+    
+    /**
+     * Animate parent item transforming to breadcrumb
+     */
+    async animateParentToChildTransition(selectedElement) {
+        console.log('🔍 [BREADCRUMB] animateParentToChildTransition called with element:', selectedElement);
+        
+        if (!selectedElement) {
+            console.log('❌ [BREADCRUMB] No selected element provided');
             return;
         }
         
+        console.log('🔍 [BREADCRUMB] Current element classes before:', selectedElement.className);
+        console.log('🔍 [BREADCRUMB] Current element transform before:', selectedElement.style.transform);
+        
+        // Store the current transform to transition from
+        const currentTransform = selectedElement.style.transform || 'translate(100px, 0px) scale(1)';
+        
+        // Remove selected class and add breadcrumb class for smooth transition
+        selectedElement.classList.remove('selected');
+        selectedElement.classList.add('breadcrumb', 'hierarchy-transition');
+        
+        // Set up the transition first
+        selectedElement.style.transition = 'all 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+        selectedElement.style.zIndex = '10';
+        selectedElement.style.pointerEvents = 'auto';
+        
+        // Clear inline transform and other arc positioning styles to allow CSS to take over
+        selectedElement.style.transform = '';
+        selectedElement.style.opacity = '';
+        selectedElement.style.filter = '';
+        
+        // Force a reflow to ensure the transition starts from the current position
+        selectedElement.offsetHeight;
+        
+        console.log('✅ [BREADCRUMB] Added breadcrumb classes for smooth transition');
+        console.log('🔍 [BREADCRUMB] Element classes after:', selectedElement.className);
+        
+        // Debug: Check element visibility and positioning
+        console.log('🔍 [BREADCRUMB] Element visibility check:');
+        console.log('  - offsetWidth:', selectedElement.offsetWidth);
+        console.log('  - offsetHeight:', selectedElement.offsetHeight);
+        console.log('  - offsetLeft:', selectedElement.offsetLeft);
+        console.log('  - offsetTop:', selectedElement.offsetTop);
+        console.log('  - getBoundingClientRect:', selectedElement.getBoundingClientRect());
+        console.log('  - computedStyle display:', window.getComputedStyle(selectedElement).display);
+        console.log('  - computedStyle visibility:', window.getComputedStyle(selectedElement).visibility);
+        console.log('  - computedStyle opacity:', window.getComputedStyle(selectedElement).opacity);
+        console.log('  - computedStyle zIndex:', window.getComputedStyle(selectedElement).zIndex);
+        
+        // Wait for breadcrumb animation to complete
+        await this.delay(400);
+        
+        // Check again after animation
+        console.log('🔍 [BREADCRUMB] Element visibility after animation:');
+        console.log('  - getBoundingClientRect:', selectedElement.getBoundingClientRect());
+        console.log('  - Is element still in DOM:', document.contains(selectedElement));
+        
+        console.log('✅ [BREADCRUMB] Breadcrumb animation completed');
+        return selectedElement;
+    }
+    
+    /**
+     * Animate child items appearing with stagger effect
+     */
+    async staggerListAnimation(items, direction = 'in') {
+        if (!items || items.length === 0) {
+            console.log('🔍 [STAGGER] No items to animate');
+            return;
+        }
+        
+        console.log('🔍 [STAGGER] Starting stagger animation for', items.length, 'items');
+        
+        const staggerDelay = 50;
+        const promises = [];
+        
+        items.forEach((item, index) => {
+            const promise = new Promise(resolve => {
+                setTimeout(() => {
+                    console.log('🔍 [STAGGER] Animating item', index, item);
+                    if (direction === 'in') {
+                        // For child items, just make them visible (they're already positioned by render())
+                        item.style.opacity = '1';
+                        item.style.transform = item.style.transform || 'translate(0, 0)';
+                        item.style.transition = 'opacity 300ms ease-out, transform 300ms ease-out';
+                        item.style.transitionDelay = `${index * staggerDelay}ms`;
+                    } else {
+                        item.classList.add('parent-fade-in', `stagger-${Math.min(index + 1, 9)}`);
+                        requestAnimationFrame(() => {
+                            item.classList.add('visible');
+                        });
+                    }
+                    resolve();
+                }, index * staggerDelay);
+            });
+            promises.push(promise);
+        });
+        
+        await Promise.all(promises);
+        await this.delay(400); // Wait for all animations to complete
+        console.log('🔍 [STAGGER] Stagger animation completed');
+    }
+    
+    /**
+     * Animate breadcrumb sliding back and parent items fading in
+     */
+    async animateChildToParentTransition(breadcrumbElement) {
+        if (!breadcrumbElement) return;
+        
+        // Remove breadcrumb class to slide back
+        breadcrumbElement.classList.remove('breadcrumb');
+        
+        // Wait for breadcrumb slide-back animation
+        await this.delay(400);
+        
+        // Remove transition classes
+        breadcrumbElement.classList.remove('hierarchy-transition');
+    }
+    
+    /**
+     * Utility delay function for animation timing
+     */
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Enter child view - show children from the selected parent
+     */
+    async enterChildView() {
+        console.log('enterChildView called, current mode:', this.viewMode, 'currentIndex:', this.currentIndex);
+        console.log('parentData:', this.parentData);
+        console.log('parentData length:', this.parentData ? this.parentData.length : 'null');
+        
+        console.log('Checking conditions: viewMode:', this.viewMode, 'parentData exists:', !!this.parentData, 'currentIndex:', this.currentIndex, 'rounded:', Math.round(this.currentIndex));
+        console.log('parentData length:', this.parentData ? this.parentData.length : 'no data');
+        console.log('parentData[rounded] exists:', this.parentData ? !!this.parentData[Math.round(this.currentIndex)] : 'no data');
+        
+        if (this.viewMode !== 'parent' || !this.parentData || !this.parentData[Math.round(this.currentIndex)]) {
+            console.log('Cannot enter child view - conditions not met');
+            console.log('viewMode:', this.viewMode, 'parentData exists:', !!this.parentData, 'currentIndex:', this.currentIndex, 'rounded:', Math.round(this.currentIndex));
+            return;
+        }
+        
+        // Check if the selected playlist has tracks
+        const selectedPlaylist = this.parentData[Math.round(this.currentIndex)];
+        console.log('Selected playlist for child view:', selectedPlaylist.name, 'has tracks:', selectedPlaylist[this.config.parentKey] ? selectedPlaylist[this.config.parentKey].length : 'none');
+        if (!selectedPlaylist[this.config.parentKey] || selectedPlaylist[this.config.parentKey].length === 0) {
+            console.log('Cannot enter child view - selected playlist has no tracks');
+            console.log('Playlist:', selectedPlaylist.name, 'tracks:', selectedPlaylist[this.config.parentKey]);
+            return;
+        }
+        
+        // Prevent multiple simultaneous calls
+        if (this.isAnimating) {
+            console.log('Already animating - ignoring enterChildView call');
+            return;
+        }
+        
+        this.isAnimating = true;
+        
+        // Ensure animation flag is reset even if we return early
+        try {
+        
         // Save current parent position
-        this.savedParentIndex = this.currentIndex;
-        this.selectedParent = this.parentData[this.currentIndex];
+        this.savedParentIndex = Math.round(this.currentIndex);
+        this.selectedParent = this.parentData[Math.round(this.currentIndex)];
         console.log('Selected parent:', this.selectedParent.name);
         
-        // Ensure the render is up to date first
-        this.render();
+        // Switch to child view mode immediately to fix view mode transition
+        this.viewMode = 'child';
+        console.log('Set viewMode to child, current viewMode:', this.viewMode);
         
-        // Animate current parent 200px left
-        const selectedElement = document.querySelector('.arc-item.selected');
-        console.log('Found selected element:', selectedElement);
+        // NOTE: Don't call render() here as child items haven't been loaded yet
         
-        if (selectedElement) {
-            // Get current transform and add the left translation
-            const currentTransform = selectedElement.style.transform || '';
-            selectedElement.style.transform = currentTransform + ' translateX(-200px)';
-            selectedElement.style.transition = 'transform 0.3s ease';
-            selectedElement.dataset.animatedParent = 'true'; // Mark as animated parent item
-            console.log('Applied animation to selected element');
-        } else {
+        // Find the selected element for animation with error handling
+        let selectedElement = null;
+        
+        try {
+            selectedElement = document.querySelector('.arc-item.selected');
+            if (selectedElement) {
+                console.log('DEBUG: Found selected element with classes:', selectedElement.className);
+                console.log('DEBUG: Element dataset:', selectedElement.dataset);
+            }
+            console.log('Found selected element:', selectedElement);
+        } catch (error) {
+            console.log('Error finding selected element:', error);
+            selectedElement = null;
+        }
+        
+        if (!selectedElement) {
             console.log('No selected element found for animation - trying alternative approach');
             // Fallback: try to find by data attribute
             const centerIndex = Math.round(this.currentIndex);
-            const fallbackElement = document.querySelector(`[data-item-id="${this.items[centerIndex]?.id}"]`);
-            if (fallbackElement) {
-                const currentTransform = fallbackElement.style.transform || '';
-                fallbackElement.style.transform = currentTransform + ' translateX(-200px)';
-                fallbackElement.style.transition = 'transform 0.3s ease';
-                fallbackElement.dataset.animatedParent = 'true'; // Mark as animated parent item
-                console.log('Applied animation to fallback element');
-            } else {
-                console.log('No element found at all - skipping animation');
+            let fallbackElement = null;
+            
+            try {
+                fallbackElement = document.querySelector(`[data-item-id="${this.items[centerIndex]?.id}"]`);
+            } catch (error) {
+                console.log('Error finding fallback element:', error);
+                fallbackElement = null;
             }
+            
+            if (fallbackElement) {
+                console.log('Using fallback element for animation');
+                await this.performEnhancedChildTransition(fallbackElement);
+            } else {
+                console.log('No element found at all - creating breadcrumb and loading children');
+                // Create a breadcrumb even when no element exists to animate
+                this.createBreadcrumbElement();
+                this.loadParentChildren();
+            }
+        } else {
+            await this.performEnhancedChildTransition(selectedElement);
         }
         
-        // Load children after animation
-        setTimeout(() => {
-            console.log('Loading parent children after animation');
+        } catch (error) {
+            console.error('Error in enterChildView:', error);
+            // Reset view mode to parent on error
+            this.viewMode = 'parent';
+        } finally {
+            // Always reset animation flag
+            this.isAnimating = false;
+        }
+    }
+    
+    /**
+     * Emergency fallback - call this if parent items disappear
+     */
+    emergencyRestoreParentView() {
+        console.log('🚨 [EMERGENCY] Restoring parent view');
+        this.viewMode = 'parent';
+        this.isAnimating = false;
+        
+        if (this.parentData && this.parentData.length > 0) {
+            this.items = this.parentData.map((parent, index) => ({
+                id: parent.id,
+                name: parent.name || `Parent ${index + 1}`,
+                image: parent.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
+            }));
+        }
+        
+        this.render();
+        console.log('🚨 [EMERGENCY] Parent view restored');
+    }
+    
+    async performEnhancedChildTransition(selectedElement) {
+        console.log('🔍 [ENHANCED] performEnhancedChildTransition starting with element:', selectedElement);
+        
+        try {
+            // Phase 1: Activate hierarchy background
+            console.log('🔍 [ENHANCED] Phase 1: Activating hierarchy background');
+            await this.animateHierarchyTransition('background', 'enter');
+            
+            // Phase 2: Transform the EXISTING selected element into breadcrumb
+            console.log('🔍 [ENHANCED] Phase 2: Animating selected element to breadcrumb position');
+            
+            if (selectedElement) {
+                // Set up the transition first
+                selectedElement.style.transition = 'all 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                selectedElement.style.zIndex = '10';
+                selectedElement.style.pointerEvents = 'auto';
+                
+                // Add breadcrumb class to existing element
+                selectedElement.classList.add('breadcrumb');
+                selectedElement.classList.remove('selected');
+                
+                // Clear inline transform and other arc positioning styles to allow CSS to take over
+                selectedElement.style.transform = '';
+                selectedElement.style.opacity = '';
+                selectedElement.style.filter = '';
+                
+                // Force a reflow to ensure the transition starts from the current position
+                selectedElement.offsetHeight;
+                
+                // Mark it so we can identify it later
+                selectedElement.dataset.animatedParent = 'true';
+                
+                console.log('✅ [ENHANCED] Added breadcrumb class and cleared inline styles for smooth transition');
+            } else {
+                // Fallback: create a new breadcrumb if no element to animate
+                console.log('⚠️ [ENHANCED] No element to animate, creating static breadcrumb');
+                this.createBreadcrumbElement();
+            }
+            
+            // Load children
             this.loadParentChildren();
-        }, 300);
+            
+            console.log('✅ [ENHANCED] Enhanced child view transition completed');
+        } catch (error) {
+            console.error('❌ [ENHANCED] Error during enhanced child transition:', error);
+            // Fallback to basic child loading if animation fails
+            this.loadParentChildren();
+        } finally {
+            // Always reset animation flag
+            this.isAnimating = false;
+        }
+    }
+    
+    /**
+     * Create a simple breadcrumb element for testing
+     */
+    createBreadcrumbElement() {
+        const container = this.container;
+        if (!container) return;
+        
+        // Create breadcrumb element
+        const breadcrumb = document.createElement('div');
+        breadcrumb.className = 'arc-item breadcrumb';
+        // Don't set inline styles - let CSS handle all positioning
+        breadcrumb.style.zIndex = '10';
+        breadcrumb.style.pointerEvents = 'auto';
+        
+        // Add content
+        const nameEl = document.createElement('div');
+        nameEl.className = 'item-name';
+        nameEl.textContent = this.selectedParent ? this.selectedParent.name : 'Selected Playlist';
+        
+        const imgEl = document.createElement('img');
+        imgEl.className = 'item-image';
+        imgEl.src = this.selectedParent ? this.selectedParent.image : '';
+        imgEl.loading = 'lazy';
+        
+        breadcrumb.appendChild(nameEl);
+        breadcrumb.appendChild(imgEl);
+        
+        container.appendChild(breadcrumb);
+        
+        console.log('✅ Created breadcrumb element for:', this.selectedParent ? this.selectedParent.name : 'Unknown');
+    }
+    
+    /**
+     * Fallback method to ensure parent items are always visible
+     */
+    ensureParentItemsVisible() {
+        if (this.viewMode === 'parent' && this.parentData && this.parentData.length > 0) {
+            console.log('🔍 [FALLBACK] Ensuring parent items are visible');
+            this.items = this.parentData.map((parent, index) => ({
+                id: parent.id,
+                name: parent.name || `Parent ${index + 1}`,
+                image: parent.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
+            }));
+            this.render();
+            console.log('🔍 [FALLBACK] Parent items rendered:', this.items.length);
+        }
     }
 
+    // REMOVED: Duplicate renderChildItems() method that was causing infinite loop
+    // The original renderChildItems() method is defined earlier in the file
+    
     /**
      * Load children from the selected parent
      */
@@ -997,14 +1343,14 @@ class ArcList {
         this.viewMode = 'child';
         this.currentIndex = 0;
         this.targetIndex = 0;
-        this.render();
+        // Don't call render() directly - let the animation loop handle it
         console.log('Switched to child view:', this.items.length, 'items');
     }
 
     /**
      * Exit child view - return to parent selection
      */
-    exitChildView() {
+    async exitChildView() {
         if (this.viewMode !== 'child') return;
         
         console.log('Exiting child view, returning to parent:', this.savedParentIndex);
@@ -1012,47 +1358,90 @@ class ArcList {
         // Set animation state to prevent render interference
         this.isAnimating = true;
         
-        // Find the animated parent item and animate it back
-        const animatedParentItem = document.querySelector('.arc-item[data-animated-parent="true"]');
-        if (animatedParentItem) {
-            console.log('Found animated parent item, animating back');
-            
-            // Animate the parent item back to its original position
-            const currentTransform = animatedParentItem.style.transform;
-            // Remove the translateX(-200px) part
-            const originalTransform = currentTransform.replace(/ translateX\(-200px\)/, '');
-            animatedParentItem.style.transform = originalTransform;
-            animatedParentItem.style.transition = 'transform 0.3s ease';
-            
-            // Remove the animated marker
-            delete animatedParentItem.dataset.animatedParent;
+        // Find the breadcrumb element (the animated parent item) with error handling
+        let breadcrumbElement = null;
+        
+        try {
+            breadcrumbElement = document.querySelector('.arc-item.breadcrumb');
+        } catch (error) {
+            console.log('Error finding breadcrumb element:', error);
+            breadcrumbElement = null;
         }
         
-        // After animation, restore parent view
-        setTimeout(() => {
-            // Show all parent items again
-            const parentItems = document.querySelectorAll('.arc-item:not([data-child-item="true"])');
-            parentItems.forEach(item => {
-                item.style.display = '';
+        if (breadcrumbElement) {
+            await this.performEnhancedParentTransition(breadcrumbElement);
+        } else {
+            console.log('No breadcrumb element found - using fallback transition');
+            await this.performFallbackParentTransition();
+        }
+    }
+    
+    async performEnhancedParentTransition(breadcrumbElement) {
+        try {
+            // Phase 1: Fade out child items
+            const childItems = Array.from(document.querySelectorAll('.arc-item[data-child-item="true"]'));
+            childItems.forEach(item => {
+                item.classList.add('parent-fade-out');
             });
             
-            // Restore parent items
-            this.items = this.parentData.map((parent, index) => ({
-                id: parent.id,
-                name: parent.name || `Parent ${index + 1}`,
-                image: parent.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
-            }));
+            // Phase 2: Animate breadcrumb back to normal position
+            breadcrumbElement.classList.remove('breadcrumb');
+            breadcrumbElement.classList.add('selected');
+            delete breadcrumbElement.dataset.animatedParent;
             
-            this.viewMode = 'parent';
-            this.currentIndex = this.savedParentIndex; // Return to exact same position
-            this.targetIndex = this.savedParentIndex;
-            this.selectedParent = null;
+            // Wait for animations to complete
+            await this.delay(200);
             
-            // Re-enable rendering and render the parent view
-            this.isAnimating = false;
-            this.render();
-            console.log('Switched back to parent view');
-        }, 300);
+            // Phase 2: Slide breadcrumb back to center
+            await this.animateChildToParentTransition(breadcrumbElement);
+            
+            // Phase 3: Restore parent data and items
+            this.restoreParentView();
+            
+            // Phase 4: Deactivate hierarchy background
+            await this.animateHierarchyTransition('background', 'exit');
+            
+            // Phase 5: Animate parent items back with stagger effect
+            const parentItems = Array.from(document.querySelectorAll('.arc-item:not([data-child-item="true"])'));
+            await this.staggerListAnimation(parentItems, 'out');
+            
+            console.log('Enhanced parent view transition completed');
+        } catch (error) {
+            console.error('Error during enhanced parent transition:', error);
+            // Fallback to basic parent restoration
+            await this.performFallbackParentTransition();
+        }
+    }
+    
+    async performFallbackParentTransition() {
+        // Fallback method similar to original implementation
+        console.log('Using fallback parent transition');
+        
+        // Restore parent data and view
+        this.restoreParentView();
+        
+        // Simple delay then render
+        await this.delay(300);
+        this.render();
+        console.log('Fallback parent transition completed');
+    }
+    
+    restoreParentView() {
+        // Restore parent items
+        this.items = this.parentData.map((parent, index) => ({
+            id: parent.id,
+            name: parent.name || `Parent ${index + 1}`,
+            image: parent.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
+        }));
+        
+        this.viewMode = 'parent';
+        this.currentIndex = this.savedParentIndex; // Return to exact same position
+        this.targetIndex = this.savedParentIndex;
+        this.selectedParent = null;
+        
+        // Re-enable rendering
+        this.isAnimating = false;
+        console.log('Restored parent view data');
     }
 
     /**

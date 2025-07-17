@@ -149,3 +149,142 @@ body {
     outline: 2px solid #3b82f6;
     outline-offset: 2px;
 }
+
+/* ===== ENHANCED HIERARCHY NAVIGATION STYLES ===== */
+
+/* Breadcrumb item styling - parent item when in child view */
+.arc-item.breadcrumb {
+    transform: translateX(-200px) translateY(-50%); /* Slide further left to avoid overlap with tracks */
+    opacity: 0.8; /* Slightly dimmed */
+    transition: all 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94); /* Smooth ease-out */
+    z-index: 10; /* Above normal items */
+    pointer-events: auto; /* Make breadcrumb clickable */
+    position: absolute; /* Ensure positioning works correctly */
+    top: 50%; /* Center vertically */
+}
+
+/* Breadcrumb item name styling */
+.arc-item.breadcrumb .item-name {
+    font-size: 1rem; /* Keep similar size to selected item */
+    color: rgba(255, 255, 255, 0.9); /* Slightly dimmed */
+    font-weight: 500; /* Medium weight */
+}
+
+/* Breadcrumb item image styling */
+.arc-item.breadcrumb .item-image {
+    width: 8rem; /* Keep similar size to selected item (128px) */
+    height: 8rem;
+}
+
+/* Breadcrumb item image container */
+.arc-item.breadcrumb .item-image-container {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); /* Subtle shadow */
+}
+
+/* Breadcrumb hover effect */
+.arc-item.breadcrumb:hover {
+    opacity: 1;
+    transform: translateX(-180px) translateY(-50%); /* Slight move right on hover to show more */
+}
+
+/* Child view items styling */
+.arc-item.child-mode {
+    opacity: 0; /* Start hidden */
+    transform: translateX(100px); /* Start more to the right to avoid breadcrumb */
+    transition: all 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Child view items when fully visible */
+.arc-item.child-mode.visible {
+    opacity: 1;
+    transform: translateX(0); /* Slide to normal position */
+}
+
+/* Child view item names - slightly smaller than parent items */
+.arc-item.child-mode .item-name {
+    font-size: 0.95rem; /* Slightly smaller than parent */
+}
+
+/* Child view item images - slightly smaller */
+.arc-item.child-mode .item-image {
+    width: 7rem; /* Smaller than parent items (112px vs 128px) */
+    height: 7rem;
+}
+
+/* Background hierarchy depth indicator */
+.hierarchy-depth-1 {
+    background: linear-gradient(
+        to right,
+        rgba(0, 0, 0, 0.8) 0%,
+        rgba(0, 0, 0, 0.6) 30%,
+        rgba(0, 0, 0, 0.4) 70%,
+        rgba(0, 0, 0, 0.2) 100%
+    );
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 400ms ease-out;
+    z-index: 1;
+    pointer-events: none;
+}
+
+/* Show hierarchy background when in child view */
+.hierarchy-depth-1.active {
+    opacity: 1;
+}
+
+/* Stagger animation delays for child items */
+.arc-item.child-mode.stagger-1 { transition-delay: 50ms; }
+.arc-item.child-mode.stagger-2 { transition-delay: 100ms; }
+.arc-item.child-mode.stagger-3 { transition-delay: 150ms; }
+.arc-item.child-mode.stagger-4 { transition-delay: 200ms; }
+.arc-item.child-mode.stagger-5 { transition-delay: 250ms; }
+.arc-item.child-mode.stagger-6 { transition-delay: 300ms; }
+.arc-item.child-mode.stagger-7 { transition-delay: 350ms; }
+.arc-item.child-mode.stagger-8 { transition-delay: 400ms; }
+.arc-item.child-mode.stagger-9 { transition-delay: 450ms; }
+
+/* Parent items fade out animation when entering child view */
+.arc-item.parent-fade-out {
+    opacity: 0;
+    transform: translateX(-30px); /* Slide slightly left */
+    transition: all 200ms ease-out;
+}
+
+/* Parent items fade in animation when returning from child view */
+.arc-item.parent-fade-in {
+    opacity: 0;
+    transform: translateX(30px); /* Start slightly right */
+    transition: all 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Parent items when fully visible after fade in */
+.arc-item.parent-fade-in.visible {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* Stagger animation delays for parent items returning */
+.arc-item.parent-fade-in.stagger-1 { transition-delay: 50ms; }
+.arc-item.parent-fade-in.stagger-2 { transition-delay: 100ms; }
+.arc-item.parent-fade-in.stagger-3 { transition-delay: 150ms; }
+.arc-item.parent-fade-in.stagger-4 { transition-delay: 200ms; }
+.arc-item.parent-fade-in.stagger-5 { transition-delay: 250ms; }
+.arc-item.parent-fade-in.stagger-6 { transition-delay: 300ms; }
+.arc-item.parent-fade-in.stagger-7 { transition-delay: 350ms; }
+.arc-item.parent-fade-in.stagger-8 { transition-delay: 400ms; }
+.arc-item.parent-fade-in.stagger-9 { transition-delay: 450ms; }
+
+/* Smooth transitions for all hierarchy changes */
+.arc-item.hierarchy-transition {
+    transition: all 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Override default transition timing for hierarchy navigation */
+.arc-item.breadcrumb,
+.arc-item.child-mode,
+.arc-item.parent-fade-out,
+.arc-item.parent-fade-in {
+    transition-property: transform, opacity, filter;
+    transition-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
