@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Bang & Olufsen BeoSound 5c recreation project that replicates the original BeoSound 5 touch interface using modern web technologies. It features a circular arc-based UI that integrates with Sonos players, Spotify, and original B&O hardware through multiple coordinated services.
+This is a Bang & Olufsen BeoSound 5c recreation project that replaces the software of the BeoSound 5,  using modern technologies. It features a circular arc-based UI that integrates with Sonos players, Spotify, and original B&O hardware through multiple coordinated services.
 
 ## Development Commands
 
-### System Service Management
+### System Service Management on the real hardware
 ```bash
 # Install all services
 cd services/system
@@ -27,7 +27,7 @@ sudo systemctl restart beo-*
 journalctl -u <service-name> -f
 ```
 
-### Development Mode (No Hardware)
+### Development Mode without real hardware (runs in web browser and uses trackpad + keyboard for input)
 ```bash
 # Start web server for emulation mode
 cd web
@@ -90,11 +90,11 @@ Web files → HTTP server (8000) → ui.sh → Chromium kiosk
 - **Input**: Supports both physical BS5 hardware and keyboard/mouse emulation
 
 ### **CRITICAL: Separate Hardware Input Systems**
-The BeoSound 5c has **FOUR DISTINCT** hardware input systems that must be kept separate:
+The BeoSound 5c has **FOUR DISTINCT** hardware input systems that must be kept separate. On the real hardware, events from these are provided through the beo-input service using USB HID. If you are not running on the BS5, then events below are triggered using trackpad/mouse scrolling and keyboard, through dummy-hw.js
 
 1. **Laser Pointer** (`laser` events):
    - Physical laser beam pointing at screen positions
-   - Maps to positions 3-123 on the circular arc
+   - Maps to positions 3-123 on the circular arc as the main menu, positioned to the very left
    - Controls view navigation and menu selection
    - Emulated by: Mouse wheel/trackpad scrolling
    - WebSocket event: `{type: 'laser', data: {position: 93}}`
@@ -102,7 +102,7 @@ The BeoSound 5c has **FOUR DISTINCT** hardware input systems that must be kept s
 2. **Navigation Wheel** (`nav` events):
    - Physical rotary wheel separate from laser pointer
    - Used for scrolling within views (softarc navigation in iframes)
-   - Controls `topWheelPosition` (-1, 0, 1)
+   - Controls `topWheelPosition` (-1, 0, 1) and can have different speeds (given by an int)
    - Forwarded to iframe pages (music, settings, scenes) for internal navigation
    - Does NOT affect laser position or main menu navigation
    - Emulated by: Arrow Up/Down keys
@@ -112,6 +112,7 @@ The BeoSound 5c has **FOUR DISTINCT** hardware input systems that must be kept s
    - Physical volume control wheel
    - Separate from both laser pointer and navigation wheel
    - Controls volume level adjustments
+   - Not implemented any functionality for this yet
    - Emulated by: PageUp/PageDown, +/- keys
    - WebSocket event: `{type: 'volume', data: {direction: 'counter', speed: 15}}`
 
@@ -146,13 +147,14 @@ The system integrates with Home Assistant for scene control and automation:
 - MasterLink service sends IR commands to HA webhook
 - Requires CORS configuration and trusted network authentication
 - Kiosk mode removes HA sidebar for embedded display
+- All logic what happens when a button is pressed is generally handeled in HA for flexibility
 
 ## File Structure Notes
 
 - **`services/system/`**: Systemd service definitions and management scripts
 - **`tools/`**: Utility scripts for Spotify OAuth, Sonos debugging, USB testing
 - **`wip/`**: Experimental code and previous interface iterations
-- **`web/softarc/`**: Alternative arc-based navigation interface
+- **`web/softarc/`**: Arc-based navigation interface, used for subpages
 
 ## Development vs Production Environments
 
@@ -163,16 +165,18 @@ The system integrates with Home Assistant for scene control and automation:
 - Hardware-specific features (USB HID, MasterLink, Bluetooth remotes)
 
 **Development Environment:**
-- Development machine (e.g., macBook) without physical BS5 hardware
+- Development machine (e.g., MacBook) without physical BS5 hardware
 - Uses dummy hardware simulation (see `dummy-hw` in code)
 - Typically runs only `media.py` manually and Python built-in web server
 - System services not available - testing occurs on development machine
 - Hardware input emulated via mouse/keyboard
+- *IMPORTANT* This is how Claude runs the software
 
 ## Development Tips
 
 - Use emulation mode for UI development without physical hardware
-- Service logs available via `journalctl -u <service-name> -f` (production only)
-- Hardware debugging tools available in `tools/usb/` and `tools/bt/`
 - Media server can run standalone for Sonos integration testing
 - Tests typically run on development machine where services are not running
+
+## Project Memories
+
