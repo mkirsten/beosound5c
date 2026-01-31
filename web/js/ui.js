@@ -14,12 +14,6 @@ class UIStore {
         this.wsMessages = [];
         this.maxWsMessages = 50;
         
-        // HA integration settings - ONLY for Apple TV display data fetching (read-only)
-        // Configuration loaded from config.js - token stored in localStorage
-        // Set token via: localStorage.setItem('ha_token', 'your-token')
-        this.HA_URL = AppConfig.homeAssistant.url;
-        this.HA_TOKEN = AppConfig.homeAssistant.getToken();
-        
         // Media info
         this.mediaInfo = {
             title: '—',
@@ -29,11 +23,11 @@ class UIStore {
             state: 'idle'
         };
         
-        // Apple TV media info
+        // SHOWING view media info (fetched from backend)
         this.appleTVMediaInfo = {
             title: '—',
-            artist: '—',
-            album: '—',
+            friendly_name: '—',
+            app_name: '—',
             artwork: '',
             state: 'unknown'
         };
@@ -69,7 +63,7 @@ class UIStore {
                         <div id="apple-tv-media-info" style="width: 80%; padding: 10px;">
                             <div id="apple-tv-media-title" style="font-size: 24px; font-weight: bold; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
                             <div id="apple-tv-media-details" style="font-size: 18px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
-                            <div id="apple-tv-state">Unknown</span></div>
+                            <div id="apple-tv-state">Unknown</div>
                         </div>
                     </div>`
             },
@@ -141,51 +135,28 @@ class UIStore {
         }, 100);
         
         // Media info will be received via WebSocket from media server
-        
-        // Start fetching Apple TV media info
+
+        // Set up Apple TV media info refresh for SHOWING view
         this.setupAppleTVMediaInfoRefresh();
     }
     
-    // Helper to preload and cache images with better error handling
+    // Helper to preload and cache images
     preloadAndCacheImage(url) {
         return new Promise((resolve, reject) => {
             if (!url) return resolve(null);
             if (this.artworkCache[url] && this.artworkCache[url].complete) {
                 return resolve(this.artworkCache[url]);
             }
-            
-            // First check if the URL returns any data
-            fetch(url, { headers: { 'Authorization': 'Bearer ' + this.HA_TOKEN } })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-                    return response.blob();
-                })
-                .then(blob => {
-                    if (blob.size === 0) {
-                        throw new Error('Artwork URL returned 0 bytes (HA proxy issue)');
-                    }
-                    
-                    // Create object URL from blob and load image
-                    const objectUrl = URL.createObjectURL(blob);
-                    const img = new window.Image();
-                    img.onload = () => {
-                        this.artworkCache[url] = img;
-                        resolve(img);
-                        // Clean up object URL after loading
-                        URL.revokeObjectURL(objectUrl);
-                    };
-                    img.onerror = () => {
-                        URL.revokeObjectURL(objectUrl);
-                        reject(new Error('Failed to load image from blob'));
-                    };
-                    img.src = objectUrl;
-                })
-                .catch(error => {
-                    console.warn(`Artwork loading failed for ${url}:`, error.message);
-                    reject(error);
-                });
+
+            const img = new window.Image();
+            img.onload = () => {
+                this.artworkCache[url] = img;
+                resolve(img);
+            };
+            img.onerror = () => {
+                reject(new Error('Failed to load image'));
+            };
+            img.src = url;
         });
     }
     
@@ -289,122 +260,74 @@ class UIStore {
         }
     }
     
-    // Fetch Apple TV media information from Home Assistant
+    // Fetch Apple TV media info from backend (which proxies HA)
     async fetchAppleTVMediaInfo() {
-        // Removed fetch logging
         try {
-            const response = await fetch(`${this.HA_URL}/api/states/media_player.loft_apple_tv`, {
-                headers: { 'Authorization': 'Bearer ' + this.HA_TOKEN }
-            });
-            
-            if (!response.ok) {
-                console.error(`Error fetching Apple TV data: ${response.status} ${response.statusText}`);
-                return;
-            }
-            
+            const response = await fetch('http://localhost:8767/appletv');
+            if (!response.ok) return;
+
             const data = await response.json();
-            // Removed data received logging
-            
-            const artworkUrl = data.attributes.entity_picture ? this.HA_URL + data.attributes.entity_picture : '';
-            
-            // Preload and cache artwork
-            if (artworkUrl) this.preloadAndCacheImage(artworkUrl);
-            
-            // Store the Apple TV media info
             this.appleTVMediaInfo = {
-                title: data.attributes.media_title || '—',
-                friendly_name: data.attributes.friendly_name || '—',
-                app_name: data.attributes.app_name || '—',
-                artwork: artworkUrl,
+                title: data.title || '—',
+                friendly_name: data.friendly_name || '—',
+                app_name: data.app_name || '—',
+                artwork: data.artwork || '',
                 state: data.state
             };
-            
-            // Removed processed info logging
-            
-            // Update the Apple TV media view if it's active
+
             if (this.currentRoute === 'menu/showing') {
                 this.updateAppleTVMediaView();
             }
-            // Removed route logging
         } catch (error) {
-            console.error('Error fetching Apple TV media info:', error);
+            console.error('Error fetching Apple TV info:', error);
         }
     }
-    
-    // Update the Apple TV media view with current info
+
+    // Update the SHOWING view with Apple TV media info
     updateAppleTVMediaView() {
-        // Removed view update logging
         const artworkEl = document.getElementById('apple-tv-artwork');
         const titleEl = document.getElementById('apple-tv-media-title');
         const detailsEl = document.getElementById('apple-tv-media-details');
         const stateEl = document.getElementById('apple-tv-state');
-        
-        if (!artworkEl) {
-            console.error("Artwork element not found");
-            return;
-        }
-        if (!titleEl || !detailsEl) {
-            console.error("Media info elements not found");
-            return;
-        }
-        
-        if (!this.appleTVMediaInfo) {
-            console.error("No Apple TV media info available");
-            return;
-        }
-        
-        // Update text elements
-        if (titleEl) titleEl.textContent = this.appleTVMediaInfo.title || '—';
-        if (detailsEl) detailsEl.textContent = this.appleTVMediaInfo.app_name + " showing on " + this.appleTVMediaInfo.friendly_name || '—';
-        if (stateEl) stateEl.textContent = this.appleTVMediaInfo.state || 'Unknown';
-        
-        // Use cached image if available and loaded
+
+        if (titleEl) titleEl.textContent = this.appleTVMediaInfo.title;
+        if (detailsEl) detailsEl.textContent = this.appleTVMediaInfo.app_name;
+        if (stateEl) stateEl.textContent = this.appleTVMediaInfo.state;
+
+        // Handle artwork
         const artworkUrl = this.appleTVMediaInfo.artwork;
-        if (artworkUrl && this.artworkCache[artworkUrl] && this.artworkCache[artworkUrl].complete) {
-            if (artworkEl.src !== this.artworkCache[artworkUrl].src) {
+        if (artworkUrl && artworkEl) {
+            if (artworkEl.src !== artworkUrl) {
                 artworkEl.style.opacity = 0;
                 setTimeout(() => {
-                    artworkEl.src = this.artworkCache[artworkUrl].src;
+                    artworkEl.src = artworkUrl;
                     setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
                 }, 100);
             }
-        } else if (artworkUrl) {
-            // Preload and cache for next time
-            this.preloadAndCacheImage(artworkUrl).then(img => {
-                if (img && artworkEl.src !== img.src) {
-                    artworkEl.style.opacity = 0;
-                    setTimeout(() => {
-                        artworkEl.src = img.src;
-                        setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
-                    }, 100);
-                }
-            }).catch(error => {
-                console.error('Error loading Apple TV artwork:', error.message);
-                if (error.message.includes('0 bytes')) {
-                    console.warn('Home Assistant media player proxy returned 0 bytes for Apple TV artwork');
-                }
-                // Set a default placeholder image
-                artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23222'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3EArtwork%3C/text%3E%3Ctext x='100' y='120' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3EUnavailable%3C/text%3E%3C/svg%3E";
-                artworkEl.style.opacity = 1;
-            });
-        } else {
-            // Show a placeholder if no artwork
-            artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23222'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='20' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3ENo Artwork%3C/text%3E%3C/svg%3E";
+        } else if (artworkEl) {
+            // Show placeholder when no artwork
+            artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23222'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='16' fill='%23666' text-anchor='middle' dominant-baseline='middle'%3ESHOWING%3C/text%3E%3C/svg%3E";
             artworkEl.style.opacity = 1;
         }
     }
-    
-    // Set up periodic refresh of Apple TV media info
+
+    // Set up periodic refresh for Apple TV media info
     setupAppleTVMediaInfoRefresh() {
-        console.log("Setting up Apple TV media refresh");
-        // Initial fetch
+        // Fetch immediately
         this.fetchAppleTVMediaInfo();
-        
-        // Refresh every 5 seconds
+
+        // Then refresh every 5 seconds
         setInterval(() => {
-            // Removed periodic refresh logging
             this.fetchAppleTVMediaInfo();
         }, 5000);
+    }
+
+    // Update the SHOWING view (called when navigating to view)
+    updateShowingView() {
+        // Use cached info immediately, fetch will update async
+        this.updateAppleTVMediaView();
+        // Also trigger a fresh fetch
+        this.fetchAppleTVMediaInfo();
     }
     
     // Initialize UI
@@ -713,11 +636,6 @@ class UIStore {
         // Update state AFTER navigation (not before) to track current position
         if (viewInfo.isOverlay) {
             this.isNowPlayingOverlayActive = true;
-            
-            // Fetch media info if needed (only when view changes)
-            if (viewChanged && viewInfo.path === 'menu/showing') {
-                this.fetchAppleTVMediaInfo();
-            }
         } else {
             // Not in overlay zone
             this.isNowPlayingOverlayActive = false;
@@ -841,10 +759,9 @@ class UIStore {
             this.updateNowPlayingView();
             // Media info will be pushed automatically by media server
         }
-        // Immediately update with cached info for showing view
+        // Update SHOWING view with static fallback
         else if (this.currentRoute === 'menu/showing') {
-            this.updateAppleTVMediaView();
-            this.fetchAppleTVMediaInfo();
+            this.updateShowingView();
         }
         
         // If navigating to security view, set up the iframe
@@ -855,7 +772,9 @@ class UIStore {
             
             if (securityIframe) {
                 // Set the iframe source to the Home Assistant camera dashboard
-                securityIframe.src = `${this.HA_URL}/dashboard-cameras/home&kiosk`;
+                // Uses default HA URL - cameras are typically accessible on local network
+                const haUrl = 'http://homeassistant.local:8123';
+                securityIframe.src = `${haUrl}/dashboard-cameras/home&kiosk`;
                 
                 // Make iframe fully interactive
                 securityIframe.style.pointerEvents = 'auto';

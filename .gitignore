@@ -1,5 +1,28 @@
+# Python
 .venv/
 .venv
-__pycache__
-sonos_env
+__pycache__/
+*.pyc
+sonos_env/
+
+# macOS
 .DS_Store
+
+# Credentials and tokens (NEVER commit these)
+.spotify_token_cache
+*.token
+*.cache
+config.env
+
+# Logs
+*.log
+fetch.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment-specific
+/etc/beosound5c/

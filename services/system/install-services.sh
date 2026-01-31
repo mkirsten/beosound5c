@@ -20,6 +20,8 @@ SERVICES=(
     "beo-masterlink.service"
     "beo-bluetooth.service"
     "beo-ui.service"
+    "beo-spotify-fetch.service"
+    "beo-spotify-fetch.timer"
 )
 
 # Get the directory where this script is located
@@ -49,6 +51,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
         echo ""
         echo "  ⚠️  IMPORTANT: Edit $CONFIG_FILE to customize for this device!"
         echo "     - DEVICE_NAME: Location identifier (e.g., Kitchen, Loft)"
+        echo "     - HA_URL: Home Assistant URL"
         echo "     - BEOREMOTE_MAC: BeoRemote One Bluetooth MAC address"
         echo "     - SONOS_IP: Sonos speaker IP address"
         echo "     - SPOTIFY_USER_ID: Spotify username for playlists"
@@ -114,6 +117,11 @@ systemctl start beo-bluetooth.service
 echo "  🖥️  Starting UI service..."
 systemctl enable beo-ui.service
 systemctl start beo-ui.service
+
+# Enable Spotify playlist fetch timer (runs nightly at 3am)
+echo "  🎵 Enabling Spotify playlist fetch timer..."
+systemctl enable beo-spotify-fetch.timer
+systemctl start beo-spotify-fetch.timer
 
 echo "Reloading daemon services"
 sudo systemctl daemon-reload

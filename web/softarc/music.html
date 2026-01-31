@@ -42,7 +42,7 @@
                 storagePrefix: 'music_arclist',
                 title: 'Music',
                 context: 'music',
-                webhookUrl: AppConfig.homeAssistant.getWebhookUrl(),
+                webhookUrl: AppConfig.webhookUrl,
                 childNameMapper: (track, index, allTracks) => {
                     // Check if all tracks in the playlist have the same artist
                     const allSameArtist = allTracks && allTracks.every(t => t.artist === allTracks[0].artist);

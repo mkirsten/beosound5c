@@ -9,13 +9,14 @@ if [[ -f "$CONFIG_FILE" ]]; then
 fi
 
 # Use environment variables with fallbacks
-MAC="${BEOREMOTE_MAC:-48:D0:CF:BD:CE:35}"
-DEVICE_NAME="${DEVICE_NAME:-Church}"
+MAC="${BEOREMOTE_MAC:-00:00:00:00:00:00}"
+DEVICE_NAME="${DEVICE_NAME:-BeoSound5c}"
+BS5C_BASE_PATH="${BS5C_BASE_PATH:-/home/kirsten/beosound5c}"
 
-# Use same webhook as IR remote for unified handling
-WEBHOOK="http://homeassistant.local:8123/api/webhook/beosound5c"
+# Home Assistant webhooks (use environment variables)
+WEBHOOK="${HA_WEBHOOK_URL:-http://homeassistant.local:8123/api/webhook/beosound5c}"
 # Legacy webhook for raw pass-through (lights, digits, unknowns)
-WEBHOOK_RAW="http://homeassistant.local:8123/api/webhook/beoremote-event"
+WEBHOOK_RAW="${HA_WEBHOOK_URL_RAW:-http://homeassistant.local:8123/api/webhook/beoremote-event}"
 
 # Handles for Bluetooth GATT (hardware-specific, don't change)
 DESC1="0x0025"
@@ -197,7 +198,7 @@ send_webhook() {
 # Returns spotify:playlist:ID or empty string if not found
 get_playlist_uri() {
   local digit="$1"
-  local mapping_file="/home/kirsten/beosound5c/web/json/digit_playlists.json"
+  local mapping_file="${BS5C_BASE_PATH}/web/json/digit_playlists.json"
 
   if [[ ! -f "$mapping_file" ]]; then
     log "[PLAYLIST] Mapping file not found: $mapping_file"

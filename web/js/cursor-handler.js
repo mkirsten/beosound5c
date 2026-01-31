@@ -752,7 +752,7 @@ function handleButtonEvent(uiStore, data) {
 
 // Send webhook for button events
 function sendWebhook(panelContext, button, id = '1') {
-    const webhookUrl = AppConfig.homeAssistant.getWebhookUrl();
+    const webhookUrl = AppConfig.webhookUrl;
     
     const payload = {
         device_type: 'Panel',

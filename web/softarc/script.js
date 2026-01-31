@@ -25,7 +25,7 @@ class ArcList {
             
             // WebSocket configuration - defaults from AppConfig if available
             webSocketUrl: config.webSocketUrl || (typeof AppConfig !== 'undefined' ? AppConfig.websocket.input : 'ws://localhost:8765'),
-            webhookUrl: config.webhookUrl || (typeof AppConfig !== 'undefined' ? AppConfig.homeAssistant.getWebhookUrl() : 'http://homeassistant.local:8123/api/webhook/beosound5c'),
+            webhookUrl: config.webhookUrl || (typeof AppConfig !== 'undefined' ? AppConfig.webhookUrl : 'http://localhost:8767/forward'),
             
             // UI configuration
             title: config.title || 'Arc List',
