@@ -15,8 +15,10 @@ class UIStore {
         this.maxWsMessages = 50;
         
         // HA integration settings - ONLY for Apple TV display data fetching (read-only)
-        this.HA_URL = 'http://homeassistant.local:8123';
-        this.HA_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJlNTU1MjM0NmIzMTA0NTQxOWU4ZjczYmM3YjE4YzNiOSIsImlhdCI6MTc0NjA5ODMxMiwiZXhwIjoyMDYxNDU4MzEyfQ.ZDszs4w_8_bkcIy24cvwntEsyjCzy2VODjthZRpQvaQ';
+        // Configuration loaded from config.js - token stored in localStorage
+        // Set token via: localStorage.setItem('ha_token', 'your-token')
+        this.HA_URL = AppConfig.homeAssistant.url;
+        this.HA_TOKEN = AppConfig.homeAssistant.getToken();
         
         // Media info
         this.mediaInfo = {

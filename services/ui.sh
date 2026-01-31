@@ -22,6 +22,8 @@ rm -rf ~/.cache/chromium/Default/Code\ Cache/*
 rm -rf ~/.cache/chromium/Default/Service\ Worker/*
 
 xinit /usr/bin/chromium-browser \
+  --force-dark-mode \
+  --enable-features=WebUIDarkMode \
   --disable-application-cache \
   --disable-cache \
   --disable-offline-load-stale-cache \

@@ -23,9 +23,9 @@ class ArcList {
             // Storage configuration
             storagePrefix: config.storagePrefix || 'arclist', // Prefix for localStorage keys
             
-            // WebSocket configuration
-            webSocketUrl: config.webSocketUrl || 'ws://localhost:8765',
-            webhookUrl: config.webhookUrl || 'http://homeassistant.local:8123/api/webhook/beosound5c',
+            // WebSocket configuration - defaults from AppConfig if available
+            webSocketUrl: config.webSocketUrl || (typeof AppConfig !== 'undefined' ? AppConfig.websocket.input : 'ws://localhost:8765'),
+            webhookUrl: config.webhookUrl || (typeof AppConfig !== 'undefined' ? AppConfig.homeAssistant.getWebhookUrl() : 'http://homeassistant.local:8123/api/webhook/beosound5c'),
             
             // UI configuration
             title: config.title || 'Arc List',
@@ -114,6 +114,9 @@ class ArcList {
         this.startAnimation(); // Begin the smooth animation loop
         this.updateCounter(); // Show initial counter values
         this.totalItemsDisplay.textContent = this.items.length; // Set total items display
+        
+        // Force initial render
+        this.render();
     }
     
     /**
@@ -131,6 +134,17 @@ class ArcList {
                 this.items = this.config.itemMapper(this.parentData);
             } else if (this.config.dataType === 'parent_child') {
                 // Default parent/child format - preserve child data for hierarchical navigation
+                // Filter out empty playlists (those with no tracks)
+                const nonEmptyParents = this.parentData.filter(parent => {
+                    const children = parent[this.config.parentKey];
+                    return children && Array.isArray(children) && children.length > 0;
+                });
+                
+                console.log(`Filtered out ${this.parentData.length - nonEmptyParents.length} empty playlists`);
+                
+                // Update parentData to only include non-empty playlists
+                this.parentData = nonEmptyParents;
+                
                 this.items = this.parentData.map((parent, index) => ({
                     id: parent.id,
                     name: parent[this.config.parentNameKey] || `Item ${index + 1}`,
@@ -208,6 +222,12 @@ class ArcList {
                         
                         // Load children and set position
                         this.loadParentChildrenFromRestore(childIndex);
+                        
+                        // Also create the breadcrumb element after a delay to ensure DOM is ready
+                        setTimeout(() => {
+                            this.createBreadcrumbFromRestore();
+                        }, 100);
+                        
                         console.log('Restored child view:', parent.name, 'position:', childIndex);
                         return;
                     }
@@ -239,7 +259,7 @@ class ArcList {
         // Convert children to items format
         const children = this.selectedParent[this.config.parentKey];
         if (this.config.childNameMapper) {
-            this.items = children.map(this.config.childNameMapper);
+            this.items = children.map((child, index) => this.config.childNameMapper(child, index, children));
         } else {
             this.items = children.map(child => ({
                 id: child.id,
@@ -255,6 +275,54 @@ class ArcList {
         // Update display
         this.totalItemsDisplay.textContent = this.items.length;
         console.log('Loaded', this.items.length, 'children for restore');
+    }
+    
+    /**
+     * Create breadcrumb element when restoring from saved child view
+     */
+    createBreadcrumbFromRestore() {
+        if (!this.selectedParent || this.viewMode !== 'child') return;
+        
+        // Check if breadcrumb already exists
+        if (document.querySelector('.arc-item.breadcrumb')) return;
+        
+        // Create breadcrumb element
+        const breadcrumb = document.createElement('div');
+        breadcrumb.className = 'arc-item breadcrumb';
+        breadcrumb.dataset.animatedParent = 'true';
+        
+        // Position at the left - adjusted for fixed-width layout
+        const BREADCRUMB_ABSOLUTE_X = -320; // Positioned left but not too far
+        breadcrumb.style.transform = `translate(${BREADCRUMB_ABSOLUTE_X}px, 0px) scale(1)`;
+        breadcrumb.style.position = 'absolute';
+        breadcrumb.style.top = '50%';
+        breadcrumb.style.left = '50%';
+        breadcrumb.style.marginLeft = '-140px'; // Half of 280px width
+        breadcrumb.style.marginTop = '-64px';
+        breadcrumb.style.opacity = '1'; // Full opacity
+        breadcrumb.style.zIndex = '10';
+        breadcrumb.style.pointerEvents = 'auto';
+        
+        // Add content
+        const nameEl = document.createElement('div');
+        nameEl.className = 'item-name';
+        nameEl.textContent = this.selectedParent.name;
+        
+        const imgContainer = document.createElement('div');
+        imgContainer.className = 'item-image-container';
+        
+        const imgEl = document.createElement('img');
+        imgEl.className = 'item-image';
+        imgEl.src = this.selectedParent.image;
+        imgEl.loading = 'lazy';
+        
+        imgContainer.appendChild(imgEl);
+        breadcrumb.appendChild(nameEl);
+        breadcrumb.appendChild(imgContainer);
+        
+        this.container.appendChild(breadcrumb);
+        
+        console.log('Created breadcrumb from restore for:', this.selectedParent.name);
     }
 
     /**
@@ -474,9 +542,16 @@ class ArcList {
     startAnimation() {
         console.log('🔍 [ANIMATION] Starting animation loop with', this.items.length, 'items');
         
+        // Track last rendered position to avoid unnecessary renders
+        let lastRenderedIndex = this.currentIndex;
+        let lastRenderTime = 0;
+        const MIN_RENDER_INTERVAL = 16; // Minimum ms between renders (60fps)
+        
         const animate = () => {
             // Smooth interpolation between current and target position
             const diff = this.targetIndex - this.currentIndex;
+            const previousIndex = this.currentIndex;
+            
             if (Math.abs(diff) < 0.01) {
                 // Close enough - just snap to target
                 this.currentIndex = this.targetIndex;
@@ -488,9 +563,21 @@ class ArcList {
             // Check if selection has changed and trigger click
             this.checkForSelectionClick();
             
-            // Update the display
-            this.render(); // Position all visible items
-            this.updateCounter(); // Update the counter display
+            // Only render if position has actually changed significantly
+            const positionChanged = Math.abs(this.currentIndex - lastRenderedIndex) > 0.001;
+            const now = Date.now();
+            const enoughTimeElapsed = (now - lastRenderTime) >= MIN_RENDER_INTERVAL;
+            
+            if (positionChanged && enoughTimeElapsed && !this.container.classList.contains('transitioning-to-parent')) {
+                this.render(); // Position all visible items
+                lastRenderedIndex = this.currentIndex;
+                lastRenderTime = now;
+            }
+            
+            // Always update counter if position changed
+            if (previousIndex !== this.currentIndex) {
+                this.updateCounter();
+            }
             
             // Schedule next frame
             this.animationFrame = requestAnimationFrame(animate);
@@ -524,7 +611,7 @@ class ArcList {
             
             // ===== VISUAL EFFECTS =====
             const scale = Math.max(0.4, 1.0 - (absPosition * 0.15)); // Calculate scale first
-            const opacity = Math.max(0.4, 1 - absPosition * 0.15); // Center item is fully visible, edges fade out
+            const opacity = 1; // Always full opacity for all items
             const blur = 0; // No blur for now
             
             // ===== ARC POSITIONING CALCULATIONS =====
@@ -610,16 +697,91 @@ class ArcList {
     }
     
     /**
+     * Update existing elements without recreating DOM
+     * Returns true if successful, false if full render needed
+     */
+    updateExistingElements() {
+        const existingItems = Array.from(this.container.querySelectorAll('.arc-item:not(.breadcrumb)'));
+        const visibleItems = this.getVisibleItems();
+        
+        // If item count doesn't match, need full render
+        if (existingItems.length !== visibleItems.length) {
+            return false;
+        }
+        
+        // Check if items are the same (not just count)
+        // Compare the actual visible items, not just their IDs
+        let needsFullRender = false;
+        for (let i = 0; i < existingItems.length; i++) {
+            const element = existingItems[i];
+            const item = visibleItems[i];
+            // Check if this element represents the same item
+            if (!element || !item || element.dataset.itemId !== item.id) {
+                needsFullRender = true;
+                break;
+            }
+        }
+        if (needsFullRender) {
+            return false;
+        }
+        
+        // Update positions of existing elements
+        existingItems.forEach((element, index) => {
+            const item = visibleItems[index];
+            if (!item) return;
+            
+            // Clean up any animation classes that might interfere
+            element.classList.remove('playlist-enter', 'track-exit');
+            // Remove all delay classes
+            for (let i = 1; i <= 9; i++) {
+                element.classList.remove(`delay-${i}`);
+            }
+            
+            // Update transform
+            element.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
+            element.style.setProperty('opacity', '1', 'important'); // Always full opacity
+            element.style.filter = 'none'; // No blur or filters
+            
+            // Update selected state
+            const isSelected = Math.abs(item.index - this.currentIndex) < 0.5;
+            const nameEl = element.querySelector('.item-name');
+            
+            if (isSelected && !element.classList.contains('selected')) {
+                element.classList.add('selected');
+                if (nameEl) {
+                    nameEl.classList.add('selected');
+                    nameEl.classList.remove('unselected');
+                }
+            } else if (!isSelected && element.classList.contains('selected')) {
+                element.classList.remove('selected');
+                if (nameEl) {
+                    nameEl.classList.remove('selected');
+                    nameEl.classList.add('unselected');
+                }
+            }
+        });
+        
+        return true;
+    }
+    
+    /**
      * Render all visible items to the screen
      * This is called every animation frame to update positions and visibility
      */
     render() {
-        console.log('🔍 [RENDER] render() called, isAnimating:', this.isAnimating, 'viewMode:', this.viewMode);
+        // Skip logging to reduce noise
+        // console.log('🔍 [RENDER] render() called, isAnimating:', this.isAnimating, 'viewMode:', this.viewMode);
         
         // Don't render if we're in the middle of an animation
         if (this.isAnimating) {
-            console.log('🔍 [RENDER] Skipping render due to animation');
+            // console.log('🔍 [RENDER] Skipping render due to animation');
             return;
+        }
+        
+        // Try to update existing elements first (more efficient)
+        // But only for parent view - child view needs full render for now
+        if (this.viewMode === 'parent' && this.updateExistingElements()) {
+            return; // Successfully updated without recreating DOM
         }
         
         // If we're in child view, preserve the animated parent item
@@ -630,7 +792,7 @@ class ArcList {
         }
         
         // Clear the container completely to prevent element reuse issues
-        console.log('🔍 [RENDER] Clearing container, current children:', this.container.children.length);
+        // console.log('🔍 [RENDER] Clearing container, current children:', this.container.children.length);
         // Don't use innerHTML = '' as it's too aggressive, remove children selectively
         const children = Array.from(this.container.children);
         children.forEach(child => {
@@ -641,10 +803,16 @@ class ArcList {
         });
         
         const visibleItems = this.getVisibleItems();
-        console.log('🔍 [RENDER] Got visibleItems:', visibleItems.length);
+        // console.log('🔍 [RENDER] Got visibleItems:', visibleItems.length);
         
         // Create fresh DOM elements for each visible item
         visibleItems.forEach((item, index) => {
+            // Skip creating this item if it's the one being animated as breadcrumb
+            if (this.renderWithSkip && item.id === this.renderWithSkip) {
+                console.log('🔍 [RENDER] Skipping item creation for breadcrumb animation:', item.id);
+                return;
+            }
+            
             // Create main container for this item - EXACTLY like music.html
             const itemElement = document.createElement('div');
             itemElement.className = 'arc-item';
@@ -665,6 +833,11 @@ class ArcList {
             // Create image EXACTLY like music.html
             const nameEl = document.createElement('div');
             nameEl.className = 'item-name';
+            if (!itemElement.classList.contains('selected')) {
+                nameEl.classList.add('unselected');
+            } else {
+                nameEl.classList.add('selected');
+            }
             nameEl.textContent = item.name;
             
             const imgEl = document.createElement('img');
@@ -672,44 +845,60 @@ class ArcList {
             imgEl.src = item.image;
             imgEl.loading = 'lazy';
             
-            // Apply positioning and visual effects
-            itemElement.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
-            itemElement.style.opacity = item.opacity;
-            itemElement.style.filter = `blur(${item.blur}px)`;
+            // Apply positioning and visual effects ONLY to non-breadcrumb items
+            if (!itemElement.classList.contains('breadcrumb')) {
+                itemElement.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
+                itemElement.style.setProperty('opacity', '1', 'important'); // Ensure playlist items have full opacity (non-faded appearance)
+                itemElement.style.setProperty('filter', 'none', 'important'); // Remove blur for playlist items to keep them bright
+                
+                // Let CSS handle all styling - just set the classes
+                if (itemElement.classList.contains('selected')) {
+                    nameEl.classList.add('selected');
+                } else {
+                    nameEl.classList.add('unselected');
+                }
+                
+                // Override image styling to ensure it's fully bright (like playlist list)
+                imgEl.style.setProperty('opacity', '1', 'important'); // Full opacity for playlist artwork - force override
+                imgEl.style.setProperty('filter', 'none', 'important'); // Remove any filters that might cause fading - force override
+            }
             
             // Add elements to the item container - EXACTLY like music.html
             itemElement.appendChild(nameEl);
             itemElement.appendChild(imgEl);
             
+            // If we're in parent transition, add animation classes
+            if (this.inParentTransition && !itemElement.dataset.childItem) {
+                const index = visibleItems.indexOf(item);
+                itemElement.classList.add('playlist-enter', `delay-${Math.min(index + 1, 9)}`);
+                itemElement.style.opacity = '0'; // Start hidden
+            }
+            
             // Add item to the main container
-            console.log('🔍 [RENDER] Adding item to container:', item.name);
+            // console.log('🔍 [RENDER] Adding item to container:', item.name);
             this.container.appendChild(itemElement);
         });
         
-        console.log('🔍 [RENDER] Finished rendering, container children:', this.container.children.length);
+        // Update the counter with current position
+        this.updateCounter();
     }
     
     /**
      * Render child items while preserving the animated parent item
      */
     renderChildItems() {
-        console.log('🔍 [RENDER-CHILD] Starting renderChildItems');
+        // console.log('🔍 [RENDER-CHILD] renderChildItems called');
         
-        // Find the breadcrumb element (animated parent) in our container
-        const breadcrumb = this.container.querySelector('.arc-item.breadcrumb');
-        console.log('🔍 [RENDER-CHILD] Found breadcrumb:', breadcrumb);
+        // Remove existing child items but preserve breadcrumb
+        const existingChildItems = document.querySelectorAll('.arc-item[data-child-item="true"]');
+        existingChildItems.forEach(item => item.remove());
         
-        // Clear container but preserve breadcrumb
-        const children = Array.from(this.container.children);
-        children.forEach(child => {
-            if (!child.classList.contains('breadcrumb')) {
-                child.remove();
-            }
-        });
+        // Don't remove parent-hidden items, we need them for going back
+        // Just ensure our tracks have full opacity
         
         const visibleItems = this.getVisibleItems();
+        // console.log('🔍 [RENDER-CHILD] Got visibleItems for children:', visibleItems.length);
         
-        // Create fresh DOM elements for each visible child item
         visibleItems.forEach((item, index) => {
             // Create main container for this child item
             const itemElement = document.createElement('div');
@@ -729,9 +918,14 @@ class ArcList {
                 imageContainer.classList.add('selected');
             }
             
-            // Create image
+            // Create name element with proper classes from the start
             const nameEl = document.createElement('div');
             nameEl.className = 'item-name';
+            if (!itemElement.classList.contains('selected')) {
+                nameEl.classList.add('unselected');
+            } else {
+                nameEl.classList.add('selected');
+            }
             nameEl.textContent = item.name;
             
             const imgEl = document.createElement('img');
@@ -739,10 +933,18 @@ class ArcList {
             imgEl.src = item.image;
             imgEl.loading = 'lazy';
             
-            // Apply positioning and visual effects
-            itemElement.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
-            itemElement.style.opacity = item.opacity;
-            itemElement.style.filter = `blur(${item.blur}px)`;
+            // Apply positioning and visual effects ONLY to non-breadcrumb child items
+            if (!itemElement.classList.contains('breadcrumb')) {
+                itemElement.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
+                itemElement.style.setProperty('opacity', '1', 'important'); // Ensure tracks have full opacity (non-faded appearance)
+                itemElement.style.setProperty('filter', 'none', 'important'); // Remove blur for child items to keep them bright
+                
+                // Classes already set above - no need to set again
+                
+                // Override image styling to ensure it's fully bright (like playlist list)
+                imgEl.style.setProperty('opacity', '1', 'important'); // Full opacity for track artwork - force override
+                imgEl.style.setProperty('filter', 'none', 'important'); // Remove any filters that might cause fading - force override
+            }
             
             // Add elements to the item container
             itemElement.appendChild(nameEl);
@@ -750,7 +952,15 @@ class ArcList {
             
             // Add item to the main container
             this.container.appendChild(itemElement);
+            
+            // Force full opacity after adding to DOM to override any inherited styles
+            itemElement.style.setProperty('opacity', '1', 'important');
+            itemElement.style.setProperty('visibility', 'visible', 'important');
+            itemElement.style.setProperty('pointer-events', 'auto', 'important');
         });
+        
+        // Update the counter with current position
+        this.updateCounter();
     }
     
     /**
@@ -760,7 +970,11 @@ class ArcList {
         // Show current item number (1-based instead of 0-based)
         const displayIndex = Math.floor(this.currentIndex) + 1;
         this.currentItemDisplay.textContent = displayIndex;
-        // Removed excessive debug logging that was called 60fps from animation loop
+        
+        // Update total count based on current view
+        // In parent view: show total playlists
+        // In child view: show total tracks in current playlist
+        this.totalItemsDisplay.textContent = this.items.length;
     }
     
     /**
@@ -995,8 +1209,8 @@ class ArcList {
         
         // Clear inline transform and other arc positioning styles to allow CSS to take over
         selectedElement.style.transform = '';
-        selectedElement.style.opacity = '';
-        selectedElement.style.filter = '';
+        selectedElement.style.opacity = '1'; // Ensure full opacity
+        selectedElement.style.filter = 'none'; // No filters
         
         // Force a reflow to ensure the transition starts from the current position
         selectedElement.offsetHeight;
@@ -1048,7 +1262,7 @@ class ArcList {
                     console.log('🔍 [STAGGER] Animating item', index, item);
                     if (direction === 'in') {
                         // For child items, just make them visible (they're already positioned by render())
-                        item.style.opacity = '1';
+                        item.style.setProperty('opacity', '1', 'important');
                         item.style.transform = item.style.transform || 'translate(0, 0)';
                         item.style.transition = 'opacity 300ms ease-out, transform 300ms ease-out';
                         item.style.transitionDelay = `${index * staggerDelay}ms`;
@@ -1075,14 +1289,104 @@ class ArcList {
     async animateChildToParentTransition(breadcrumbElement) {
         if (!breadcrumbElement) return;
         
-        // Remove breadcrumb class to slide back
+        console.log('🔍 [DIRECT-BACK] Starting breadcrumb slide back animation');
+        
+        // Get the actual current screen position
+        const rect = breadcrumbElement.getBoundingClientRect();
+        const containerRect = this.container.getBoundingClientRect();
+        
+        // Calculate current position relative to container center
+        const currentX = rect.left + rect.width/2 - (containerRect.left + containerRect.width/2);
+        const currentY = rect.top + rect.height/2 - (containerRect.top + containerRect.height/2);
+        
+        console.log('🔍 [DIRECT-BACK] Current screen position:', { x: currentX, y: currentY });
+        
+        // Use consistent absolute center position for return
+        const CENTER_ABSOLUTE_X = 100; // Always return to same absolute center position
+        const returnX = CENTER_ABSOLUTE_X;
+        const returnY = 0; // Always return with Y=0 for horizontal movement
+        
+        console.log('🔍 [DIRECT-BACK] Returning to consistent absolute center position:', { x: returnX, y: returnY });
+        
+        // Phase 1: Completely fade out tracks
+        console.log('🔍 [DIRECT-BACK] Phase 1: Completely fading out tracks');
+        const trackItems = document.querySelectorAll('.arc-item[data-child-item="true"]');
+        trackItems.forEach((item, index) => {
+            item.style.transition = `opacity 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94)`;
+            item.style.transitionDelay = `${index * 25}ms`;
+            item.style.setProperty('opacity', '0', 'important');
+        });
+        
+        await this.delay(400); // Wait longer to ensure tracks are completely gone
+        
+        // Phase 1.5: Remove all track items from DOM to prevent any overlap
+        console.log('🔍 [DIRECT-BACK] Phase 1.5: Removing tracks from DOM');
+        const trackItemsToRemove = document.querySelectorAll('.arc-item[data-child-item="true"]');
+        trackItemsToRemove.forEach(item => item.remove());
+        
+        // Phase 2: Move breadcrumb back to original position
+        console.log('🔍 [DIRECT-BACK] Phase 2: Moving breadcrumb back to original position');
+        
+        // Set up element for direct animation
+        breadcrumbElement.style.position = 'absolute';
+        breadcrumbElement.style.top = '50%';
+        breadcrumbElement.style.left = '50%';
+        breadcrumbElement.style.marginLeft = '-140px'; // Half of 280px width
+        breadcrumbElement.style.marginTop = '-64px';
+        breadcrumbElement.style.zIndex = '10';
+        
+        // Start from current position (no vertical movement)
+        breadcrumbElement.style.transform = `translate(${currentX}px, 0px) scale(1)`;
+        breadcrumbElement.style.transition = 'none'; // No transition for initial position
+        
+        // Remove breadcrumb class
         breadcrumbElement.classList.remove('breadcrumb');
         
-        // Wait for breadcrumb slide-back animation
+        // Force a reflow
+        breadcrumbElement.offsetHeight;
+        
+        // Now animate to EXACT original position (direct movement back)
+        breadcrumbElement.style.transition = 'transform 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+        breadcrumbElement.style.transform = `translate(${returnX}px, ${returnY}px) scale(1)`;
+        breadcrumbElement.style.opacity = '1'; // Full opacity when returning
+        breadcrumbElement.style.filter = 'blur(0px)';
+        
+        console.log('✅ [DIRECT-BACK] Applied direct horizontal movement back to consistent absolute center position:', 
+            `translate(${currentX}px, 0px) → translate(${returnX}px, ${returnY}px)`);
+        
+        // Wait for breadcrumb slide-back animation to complete
         await this.delay(400);
+        
+        // Phase 3: Fade in other playlists (only after breadcrumb is in position and tracks are gone)
+        console.log('🔍 [DIRECT-BACK] Phase 3: Fading in other playlists');
+        const otherPlaylists = document.querySelectorAll('.arc-item:not(.breadcrumb)');
+        otherPlaylists.forEach((item, index) => {
+            // Remove any classes that might affect opacity
+            item.classList.remove('parent-hidden', 'parent-fade-in', 'playlist-enter');
+            item.style.transition = 'opacity 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            item.style.transitionDelay = `${index * 50}ms`;
+            // Use !important to ensure full opacity overrides any CSS rules
+            item.style.setProperty('opacity', '1', 'important');
+        });
+        
+        // Wait for playlists to fade in
+        await this.delay(400);
+        
+        // Clean up all playlists to ensure they remain visible
+        otherPlaylists.forEach((item) => {
+            item.style.transition = '';
+            item.style.transitionDelay = '';
+            // Ensure opacity remains at full after animation
+            item.style.setProperty('opacity', '1', 'important');
+        });
         
         // Remove transition classes
         breadcrumbElement.classList.remove('hierarchy-transition');
+        
+        // Clear stored position (no longer needed since we use consistent absolute positions)
+        this.originalBreadcrumbPosition = null;
+        
+        console.log('✅ [DIRECT-BACK] Breadcrumb slide back animation completed');
     }
     
     /**
@@ -1096,26 +1400,22 @@ class ArcList {
      * Enter child view - show children from the selected parent
      */
     async enterChildView() {
-        console.log('enterChildView called, current mode:', this.viewMode, 'currentIndex:', this.currentIndex);
-        console.log('parentData:', this.parentData);
-        console.log('parentData length:', this.parentData ? this.parentData.length : 'null');
+        console.log('enterChildView called, selectedParent:', this.selectedParent);
         
-        console.log('Checking conditions: viewMode:', this.viewMode, 'parentData exists:', !!this.parentData, 'currentIndex:', this.currentIndex, 'rounded:', Math.round(this.currentIndex));
-        console.log('parentData length:', this.parentData ? this.parentData.length : 'no data');
-        console.log('parentData[rounded] exists:', this.parentData ? !!this.parentData[Math.round(this.currentIndex)] : 'no data');
-        
-        if (this.viewMode !== 'parent' || !this.parentData || !this.parentData[Math.round(this.currentIndex)]) {
-            console.log('Cannot enter child view - conditions not met');
-            console.log('viewMode:', this.viewMode, 'parentData exists:', !!this.parentData, 'currentIndex:', this.currentIndex, 'rounded:', Math.round(this.currentIndex));
-            return;
+        // Check if we have a selected parent item
+        if (!this.selectedParent) {
+            console.log('No selected parent - finding current selection');
+            const selectedIndex = Math.round(this.currentIndex);
+            this.selectedParent = this.parentData[selectedIndex];
+            if (!this.selectedParent) {
+                console.log('No parent data found at index', selectedIndex);
+                return;
+            }
         }
         
-        // Check if the selected playlist has tracks
-        const selectedPlaylist = this.parentData[Math.round(this.currentIndex)];
-        console.log('Selected playlist for child view:', selectedPlaylist.name, 'has tracks:', selectedPlaylist[this.config.parentKey] ? selectedPlaylist[this.config.parentKey].length : 'none');
-        if (!selectedPlaylist[this.config.parentKey] || selectedPlaylist[this.config.parentKey].length === 0) {
-            console.log('Cannot enter child view - selected playlist has no tracks');
-            console.log('Playlist:', selectedPlaylist.name, 'tracks:', selectedPlaylist[this.config.parentKey]);
+        // Check if the selected parent has children
+        if (!this.selectedParent[this.config.parentKey] || this.selectedParent[this.config.parentKey].length === 0) {
+            console.log('Selected parent has no children');
             return;
         }
         
@@ -1123,6 +1423,20 @@ class ArcList {
         if (this.isAnimating) {
             console.log('Already animating - ignoring enterChildView call');
             return;
+        }
+        
+        // Clear snap timer to prevent position snapping during breadcrumb animations
+        if (this.snapTimer) {
+            clearTimeout(this.snapTimer);
+            this.snapTimer = null;
+            console.log('🔍 [BREADCRUMB] Cleared snap timer to prevent position snapping');
+        }
+        
+        // Pause animation loop during breadcrumb transitions
+        if (this.animationFrame) {
+            cancelAnimationFrame(this.animationFrame);
+            this.animationFrame = null;
+            console.log('🔍 [BREADCRUMB] Paused animation loop during transition');
         }
         
         this.isAnimating = true;
@@ -1157,38 +1471,24 @@ class ArcList {
         }
         
         if (!selectedElement) {
-            console.log('No selected element found for animation - trying alternative approach');
-            // Fallback: try to find by data attribute
-            const centerIndex = Math.round(this.currentIndex);
-            let fallbackElement = null;
-            
-            try {
-                fallbackElement = document.querySelector(`[data-item-id="${this.items[centerIndex]?.id}"]`);
-            } catch (error) {
-                console.log('Error finding fallback element:', error);
-                fallbackElement = null;
-            }
-            
-            if (fallbackElement) {
-                console.log('Using fallback element for animation');
-                await this.performEnhancedChildTransition(fallbackElement);
-            } else {
-                console.log('No element found at all - creating breadcrumb and loading children');
-                // Create a breadcrumb even when no element exists to animate
-                this.createBreadcrumbElement();
-                this.loadParentChildren();
-            }
-        } else {
-            await this.performEnhancedChildTransition(selectedElement);
+            console.log('No selected element found - cannot animate');
+            // Fallback to basic child loading
+            this.loadParentChildren();
+            return;
         }
+        
+        // Start the enhanced child transition
+        await this.performEnhancedChildTransition(selectedElement);
         
         } catch (error) {
             console.error('Error in enterChildView:', error);
-            // Reset view mode to parent on error
-            this.viewMode = 'parent';
+            // Fallback to basic child loading
+            this.loadParentChildren();
         } finally {
-            // Always reset animation flag
             this.isAnimating = false;
+            // Resume animation loop after transition
+            this.startAnimation();
+            console.log('🔍 [BREADCRUMB] Resumed animation loop after transition');
         }
     }
     
@@ -1213,50 +1513,131 @@ class ArcList {
     }
     
     async performEnhancedChildTransition(selectedElement) {
-        console.log('🔍 [ENHANCED] performEnhancedChildTransition starting with element:', selectedElement);
+        console.log('🔍 [DIRECT] performEnhancedChildTransition starting with element:', selectedElement);
         
         try {
             // Phase 1: Activate hierarchy background
-            console.log('🔍 [ENHANCED] Phase 1: Activating hierarchy background');
+            console.log('🔍 [DIRECT] Phase 1: Activating hierarchy background');
             await this.animateHierarchyTransition('background', 'enter');
             
-            // Phase 2: Transform the EXISTING selected element into breadcrumb
-            console.log('🔍 [ENHANCED] Phase 2: Animating selected element to breadcrumb position');
+            // Phase 2: DIRECT animation - move element from current position to left
+            console.log('🔍 [DIRECT] Phase 2: Direct animation from current position to left');
             
             if (selectedElement) {
-                // Set up the transition first
-                selectedElement.style.transition = 'all 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                // Get the actual current screen position
+                const rect = selectedElement.getBoundingClientRect();
+                const containerRect = this.container.getBoundingClientRect();
+                
+                // Calculate current position relative to container center
+                const currentX = rect.left + rect.width/2 - (containerRect.left + containerRect.width/2);
+                const currentY = rect.top + rect.height/2 - (containerRect.top + containerRect.height/2);
+                
+                // Store original position for exact return
+                this.originalBreadcrumbPosition = { x: currentX, y: currentY };
+                
+                // Set consistent absolute positions
+                const BREADCRUMB_ABSOLUTE_X = -320; // Always move to same absolute left position
+                const CENTER_ABSOLUTE_X = 100; // Always return to same absolute center position
+                
+                console.log('🔍 [DIRECT] Current screen position:', { x: currentX, y: currentY });
+                console.log('🔍 [DIRECT] Will move to consistent absolute position:', BREADCRUMB_ABSOLUTE_X);
+                
+                // Set up element for direct animation
+                selectedElement.style.position = 'absolute';
+                selectedElement.style.top = '50%';
+                selectedElement.style.left = '50%';
+                selectedElement.style.marginLeft = '-140px'; // Half of 280px width
+                selectedElement.style.marginTop = '-64px';
                 selectedElement.style.zIndex = '10';
                 selectedElement.style.pointerEvents = 'auto';
                 
-                // Add breadcrumb class to existing element
+                // Start from current position (no vertical movement)
+                selectedElement.style.transform = `translate(${currentX}px, 0px) scale(1)`;
+                selectedElement.style.transition = 'none'; // No transition for initial position
+                
+                // Add breadcrumb class
                 selectedElement.classList.add('breadcrumb');
                 selectedElement.classList.remove('selected');
                 
-                // Clear inline transform and other arc positioning styles to allow CSS to take over
-                selectedElement.style.transform = '';
-                selectedElement.style.opacity = '';
-                selectedElement.style.filter = '';
-                
-                // Force a reflow to ensure the transition starts from the current position
+                // Force a reflow
                 selectedElement.offsetHeight;
+                
+                // Phase 3: Hide other playlists (but keep them in DOM)
+                console.log('🔍 [HIDE-SHOW] Phase 3: Hiding playlists with parent-hidden class');
+                const otherPlaylists = document.querySelectorAll('.arc-item:not(.breadcrumb)');
+                otherPlaylists.forEach(item => {
+                    // Add a class to mark them as hidden parents
+                    item.classList.add('parent-hidden');
+                    item.style.transition = 'opacity 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                    item.style.setProperty('opacity', '0', 'important');
+                    // Don't remove from DOM - just hide them
+                });
+                
+                // Now animate to breadcrumb position (direct left movement to consistent absolute position)
+                selectedElement.style.transition = 'transform 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                selectedElement.style.transform = `translate(${BREADCRUMB_ABSOLUTE_X}px, 0px) scale(1)`;
+                selectedElement.style.opacity = '1'; // Full opacity
+                selectedElement.style.filter = 'blur(0px)';
                 
                 // Mark it so we can identify it later
                 selectedElement.dataset.animatedParent = 'true';
                 
-                console.log('✅ [ENHANCED] Added breadcrumb class and cleared inline styles for smooth transition');
+                console.log('✅ [DIRECT] Applied direct horizontal movement to consistent absolute position:', 
+                    `translate(${currentX}px, 0px) → translate(${BREADCRUMB_ABSOLUTE_X}px, 0px)`);
+                
+                // Wait for both breadcrumb animation and playlist hiding to complete
+                await this.delay(400);
+                
             } else {
                 // Fallback: create a new breadcrumb if no element to animate
-                console.log('⚠️ [ENHANCED] No element to animate, creating static breadcrumb');
+                console.log('⚠️ [DIRECT] No element to animate, creating static breadcrumb');
                 this.createBreadcrumbElement();
+                
+                // Still need to hide other playlists in fallback case
+                const otherPlaylists = document.querySelectorAll('.arc-item:not(.breadcrumb)');
+                otherPlaylists.forEach(item => {
+                    item.style.transition = 'opacity 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                    item.style.setProperty('opacity', '0', 'important'); // Completely hidden
+                });
+                await this.delay(300);
             }
+            
+            // Phase 3.5: Keep playlists in DOM but fully hidden
+            console.log('🔍 [HIDE-SHOW] Phase 3.5: Keeping playlists in DOM but hidden');
+            // DON'T remove items - they're already hidden with parent-hidden class
+            // This allows instant visibility when returning to parent view
             
             // Load children
             this.loadParentChildren();
             
-            console.log('✅ [ENHANCED] Enhanced child view transition completed');
+            // Temporarily clear animation flag to allow render
+            const wasAnimating = this.isAnimating;
+            this.isAnimating = false;
+            
+            // Force render to ensure tracks are displayed
+            this.render();
+            
+            // Restore animation flag
+            this.isAnimating = wasAnimating;
+            
+            // Phase 4: Fade in tracks (only after playlists are completely hidden)
+            console.log('🔍 [DIRECT] Phase 4: Fading in tracks');
+            await this.delay(100); // Small delay to ensure tracks are rendered and playlists are hidden
+            const trackItems = document.querySelectorAll('.arc-item[data-child-item="true"]');
+            trackItems.forEach((item, index) => {
+                item.style.setProperty('opacity', '0', 'important');
+                item.style.transition = `opacity 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94)`;
+                item.style.transitionDelay = `${index * 50}ms`;
+                
+                // Fade in with stagger
+                setTimeout(() => {
+                    item.style.setProperty('opacity', '1', 'important'); // Full opacity for tracks
+                }, 50);
+            });
+            
+            console.log('✅ [DIRECT] Direct child view transition completed');
         } catch (error) {
-            console.error('❌ [ENHANCED] Error during enhanced child transition:', error);
+            console.error('❌ [DIRECT] Error during direct child transition:', error);
             // Fallback to basic child loading if animation fails
             this.loadParentChildren();
         } finally {
@@ -1275,9 +1656,22 @@ class ArcList {
         // Create breadcrumb element
         const breadcrumb = document.createElement('div');
         breadcrumb.className = 'arc-item breadcrumb';
-        // Don't set inline styles - let CSS handle all positioning
+        
+        // Apply direct breadcrumb positioning for consistency (updated position and opacity)
+        const BREADCRUMB_ABSOLUTE_X = -320; // Target breadcrumb X position
+        const lockedY = 0; // LOCK Y position to prevent any vertical movement
+        
+        breadcrumb.style.transform = `translate(${BREADCRUMB_ABSOLUTE_X}px, ${lockedY}px) scale(1)`;
+        breadcrumb.style.position = 'absolute';
+        breadcrumb.style.top = '50%';
+        breadcrumb.style.left = '50%';
+        breadcrumb.style.marginLeft = '-140px'; // Half of 280px width
+        breadcrumb.style.marginTop = '-64px';
+        breadcrumb.style.opacity = '1'; // Full opacity // Higher opacity for better readability
         breadcrumb.style.zIndex = '10';
         breadcrumb.style.pointerEvents = 'auto';
+        
+        console.log('✅ [BREADCRUMB] Created breadcrumb element with consistent absolute positioning: translate(' + BREADCRUMB_ABSOLUTE_X + 'px, 0px) scale(1)');
         
         // Add content
         const nameEl = document.createElement('div');
@@ -1329,8 +1723,8 @@ class ArcList {
         
         // Convert child items to our format
         if (this.config.childNameMapper) {
-            // Use custom mapper for child names
-            this.items = childItems.map(item => this.config.childNameMapper(item));
+            // Use custom mapper for child names - pass all tracks for context
+            this.items = childItems.map((item, index) => this.config.childNameMapper(item, index, childItems));
         } else {
             // Default mapping
             this.items = childItems.map(item => ({
@@ -1343,7 +1737,13 @@ class ArcList {
         this.viewMode = 'child';
         this.currentIndex = 0;
         this.targetIndex = 0;
-        // Don't call render() directly - let the animation loop handle it
+        
+        // Force render to show tracks immediately
+        this.render();
+        
+        // Update counter to show track count
+        this.updateCounter();
+        
         console.log('Switched to child view:', this.items.length, 'items');
     }
 
@@ -1351,64 +1751,286 @@ class ArcList {
      * Exit child view - return to parent selection
      */
     async exitChildView() {
-        if (this.viewMode !== 'child') return;
+        console.log('exitChildView called, viewMode:', this.viewMode);
         
-        console.log('Exiting child view, returning to parent:', this.savedParentIndex);
-        
-        // Set animation state to prevent render interference
-        this.isAnimating = true;
-        
-        // Find the breadcrumb element (the animated parent item) with error handling
-        let breadcrumbElement = null;
-        
-        try {
-            breadcrumbElement = document.querySelector('.arc-item.breadcrumb');
-        } catch (error) {
-            console.log('Error finding breadcrumb element:', error);
-            breadcrumbElement = null;
+        if (this.viewMode !== 'child') {
+            console.log('Not in child view - ignoring exitChildView call');
+            return;
         }
         
-        if (breadcrumbElement) {
+        // Prevent multiple simultaneous calls
+        if (this.isAnimating) {
+            console.log('Already animating - ignoring exitChildView call');
+            return;
+        }
+        
+        // Clear snap timer to prevent position snapping during breadcrumb animations
+        if (this.snapTimer) {
+            clearTimeout(this.snapTimer);
+            this.snapTimer = null;
+            console.log('🔍 [BREADCRUMB] Cleared snap timer to prevent position snapping');
+        }
+        
+        // Pause animation loop during breadcrumb transitions
+        if (this.animationFrame) {
+            cancelAnimationFrame(this.animationFrame);
+            this.animationFrame = null;
+            console.log('🔍 [BREADCRUMB] Paused animation loop during transition');
+        }
+        
+        this.isAnimating = true;
+        
+        try {
+            // Find the breadcrumb element
+            const breadcrumbElement = document.querySelector('.arc-item.breadcrumb');
+            if (!breadcrumbElement) {
+                console.log('No breadcrumb element found - performing fallback transition');
+                await this.performFallbackParentTransition();
+                return;
+            }
+            
+            console.log('Found breadcrumb element, performing enhanced transition');
             await this.performEnhancedParentTransition(breadcrumbElement);
-        } else {
-            console.log('No breadcrumb element found - using fallback transition');
+        } catch (error) {
+            console.error('Error in exitChildView:', error);
+            // Fallback to basic parent restoration
             await this.performFallbackParentTransition();
+        } finally {
+            this.isAnimating = false;
+            // Resume animation loop after transition
+            this.startAnimation();
+            // Restore snap timer functionality
+            this.setupSnapTimer();
+            console.log('🔍 [BREADCRUMB] Resumed animation loop and snap timer after transition');
         }
     }
     
     async performEnhancedParentTransition(breadcrumbElement) {
         try {
-            // Phase 1: Fade out child items
-            const childItems = Array.from(document.querySelectorAll('.arc-item[data-child-item="true"]'));
-            childItems.forEach(item => {
-                item.classList.add('parent-fade-out');
+            console.log('🔍 [HIDE-SHOW-TRANSITION] Using hide/show approach for instant visibility');
+            
+            // Mark container as transitioning
+            this.container.classList.add('transitioning-to-parent');
+            
+            // First, check if we have hidden parent items
+            const hiddenParentItems = Array.from(document.querySelectorAll('.arc-item.parent-hidden'));
+            
+            if (hiddenParentItems.length > 0) {
+                // We have hidden parents - just show them instantly!
+                console.log('🔍 [HIDE-SHOW] Found', hiddenParentItems.length, 'hidden parent items');
+                
+                // Restore view mode
+                this.viewMode = 'parent';
+                this.currentIndex = this.savedParentIndex;
+                this.targetIndex = this.savedParentIndex;
+                
+                // Show all hidden parent items instantly
+                hiddenParentItems.forEach(item => {
+                    item.classList.remove('parent-hidden', 'parent-fade-in', 'playlist-enter',
+                                         'stagger-1', 'stagger-2', 'stagger-3', 'stagger-4', 
+                                         'stagger-5', 'stagger-6', 'stagger-7', 'stagger-8', 
+                                         'stagger-9', 'visible');
+                    item.style.display = ''; // Remove display: none
+                    item.style.visibility = 'visible';
+                    // Use !important to ensure opacity overrides any CSS rules
+                    item.style.setProperty('opacity', '1', 'important');
+                });
+                
+                // Get child items to hide
+                const childItems = Array.from(document.querySelectorAll('.arc-item[data-child-item="true"]'));
+                
+                // Apply exit animation to tracks
+                childItems.forEach(item => {
+                    item.classList.add('track-exit');
+                });
+                
+                // Wait for track exit animation
+                await this.delay(300);
+                
+                // Now remove the tracks
+                childItems.forEach(item => item.remove());
+            } else {
+                // Fallback to old approach if no hidden parents found
+                console.log('🔍 [HIDE-SHOW] No hidden parents, using fallback approach');
+                
+                // Restore parent data
+                this.viewMode = 'parent';
+                this.items = this.parentData.map((parent, index) => ({
+                    id: parent.id,
+                    name: parent.name || `Parent ${index + 1}`,
+                    image: parent.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
+                }));
+                
+                // Render parent items
+                this.renderWithSkip = this.parentData[this.savedParentIndex].id;
+                this.inParentTransition = true;
+                this.render();
+                this.inParentTransition = false;
+                this.renderWithSkip = null;
+                
+                // Get rendered parent items and show them instantly
+                const parentItems = Array.from(document.querySelectorAll('.arc-item:not([data-child-item="true"]):not(.breadcrumb)'));
+                parentItems.forEach(item => {
+                    // Remove any animation classes that might affect opacity
+                    item.classList.remove('parent-hidden', 'parent-fade-in', 'playlist-enter',
+                                         'stagger-1', 'stagger-2', 'stagger-3', 'stagger-4', 
+                                         'stagger-5', 'stagger-6', 'stagger-7', 'stagger-8', 
+                                         'stagger-9', 'visible');
+                    // Use !important to ensure opacity overrides any CSS rules
+                    item.style.setProperty('opacity', '1', 'important');
+                    item.style.visibility = 'visible';
+                });
+            }
+            
+            // Get current position before making any changes
+            const currentTransform = breadcrumbElement.style.transform;
+            
+            // Transform breadcrumb to its position among playlists
+            breadcrumbElement.classList.remove('breadcrumb');
+            breadcrumbElement.classList.add('breadcrumb-slide-right', 'selected');
+            
+            // Mark breadcrumb as the selected parent item so render() won't create a duplicate
+            breadcrumbElement.dataset.itemId = this.parentData[this.savedParentIndex].id;
+            breadcrumbElement.dataset.isSelectedParent = 'true';
+            
+            // Keep the current transform to start from the correct position
+            breadcrumbElement.style.transform = currentTransform;
+            breadcrumbElement.style.position = 'absolute';
+            breadcrumbElement.style.opacity = '1';
+            breadcrumbElement.style.filter = 'none';
+            
+            // Force a reflow to ensure starting position is applied
+            breadcrumbElement.offsetHeight;
+            
+            // Since we want the breadcrumb to slide to center position (where it was selected from)
+            // and the parent index is restored to savedParentIndex, the relative position is 0
+            const relativePos = 0; // Center position
+            
+            // Position calculations from getVisibleItems for center item
+            const scale = 1.0; // Center item is full scale
+            const baseXOffset = 100;
+            const x = baseXOffset; // Center position has no additional offset
+            const y = 0; // Center position has no vertical offset
+            
+            // Apply the target transform after a tiny delay to ensure transition works
+            requestAnimationFrame(() => {
+                breadcrumbElement.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
             });
             
-            // Phase 2: Animate breadcrumb back to normal position
-            breadcrumbElement.classList.remove('breadcrumb');
-            breadcrumbElement.classList.add('selected');
-            delete breadcrumbElement.dataset.animatedParent;
+            // Wait for breadcrumb animation only (300ms)
+            await this.delay(300); // Just wait for breadcrumb slide, not playlist delays
             
-            // Wait for animations to complete
-            await this.delay(200);
+            // First, update the state BEFORE any DOM changes
+            this.currentIndex = this.savedParentIndex;
+            this.targetIndex = this.savedParentIndex;
+            this.selectedParent = null;
             
-            // Phase 2: Slide breadcrumb back to center
-            await this.animateChildToParentTransition(breadcrumbElement);
+            // Clean up in the right order
+            // 1. Child items should already be removed in the hide/show path
+            // For fallback path, remove them here
+            const remainingChildItems = Array.from(document.querySelectorAll('.arc-item[data-child-item="true"]'));
+            remainingChildItems.forEach(item => item.remove());
             
-            // Phase 3: Restore parent data and items
-            this.restoreParentView();
+            // 2. Remove animation classes from breadcrumb and ensure it's fully bright
+            breadcrumbElement.classList.remove('breadcrumb-slide-right', 'breadcrumb');
+            breadcrumbElement.style.transition = '';
             
-            // Phase 4: Deactivate hierarchy background
+            // CRITICAL FIX: Completely clean the breadcrumb element to make it a normal selected item
+            const breadcrumbNameEl = breadcrumbElement.querySelector('.item-name');
+            if (breadcrumbNameEl) {
+                // Force bright white text on the breadcrumb (selected playlist)
+                breadcrumbNameEl.style.setProperty('color', 'white', 'important');
+                breadcrumbNameEl.style.setProperty('opacity', '1', 'important');
+                // Add selected class to match normal behavior
+                breadcrumbNameEl.classList.add('selected');
+                breadcrumbNameEl.classList.remove('unselected');
+            }
+            // Force full opacity on breadcrumb element itself
+            breadcrumbElement.style.setProperty('opacity', '1', 'important');
+            breadcrumbElement.style.setProperty('filter', 'none', 'important');
+            
+            // 3. Remove transitioning class to resume render
+            this.container.classList.remove('transitioning-to-parent');
+            
+            // 4. The breadcrumb is now just a regular selected item at the center
+            // No need to remove it - it's already in the right place
+            
+            // 5. Clean up animation classes from parent items
+            parentItems.forEach(item => {
+                item.classList.remove('playlist-enter', 'parent-fade-in', 'delay-1', 'delay-2', 'delay-3', 
+                                     'delay-4', 'delay-5', 'delay-6', 'delay-7', 
+                                     'delay-8', 'delay-9', 'stagger-1', 'stagger-2', 'stagger-3',
+                                     'stagger-4', 'stagger-5', 'stagger-6', 'stagger-7',
+                                     'stagger-8', 'stagger-9', 'visible');
+                item.style.transition = '';
+                // Ensure items remain visible after animation - use !important to override any CSS
+                item.style.setProperty('opacity', '1', 'important');
+            });
+            
+            // 6. The breadcrumb is already positioned correctly as the center item
+            // Remove its dataset flags to make it a normal item
+            delete breadcrumbElement.dataset.isSelectedParent;
+            delete breadcrumbElement.dataset.childItem;
+            
+            // Reset animation state
+            this.isAnimating = false; // Allow render to work again
+            this.inParentTransition = false; // Clear transition flag
+            
+            // Now we need to ensure all items are properly positioned
+            // Use updateExistingElements to adjust positions without recreating DOM
+            const visibleItems = this.getVisibleItems();
+            const existingItems = Array.from(this.container.querySelectorAll('.arc-item:not([data-child-item="true"])'));
+            
+            // Update positions of all items to ensure they're correctly placed
+            existingItems.forEach((element, index) => {
+                const item = visibleItems.find(vi => vi.id === element.dataset.itemId);
+                if (item) {
+                    // Apply final positions without animation
+                    element.style.transition = 'none';
+                    element.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
+                    element.style.opacity = '1';
+                    element.style.filter = 'none';
+                    
+                    // Update selected state
+                    if (item.isSelected) {
+                        element.classList.add('selected');
+                    } else {
+                        element.classList.remove('selected');
+                    }
+                }
+            });
+            
+            // Update the counter
+            this.updateCounter();
+            
+            // Deactivate hierarchy background
             await this.animateHierarchyTransition('background', 'exit');
             
-            // Phase 5: Animate parent items back with stagger effect
-            const parentItems = Array.from(document.querySelectorAll('.arc-item:not([data-child-item="true"])'));
-            await this.staggerListAnimation(parentItems, 'out');
+            // Ensure all playlist items that should be visible are actually rendered
+            // We need to check if we're missing any items that should be visible
+            const allVisibleItems = this.getVisibleItems();
+            const currentItems = Array.from(this.container.querySelectorAll('.arc-item:not([data-child-item="true"])'));
             
-            console.log('Enhanced parent view transition completed');
+            // Check if we need to render missing items
+            const missingItems = allVisibleItems.filter(item => 
+                !currentItems.some(el => el.dataset.itemId === item.id)
+            );
+            
+            if (missingItems.length > 0) {
+                console.log(`🔍 [PARALLEL-TRANSITION] Rendering ${missingItems.length} missing items`);
+                // We have missing items, need to render them
+                this.render();
+            } else {
+                console.log('🔍 [PARALLEL-TRANSITION] All items are visible, no additional render needed');
+            }
+            
+            // Force selected state update on existing items
+            this.updateSelectedState();
+            console.log('🔍 [PARALLEL-TRANSITION] Updated selected state on existing items');
+            
+            console.log('🔍 [PARALLEL-TRANSITION] Completed transition to parent view');
         } catch (error) {
             console.error('Error during enhanced parent transition:', error);
-            // Fallback to basic parent restoration
             await this.performFallbackParentTransition();
         }
     }
@@ -1423,6 +2045,10 @@ class ArcList {
         // Simple delay then render
         await this.delay(300);
         this.render();
+        
+        // Update counter after transition
+        this.updateCounter();
+        
         console.log('Fallback parent transition completed');
     }
     
@@ -1441,7 +2067,57 @@ class ArcList {
         
         // Re-enable rendering
         this.isAnimating = false;
+        
+        // Update counter to show playlist count
+        this.updateCounter();
+        
         console.log('Restored parent view data');
+    }
+
+    /**
+     * Update selected state on existing items without recreating them
+     */
+    updateSelectedState() {
+        const parentItems = Array.from(document.querySelectorAll('.arc-item:not([data-child-item="true"]):not(.breadcrumb)'));
+        
+        parentItems.forEach(item => {
+            const itemId = item.dataset.itemId;
+            const itemIndex = this.items.findIndex(dataItem => dataItem.id === itemId);
+            
+            if (itemIndex !== -1) {
+                const isSelected = Math.abs(itemIndex - this.currentIndex) < 0.5;
+                const nameEl = item.querySelector('.item-name');
+                
+                if (isSelected) {
+                    // Make this item selected
+                    item.classList.add('selected');
+                    item.classList.remove('unselected');
+                    if (nameEl) {
+                        nameEl.classList.add('selected');
+                        nameEl.classList.remove('unselected');
+                        // Ensure bright white text
+                        nameEl.style.setProperty('color', 'white', 'important');
+                        nameEl.style.setProperty('opacity', '1', 'important');
+                    }
+                } else {
+                    // Make this item unselected
+                    item.classList.remove('selected');
+                    item.classList.add('unselected');
+                    if (nameEl) {
+                        nameEl.classList.remove('selected');
+                        nameEl.classList.add('unselected');
+                        // Still ensure bright white text (we want all text bright)
+                        nameEl.style.setProperty('color', 'white', 'important');
+                        nameEl.style.setProperty('opacity', '1', 'important');
+                    }
+                }
+                
+                // Ensure item itself has full opacity and remove any filters
+                item.style.setProperty('opacity', '1', 'important');
+                item.style.setProperty('filter', 'none', 'important');
+                item.style.setProperty('visibility', 'visible', 'important');
+            }
+        });
     }
 
     /**
