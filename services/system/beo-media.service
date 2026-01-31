@@ -8,6 +8,7 @@ Type=simple
 User=kirsten
 Group=kirsten
 WorkingDirectory=/home/kirsten/beosound5c/services
+EnvironmentFile=-/etc/beosound5c/config.env
 ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/media.py
 Restart=always
 RestartSec=5

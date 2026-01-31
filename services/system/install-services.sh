@@ -30,6 +30,38 @@ echo "📁 Script directory: $SCRIPT_DIR"
 echo "📁 Target directory: $SERVICE_DIR"
 echo ""
 
+# Create configuration directory and copy example if needed
+CONFIG_DIR="/etc/beosound5c"
+CONFIG_FILE="$CONFIG_DIR/config.env"
+CONFIG_EXAMPLE="$SCRIPT_DIR/../config.env.example"
+
+echo "📋 Setting up configuration..."
+if [ ! -d "$CONFIG_DIR" ]; then
+    echo "  ✅ Creating $CONFIG_DIR"
+    mkdir -p "$CONFIG_DIR"
+fi
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    if [ -f "$CONFIG_EXAMPLE" ]; then
+        echo "  ✅ Copying config.env.example to $CONFIG_FILE"
+        cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"
+        chmod 644 "$CONFIG_FILE"
+        echo ""
+        echo "  ⚠️  IMPORTANT: Edit $CONFIG_FILE to customize for this device!"
+        echo "     - DEVICE_NAME: Location identifier (e.g., Kitchen, Loft)"
+        echo "     - BEOREMOTE_MAC: BeoRemote One Bluetooth MAC address"
+        echo "     - SONOS_IP: Sonos speaker IP address"
+        echo "     - SPOTIFY_USER_ID: Spotify username for playlists"
+        echo ""
+    else
+        echo "  ⚠️  Warning: config.env.example not found at $CONFIG_EXAMPLE"
+    fi
+else
+    echo "  ℹ️  Config file already exists at $CONFIG_FILE"
+fi
+
+echo ""
+
 # Ensure we are updated
 sudo systemctl daemon-reload
 sudo systemctl reset-failed
