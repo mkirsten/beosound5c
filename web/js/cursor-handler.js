@@ -3,7 +3,7 @@
 
 // Configuration - WebSocket URL loaded from AppConfig (config.js)
 const config = {
-    showMouseCursor: true,   // Set to true to show the mouse cursor by default
+    showMouseCursor: false,   // Hide mouse cursor on hardware device
     wsUrl: AppConfig.websocket.input,  // Loaded from centralized config
     skipFactor: 1,          // Process 1 out of every N events (higher = more skipping)
     disableTransitions: true, // Set to true to disable CSS transitions on the pointer
@@ -100,18 +100,20 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Dummy hardware manager is available as window.dummyHardwareManager
     
-    // Add mousemove event listener to show cursor when moved
-    document.addEventListener('mousemove', () => {
-        showCursor();
-        
-        // Clear any existing timeout
-        if (cursorHideTimeout) {
-            clearTimeout(cursorHideTimeout);
-        }
-        
-        // Set a new timeout to hide the cursor after delay
-        cursorHideTimeout = setTimeout(hideCursor, config.cursorHideDelay);
-    });
+    // Add mousemove event listener to show cursor when moved (only if cursor is enabled)
+    if (config.showMouseCursor) {
+        document.addEventListener('mousemove', () => {
+            showCursor();
+
+            // Clear any existing timeout
+            if (cursorHideTimeout) {
+                clearTimeout(cursorHideTimeout);
+            }
+
+            // Set a new timeout to hide the cursor after delay
+            cursorHideTimeout = setTimeout(hideCursor, config.cursorHideDelay);
+        });
+    }
     
     // Debug click events on security iframe
     document.addEventListener('click', (e) => {
