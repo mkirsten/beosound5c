@@ -6,12 +6,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Bang & Olufsen BeoSound 5c recreation project that replaces the software of the BeoSound 5,  using modern technologies. It features a circular arc-based UI that integrates with Sonos players, Spotify, and original B&O hardware through multiple coordinated services.
 
+## Device Access
+
+**SSH to the BeoSound 5c hardware:**
+```bash
+ssh beosound5c.local
+```
+- Username: kirsten
+- Code location on device: `/home/kirsten/beosound5c/`
+
 ## Development Commands
 
 ### System Service Management on the real hardware
 ```bash
+# SSH to device first
+ssh beosound5c.local
+
 # Install all services
-cd services/system
+cd ~/beosound5c/services/system
 sudo ./install-services.sh
 
 # Check service status
@@ -158,11 +170,12 @@ The system integrates with Home Assistant for scene control and automation:
 
 ## Development vs Production Environments
 
-**Production Environment:**
+**Production Environment (beosound5c.local):**
 - Raspberry Pi 5 with vanilla OS and required packages
 - Physical BS5 hardware (USB input device, display)
 - All 6 systemd services running (`beo-http`, `beo-ui`, `beo-media`, `beo-input`, `beo-masterlink`, `beo-bluetooth`)
 - Hardware-specific features (USB HID, MasterLink, Bluetooth remotes)
+- Access via: `ssh beosound5c.local`
 
 **Development Environment:**
 - Development machine (e.g., MacBook) without physical BS5 hardware
