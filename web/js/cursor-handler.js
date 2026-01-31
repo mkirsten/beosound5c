@@ -70,8 +70,10 @@ document.addEventListener('DOMContentLoaded', () => {
             *, iframe, #security-iframe { cursor: none !important; }
             iframe, #security-iframe { pointer-events: auto !important; z-index: 1000 !important; }
         `;
+        console.log('[CURSOR] Mouse cursor hidden - config.showMouseCursor:', config.showMouseCursor);
     }
     document.head.appendChild(style);
+    console.log('[CURSOR] Style element added to head');
     
     // Create style for disabling transitions if needed
     updateTransitionStyles();
