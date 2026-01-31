@@ -2,73 +2,31 @@
   {
     "id": "dinner",
     "name": "Dinner",
-    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🍽️%3C/text%3E%3C/svg%3E",
+    "image": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgZmlsbD0iIzFhMWExYSIgcng9IjEyIi8+PGNpcmNsZSBjeD0iNjQiIGN5PSI2OCIgcj0iMjgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzU1NSIgc3Ryb2tlLXdpZHRoPSIyIi8+PGVsbGlwc2UgY3g9IjY0IiBjeT0iNjgiIHJ4PSIxNiIgcnk9IjYiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQ0NCIgc3Ryb2tlLXdpZHRoPSIxIi8+PHJlY3QgeD0iMzgiIHk9IjQwIiB3aWR0aD0iMiIgaGVpZ2h0PSIxOCIgcng9IjEiIGZpbGw9IiM2NjYiLz48Y2lyY2xlIGN4PSIzOSIgY3k9IjM4IiByPSI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM2NjYiIHN0cm9rZS13aWR0aD0iMS41Ii8+PHJlY3QgeD0iODgiIHk9IjUwIiB3aWR0aD0iMiIgaGVpZ2h0PSIyOCIgcng9IjEiIGZpbGw9IiM2NjYiLz48ZWxsaXBzZSBjeD0iODkiIGN5PSI3OCIgcng9IjUiIHJ5PSIzIiBmaWxsPSJub25lIiBzdHJva2U9IiM2NjYiIHN0cm9rZS13aWR0aD0iMS41Ii8+PC9zdmc+",
     "scenes": null
   },
   {
     "id": "cozy",
     "name": "Cozy",
-    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🕯️%3C/text%3E%3C/svg%3E",
-    "scenes": null
-  },
-  {
-    "id": "night",
-    "name": "Night",
-    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E💤%3C/text%3E%3C/svg%3E",
+    "image": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgZmlsbD0iIzFhMWExYSIgcng9IjEyIi8+PHJlY3QgeD0iNTgiIHk9IjYwIiB3aWR0aD0iMTIiIGhlaWdodD0iMzIiIHJ4PSIyIiBmaWxsPSIjZGRkIi8+PHJlY3QgeD0iNTYiIHk9IjkwIiB3aWR0aD0iMTYiIGhlaWdodD0iNiIgcng9IjIiIGZpbGw9IiM2NjYiLz48cGF0aCBkPSJNNjQgNTggUTU4IDQ2IDY0IDMwIFE3MCA0NiA2NCA1OCIgZmlsbD0iI2ZhMCIvPjxlbGxpcHNlIGN4PSI2NCIgY3k9IjM2IiByeD0iNCIgcnk9IjYiIGZpbGw9IiNmZjYiIG9wYWNpdHk9IjAuNyIvPjwvc3ZnPg==",
     "scenes": null
   },
   {
     "id": "frame",
     "name": "Frame",
-    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🖼️%3C/text%3E%3C/svg%3E",
-    "scenes": [
-      {
-        "id": "frame_artmode",
-        "name": "Art Mode",
-        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🎨%3C/text%3E%3C/svg%3E"
-      },
-      {
-        "id": "frame_netflix",
-        "name": "Netflix",
-        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Crect x='32' y='32' width='64' height='64' fill='%23E50914' rx='8'/%3E%3Ctext x='64' y='72' text-anchor='middle' fill='white' font-size='20' font-family='Arial, sans-serif' font-weight='bold'%3EN%3C/text%3E%3C/svg%3E"
-      },
-      {
-        "id": "frame_svtplay",
-        "name": "SVT Play",
-        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Crect x='32' y='32' width='64' height='64' fill='%23FF6600' rx='8'/%3E%3Ctext x='64' y='72' text-anchor='middle' fill='white' font-size='18' font-family='Arial, sans-serif' font-weight='bold'%3ESVT%3C/text%3E%3C/svg%3E"
-      },
-      {
-        "id": "frame_spotify",
-        "name": "Spotify",
-        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ccircle cx='64' cy='64' r='32' fill='%231DB954'/%3E%3Cpath d='M54 58 Q64 54 74 58 M54 64 Q64 60 74 64 M54 70 Q64 66 74 70' stroke='white' stroke-width='2' fill='none'/%3E%3C/svg%3E"
-      }
-    ]
+    "image": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgZmlsbD0iIzFhMWExYSIgcng9IjEyIi8+PHJlY3QgeD0iMjgiIHk9IjMyIiB3aWR0aD0iNzIiIGhlaWdodD0iNjQiIHJ4PSIyIiBmaWxsPSIjMjIyIiBzdHJva2U9IiM0NDQiIHN0cm9rZS13aWR0aD0iMyIvPjxyZWN0IHg9IjM0IiB5PSIzOCIgd2lkdGg9IjYwIiBoZWlnaHQ9IjUyIiBmaWxsPSIjMjgzMDM4Ii8+PGNpcmNsZSBjeD0iNTIiIGN5PSI1NCIgcj0iOCIgZmlsbD0iI2ZhMCIgb3BhY2l0eT0iMC44Ii8+PHBhdGggZD0iTTM0IDkwIEw1NCA2NSBMODY4IDc4IEw4MCA2MiBMOTQgOTAgWiIgZmlsbD0iIzM2MyIgb3BhY2l0eT0iMC44Ii8+PC9zdmc+",
+    "scenes": null
   },
   {
-    "id": "lights",
-    "name": "Lights",
-    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E💡%3C/text%3E%3C/svg%3E",
-    "scenes": [
-      {
-        "id": "lights_all_on",
-        "name": "All On",
-        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🔆%3C/text%3E%3C/svg%3E"
-      },
-      {
-        "id": "lights_cozy",
-        "name": "Cozy",
-        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🕯️%3C/text%3E%3C/svg%3E"
-      },
-      {
-        "id": "lights_spaceballs",
-        "name": "Spaceballs",
-        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🌌%3C/text%3E%3C/svg%3E"
-      },
-      {
-        "id": "lights_all_off",
-        "name": "All Off",
-        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='rgba(255,255,255,0.1)' rx='16'/%3E%3Ctext x='64' y='80' text-anchor='middle' fill='white' font-size='48' font-family='Arial'%3E🌙%3C/text%3E%3C/svg%3E"
-      }
-    ]
+    "id": "all_on",
+    "name": "All on",
+    "image": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgZmlsbD0iIzFhMWExYSIgcng9IjEyIi8+PGNpcmNsZSBjeD0iNjQiIGN5PSI1OCIgcj0iMjIiIGZpbGw9IiNmYTAiLz48bGluZSB4MT0iNjQiIHkxPSIyOCIgeDI9IjY0IiB5Mj0iMTgiIHN0cm9rZT0iI2ZhMCIgc3Ryb2tlLXdpZHRoPSIzIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48bGluZSB4MT0iNjQiIHkxPSI5OCIgeDI9IjY0IiB5Mj0iODgiIHN0cm9rZT0iI2ZhMCIgc3Ryb2tlLXdpZHRoPSIzIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48bGluZSB4MT0iMzQiIHkxPSI1OCIgeDI9IjI0IiB5Mj0iNTgiIHN0cm9rZT0iI2ZhMCIgc3Ryb2tlLXdpZHRoPSIzIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48bGluZSB4MT0iMTA0IiB5MT0iNTgiIHgyPSI5NCIgeTI9IjU4IiBzdHJva2U9IiNmYTAiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGxpbmUgeDE9IjQzIiB5MT0iMzciIHgyPSIzNiIgeTI9IjMwIiBzdHJva2U9IiNmYTAiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGxpbmUgeDE9Ijg1IiB5MT0iNzkiIHgyPSI5MiIgeTI9Ijg2IiBzdHJva2U9IiNmYTAiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGxpbmUgeDE9Ijg1IiB5MT0iMzciIHgyPSI5MiIgeTI9IjMwIiBzdHJva2U9IiNmYTAiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGxpbmUgeDE9IjQzIiB5MT0iNzkiIHgyPSIzNiIgeTI9Ijg2IiBzdHJva2U9IiNmYTAiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+",
+    "scenes": null
+  },
+  {
+    "id": "church_off",
+    "name": "Church off",
+    "image": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgZmlsbD0iIzFhMWExYSIgcng9IjEyIi8+PGNpcmNsZSBjeD0iNjQiIGN5PSI2NCIgcj0iMjgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQ0NCIgc3Ryb2tlLXdpZHRoPSIzIi8+PGxpbmUgeDE9IjQ0IiB5MT0iNDQiIHgyPSI4NCIgeTI9Ijg0IiBzdHJva2U9IiM1NTUiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGNpcmNsZSBjeD0iNjQiIGN5PSI1NiIgcj0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQ0NCIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTTU0IDcyIFE2NCA2NiA3NCA3MiBMNzIgODAgUTY0IDc2IDU2IDgwIFoiIGZpbGw9IiM0NDQiLz48L3N2Zz4=",
+    "scenes": null
   }
-] 
+]

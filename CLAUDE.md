@@ -185,11 +185,35 @@ The system integrates with Home Assistant for scene control and automation:
 - Hardware input emulated via mouse/keyboard
 - *IMPORTANT* This is how Claude runs the software
 
+## Deploying Changes to Device
+
+**IMPORTANT:** Changes made locally must be deployed to the device to take effect.
+
+```bash
+# Deploy a single file
+scp web/json/scenes.json beosound5c.local:/home/kirsten/beosound5c/web/json/scenes.json
+
+# Deploy entire web directory
+rsync -avz --delete web/ beosound5c.local:/home/kirsten/beosound5c/web/
+
+# Restart UI to pick up changes (clears browser cache)
+ssh beosound5c.local "sudo systemctl restart beo-ui"
+
+# Restart all services if needed
+ssh beosound5c.local "sudo systemctl restart beo-*"
+```
+
+For Python service changes, also restart the specific service:
+```bash
+ssh beosound5c.local "sudo systemctl restart beo-input"  # or beo-media, etc.
+```
+
 ## Development Tips
 
 - Use emulation mode for UI development without physical hardware
 - Media server can run standalone for Sonos integration testing
 - Tests typically run on development machine where services are not running
+- **Remember to deploy changes to device** - local edits won't show on the BS5
 
 ## Project Memories
 
