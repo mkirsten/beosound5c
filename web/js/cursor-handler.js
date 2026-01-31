@@ -1,10 +1,10 @@
 // Debug: Check if this file is loading
 
 
-// Configuration
+// Configuration - WebSocket URL loaded from AppConfig (config.js)
 const config = {
     showMouseCursor: true,   // Set to true to show the mouse cursor by default
-    wsUrl: 'ws://localhost:8765/ws',  // Updated to use the correct hostname
+    wsUrl: AppConfig.websocket.input,  // Loaded from centralized config
     skipFactor: 1,          // Process 1 out of every N events (higher = more skipping)
     disableTransitions: true, // Set to true to disable CSS transitions on the pointer
     bypassRAF: true,        // Bypass requestAnimationFrame for immediate updates
@@ -711,7 +711,7 @@ function handleButtonEvent(uiStore, data) {
 
 // Send webhook for button events
 function sendWebhook(panelContext, button, id = '1') {
-    const webhookUrl = 'http://homeassistant.local:8123/api/webhook/beosound5c';
+    const webhookUrl = AppConfig.homeAssistant.getWebhookUrl();
     
     const payload = {
         device_type: 'Panel',
