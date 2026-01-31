@@ -14,7 +14,8 @@ from datetime import datetime
 from collections import defaultdict
 
 # Digit-to-playlist mapping file
-DIGIT_PLAYLISTS_FILE = "/home/kirsten/beosound5c/web/json/digit_playlists.json"
+BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/kirsten/beosound5c')
+DIGIT_PLAYLISTS_FILE = os.path.join(BS5C_BASE_PATH, "web/json/digit_playlists.json")
 
 def get_playlist_uri(digit):
     """Get Spotify playlist URI by digit from digit_playlists.json mapping"""
@@ -31,9 +32,9 @@ def get_playlist_uri(digit):
 
 # Configuration variables
 # Home Assistant webhook and WebSocket URLs
-WEBHOOK_URL = "http://homeassistant.local:8123/api/webhook/beosound5c"
+WEBHOOK_URL = os.getenv('HA_WEBHOOK_URL', 'http://homeassistant.local:8123/api/webhook/beosound5c')
 WEBSOCKET_URL = "ws://localhost:8765"
-BEOSOUND_DEVICE_NAME = os.getenv('DEVICE_NAME', 'Church')
+BEOSOUND_DEVICE_NAME = os.getenv('DEVICE_NAME', 'BeoSound5c')
 
 # Message processing settings
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds

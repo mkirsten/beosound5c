@@ -4,7 +4,7 @@ import hid, websockets
 import subprocess  # Add subprocess for xset commands
 import os  # For path operations
 import logging  # For media server communication logging
-from aiohttp import web  # For HTTP webhook server
+from aiohttp import web, ClientSession  # For HTTP webhook server and forwarding
 
 VID, PID = 0x0cd4, 0x1112
 BTN_MAP = {0x20:'left', 0x10:'right', 0x40:'go', 0x80:'power'}
@@ -144,11 +144,13 @@ def get_system_info() -> dict:
             info['git_tag'] = '--'
 
         # Service status
-        services = ['beo-http', 'beo-ui', 'beo-media', 'beo-input', 'beo-bluetooth', 'beo-masterlink']
+        services = ['beo-http', 'beo-ui', 'beo-media', 'beo-input', 'beo-bluetooth', 'beo-masterlink', 'beo-spotify-fetch']
         info['services'] = {}
         for svc in services:
+            # For timers, check the timer status
+            unit = svc + '.timer' if svc == 'beo-spotify-fetch' else svc
             result = subprocess.run(
-                ['systemctl', 'is-active', svc],
+                ['systemctl', 'is-active', unit],
                 capture_output=True, text=True, timeout=2
             )
             status = result.stdout.strip()
@@ -225,6 +227,66 @@ def restart_service(action: str):
     except Exception as e:
         print(f'[RESTART ERROR] {e}')
 
+async def refresh_spotify_playlists(ws):
+    """Run the Spotify playlist fetch script."""
+    print('[SPOTIFY] Starting playlist refresh')
+    try:
+        # Run fetch_playlists.py in background
+        process = subprocess.Popen(
+            ['python3', '/home/kirsten/beosound5c/tools/spotify/fetch_playlists.py'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd='/home/kirsten/beosound5c/tools/spotify'
+        )
+
+        # Send initial status
+        await ws.send(json.dumps({
+            'type': 'spotify_refresh',
+            'status': 'started',
+            'message': 'Fetching playlists from Spotify...'
+        }))
+
+        # Wait for completion (non-blocking via executor)
+        def wait_for_process():
+            stdout, stderr = process.communicate(timeout=120)
+            return process.returncode, stdout, stderr
+
+        returncode, stdout, stderr = await asyncio.get_event_loop().run_in_executor(
+            None, wait_for_process
+        )
+
+        if returncode == 0:
+            print('[SPOTIFY] Playlist refresh completed successfully')
+            await ws.send(json.dumps({
+                'type': 'spotify_refresh',
+                'status': 'completed',
+                'message': 'Playlists updated successfully'
+            }))
+        else:
+            print(f'[SPOTIFY] Playlist refresh failed: {stderr}')
+            await ws.send(json.dumps({
+                'type': 'spotify_refresh',
+                'status': 'error',
+                'message': f'Error: {stderr[:200] if stderr else "Unknown error"}'
+            }))
+
+    except subprocess.TimeoutExpired:
+        process.kill()
+        print('[SPOTIFY] Playlist refresh timed out')
+        await ws.send(json.dumps({
+            'type': 'spotify_refresh',
+            'status': 'error',
+            'message': 'Refresh timed out after 2 minutes'
+        }))
+    except Exception as e:
+        print(f'[SPOTIFY ERROR] {e}')
+        await ws.send(json.dumps({
+            'type': 'spotify_refresh',
+            'status': 'error',
+            'message': str(e)
+        }))
+
 # ——— HTTP Webhook Server ———
 
 async def handle_webhook(request):
@@ -299,6 +361,80 @@ async def handle_health(request):
     """Health check endpoint."""
     return web.json_response({'status': 'ok', 'service': 'beo-input', 'screen': 'on' if backlight_on else 'off'})
 
+async def handle_forward(request):
+    """Forward webhook to Home Assistant."""
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        return web.Response(headers={
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+        })
+
+    try:
+        data = await request.json()
+        print(f'[FORWARD] Received webhook to forward: {data}')
+
+        ha_url = os.getenv('HA_WEBHOOK_URL', 'http://homeassistant.local:8123/api/webhook/beosound5c')
+
+        async with ClientSession() as session:
+            async with session.post(ha_url, json=data) as resp:
+                print(f'[FORWARD] HA response status: {resp.status}')
+                response = web.json_response({'status': 'forwarded', 'ha_status': resp.status})
+                response.headers['Access-Control-Allow-Origin'] = '*'
+                return response
+
+    except json.JSONDecodeError:
+        response = web.json_response({'status': 'error', 'message': 'Invalid JSON'}, status=400)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+    except Exception as e:
+        print(f'[FORWARD ERROR] {e}')
+        response = web.json_response({'status': 'error', 'message': str(e)}, status=500)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+
+async def handle_appletv(request):
+    """Fetch Apple TV media info from Home Assistant."""
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        return web.Response(headers={
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+        })
+
+    ha_url = os.getenv('HA_URL', 'http://homeassistant.local:8123')
+    ha_token = os.getenv('HA_TOKEN', '')
+
+    try:
+        async with ClientSession() as session:
+            headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
+            async with session.get(f'{ha_url}/api/states/media_player.loft_apple_tv', headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    # Transform for frontend
+                    result = {
+                        'title': data.get('attributes', {}).get('media_title', '—'),
+                        'app_name': data.get('attributes', {}).get('app_name', '—'),
+                        'friendly_name': data.get('attributes', {}).get('friendly_name', '—'),
+                        'artwork': data.get('attributes', {}).get('entity_picture', ''),
+                        'state': data.get('state', 'unknown')
+                    }
+                    # Prepend HA URL to artwork if relative
+                    if result['artwork'] and not result['artwork'].startswith('http'):
+                        result['artwork'] = f'{ha_url}{result["artwork"]}'
+                    response = web.json_response(result)
+                else:
+                    response = web.json_response({'error': 'Failed to fetch', 'title': '—', 'app_name': '—', 'friendly_name': '—', 'artwork': '', 'state': 'unavailable'}, status=resp.status)
+                response.headers['Access-Control-Allow-Origin'] = '*'
+                return response
+    except Exception as e:
+        print(f'[APPLETV ERROR] {e}')
+        response = web.json_response({'error': str(e), 'title': '—', 'app_name': '—', 'friendly_name': '—', 'artwork': '', 'state': 'error'})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+
 async def handler(ws, path=None):
     clients.add(ws)
     recv_task = asyncio.create_task(receive_commands(ws))
@@ -352,6 +488,8 @@ async def receive_commands(ws):
                 await ws.send(json.dumps({'type': 'system_info', **info}))
             elif cmd == 'restart_service':
                 restart_service(params.get('action', ''))
+            elif cmd == 'refresh_playlists':
+                await refresh_spotify_playlists(ws)
         except Exception as e:
             print(f'[WS ERROR] {e}')
 
@@ -509,6 +647,10 @@ async def main():
     # Start HTTP webhook server
     app = web.Application()
     app.router.add_post('/webhook', handle_webhook)
+    app.router.add_post('/forward', handle_forward)
+    app.router.add_options('/forward', handle_forward)  # CORS preflight
+    app.router.add_get('/appletv', handle_appletv)
+    app.router.add_options('/appletv', handle_appletv)  # CORS preflight
     app.router.add_get('/health', handle_health)
     runner = web.AppRunner(app)
     await runner.setup()

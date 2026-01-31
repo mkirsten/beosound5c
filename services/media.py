@@ -21,6 +21,7 @@ import base64
 from io import BytesIO
 import requests
 from urllib.parse import urlparse
+import aiohttp
 
 # Import Sonos libraries
 try:
@@ -46,6 +47,7 @@ MAX_ARTWORK_SIZE = 500 * 1024  # 500KB limit for artwork
 clients = set()
 current_track_id = None
 current_position = None
+current_playback_state = None  # Track playback state for wake detection
 cached_media_data = None
 last_update_time = 0
 cached_artwork_url = None  # Track artwork URL to avoid re-fetching same artwork
@@ -225,8 +227,8 @@ class MediaServer:
             
     async def monitor_sonos(self):
         """Background task to monitor Sonos for changes."""
-        global current_track_id, current_position, last_update_time, cached_media_data
-        
+        global current_track_id, current_position, current_playback_state, last_update_time, cached_media_data
+
         logger.info(f"Starting Sonos monitoring for {SONOS_IP}")
         
         # Log initial coordinator info
@@ -243,14 +245,35 @@ class MediaServer:
             try:
                 # Get current track info (automatically uses coordinator)
                 track_info = self.sonos_viewer.get_current_track_info()
-                
+
+                # Check playback state for wake trigger
+                coordinator = self.sonos_viewer.get_coordinator()
+                try:
+                    transport_info = coordinator.get_current_transport_info() if coordinator else {}
+                    playback_state = transport_info.get('current_transport_state', 'STOPPED').lower()
+                    if playback_state == 'playing':
+                        state = 'playing'
+                    elif playback_state == 'paused_playback':
+                        state = 'paused'
+                    else:
+                        state = 'stopped'
+
+                    # Trigger wake if state changed to playing
+                    if state == 'playing' and current_playback_state in ('paused', 'stopped', None):
+                        logger.info(f"Playback started (was: {current_playback_state}), triggering wake")
+                        await self.trigger_wake()
+
+                    current_playback_state = state
+                except Exception as e:
+                    logger.debug(f"Could not get transport state: {e}")
+
                 if track_info:
                     track_id = track_info.get('uri', '')
                     position = track_info.get('position', '0:00')
-                    
+
                     # Check if track changed
                     track_changed = track_id != current_track_id
-                    
+
                     # Check if position jumped (indicating external control)
                     position_jumped = False
                     if current_position and position:
@@ -259,22 +282,22 @@ class MediaServer:
                             current_seconds = self.time_to_seconds(current_position)
                             new_seconds = self.time_to_seconds(position)
                             expected_seconds = current_seconds + POLL_INTERVAL
-                            
+
                             # If position jumped more than expected + tolerance
                             if abs(new_seconds - expected_seconds) > 5:
                                 position_jumped = True
                         except:
                             pass
-                    
+
                     # Only broadcast if there are actual changes AND we have connected clients
                     if (track_changed or position_jumped) and clients:
                         reason = 'track_change' if track_changed else 'external_control'
                         logger.info(f"Detected change: {reason}")
-                        
+
                         media_data = await self.fetch_media_data()
                         if media_data:
                             await self.broadcast_media_update(media_data, reason)
-                            
+
                         current_track_id = track_id
                     else:
                         # Still update cached data silently for future requests
@@ -282,11 +305,11 @@ class MediaServer:
                             current_track_id = track_id
                             # Update cached data without broadcasting
                             await self.fetch_media_data()
-                        
+
                     current_position = position
-                    
+
                 await asyncio.sleep(POLL_INTERVAL)
-                
+
             except Exception as e:
                 logger.error(f"Error in Sonos monitoring: {e}")
                 await asyncio.sleep(POLL_INTERVAL)
@@ -438,12 +461,28 @@ class MediaServer:
             'reason': reason,
             'data': media_data
         }
-        
+
         try:
             await websocket.send(json.dumps(message))
             logger.info(f"Sent media update to client: {reason}")
         except Exception as e:
             logger.error(f"Error sending media update: {e}")
+
+    async def trigger_wake(self):
+        """Trigger screen wake via input service webhook."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    'http://localhost:8767/webhook',
+                    json={'command': 'wake', 'params': {'page': 'now_playing'}},
+                    timeout=aiohttp.ClientTimeout(total=2)
+                ) as response:
+                    if response.status == 200:
+                        logger.info("Triggered screen wake")
+                    else:
+                        logger.warning(f"Wake trigger returned status {response.status}")
+        except Exception as e:
+            logger.warning(f"Could not trigger wake: {e}")
 
 def signal_handler(signum, frame):
     """Handle shutdown signals."""

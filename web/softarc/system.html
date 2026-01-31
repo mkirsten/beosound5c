@@ -179,6 +179,28 @@
             color: #a44;
         }
 
+        .refresh-btn {
+            padding: 4px 10px;
+            background: #1a1a2a;
+            border: 1px solid #446;
+            border-radius: 4px;
+            color: #0af;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .refresh-btn:hover {
+            background: #222244;
+            border-color: #0af;
+        }
+
+        .refresh-btn:disabled {
+            color: #555;
+            border-color: #333;
+            cursor: not-allowed;
+        }
+
         /* Logs section */
         .logs-section .log-services {
             display: flex;
@@ -511,6 +533,30 @@
                         <span class="value" id="hw-backlight">--</span>
                     </div>
                 </div>
+
+                <div class="debug-card">
+                    <h3>Spotify</h3>
+                    <div class="debug-item">
+                        <span class="label">User ID</span>
+                        <span class="value" id="spotify-user">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Playlists</span>
+                        <span class="value" id="spotify-playlists">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Digit Playlists</span>
+                        <span class="value" id="spotify-digits">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Last Fetch</span>
+                        <span class="value" id="spotify-fetch-time">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Actions</span>
+                        <button class="refresh-btn" id="spotify-refresh-btn">Refresh Playlists</button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -523,6 +569,7 @@
                 <div class="log-service-btn" data-service="beo-media">media</div>
                 <div class="log-service-btn" data-service="beo-http">http</div>
                 <div class="log-service-btn" data-service="beo-ui">ui</div>
+                <div class="log-service-btn" data-service="beo-spotify-fetch">spotify</div>
             </div>
             <div class="log-output" id="log-output">
                 <span class="log-loading">Connecting to log stream...</span>
@@ -557,6 +604,10 @@
                     <span class="name">beo-ui</span>
                     <span class="status-dot" id="dot-ui"></span>
                 </div>
+                <div class="service-item" data-service="beo-spotify-fetch">
+                    <span class="name">beo-spotify-fetch (timer)</span>
+                    <span class="status-dot" id="dot-spotify-fetch"></span>
+                </div>
                 <div class="service-item separator" data-service="all">
                     <span class="name">Restart All Services</span>
                     <span class="status-dot"></span>
@@ -585,7 +636,7 @@
             constructor() {
                 this.sections = ['info', 'debug', 'logs', 'services'];
                 this.currentSection = 0;
-                this.logServices = ['beo-masterlink', 'beo-bluetooth', 'beo-input', 'beo-media', 'beo-http', 'beo-ui'];
+                this.logServices = ['beo-masterlink', 'beo-bluetooth', 'beo-input', 'beo-media', 'beo-http', 'beo-ui', 'beo-spotify-fetch'];
                 this.currentLogService = 0;
                 this.serviceItems = document.querySelectorAll('.service-item');
                 this.currentServiceItem = 0;
@@ -610,7 +661,13 @@
                 this.connectInputWebSocket();
                 this.connectMediaWebSocket();
                 this.checkServiceStatus();
+                this.fetchSpotifyInfo();
                 setInterval(() => this.checkServiceStatus(), 10000);
+
+                // Spotify refresh button handler
+                document.getElementById('spotify-refresh-btn').addEventListener('click', () => {
+                    this.refreshSpotifyPlaylists();
+                });
             }
 
             connectInputWebSocket() {
@@ -890,8 +947,10 @@
 
                     ws.onmessage = (event) => {
                         try {
-                            const data = JSON.parse(event.data);
-                            this.updateSonosInfo(data);
+                            const msg = JSON.parse(event.data);
+                            if (msg.type === 'media_update' && msg.data) {
+                                this.updateSonosInfo(msg.data);
+                            }
                         } catch (e) {}
                     };
 
@@ -923,6 +982,63 @@
                 if (data.title) document.getElementById('sonos-track').textContent = data.title.substring(0, 35);
                 if (data.artist) document.getElementById('sonos-artist').textContent = data.artist.substring(0, 35);
                 if (data.album) document.getElementById('sonos-album').textContent = data.album.substring(0, 35);
+            }
+
+            async fetchSpotifyInfo() {
+                try {
+                    // Fetch playlists data
+                    const playlistsResp = await fetch('../json/playlists_with_tracks.json');
+                    if (playlistsResp.ok) {
+                        const playlists = await playlistsResp.json();
+                        document.getElementById('spotify-playlists').textContent = playlists.length;
+
+                        // Try to get user ID from first playlist
+                        if (playlists.length > 0 && playlists[0].owner) {
+                            document.getElementById('spotify-user').textContent = playlists[0].owner.id || '--';
+                        }
+
+                        // Get last modified time from response headers
+                        const lastModified = playlistsResp.headers.get('Last-Modified');
+                        if (lastModified) {
+                            const date = new Date(lastModified);
+                            document.getElementById('spotify-fetch-time').textContent =
+                                date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        }
+                    }
+
+                    // Fetch digit playlists data
+                    const digitsResp = await fetch('../json/digit_playlists.json');
+                    if (digitsResp.ok) {
+                        const digits = await digitsResp.json();
+                        const mappedCount = Object.keys(digits).filter(k => digits[k]).length;
+                        document.getElementById('spotify-digits').textContent = `${mappedCount}/10`;
+                    }
+                } catch (e) {
+                    console.error('[SPOTIFY] Error fetching info:', e);
+                }
+            }
+
+            refreshSpotifyPlaylists() {
+                const btn = document.getElementById('spotify-refresh-btn');
+                btn.disabled = true;
+                btn.textContent = 'Refreshing...';
+
+                if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
+                    this.inputWs.send(JSON.stringify({
+                        type: 'command',
+                        command: 'refresh_playlists'
+                    }));
+
+                    // Re-enable button after delay and refresh info
+                    setTimeout(() => {
+                        btn.disabled = false;
+                        btn.textContent = 'Refresh Playlists';
+                        this.fetchSpotifyInfo();
+                    }, 30000);  // 30s timeout for playlist fetch
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = 'Refresh Playlists';
+                }
             }
         }
 

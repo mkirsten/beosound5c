@@ -245,7 +245,7 @@ frontend:
 
 http:
   cors_allowed_origins:
-    - "*"  # Allow any client to call HA's REST API
+    - "http://<YOUR_BEOSOUND5C_IP>:8000"  # BeoSound 5c web interface
   use_x_forwarded_for: true
   use_x_frame_options: false
   trusted_proxies:
@@ -255,13 +255,10 @@ homeassistant:
   auth_providers:
     - type: trusted_networks
       trusted_networks:
-        - 192.168.1.233
-        - 192.168.1.75
+        - <YOUR_BEOSOUND5C_IP>      # e.g., 192.168.1.100
       trusted_users:
-        192.168.1.233:
-          - fa968e59c60a41ada8617d51349fd341
-        192.168.1.75:
-          - fa968e59c60a41ada8617d51349fd341
+        <YOUR_BEOSOUND5C_IP>:
+          - <YOUR_HA_USER_ID>       # Find in HA: Developer Tools → Services → User ID
       allow_bypass_login: true
     - type: homeassistant
 ```
