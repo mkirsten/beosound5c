@@ -116,6 +116,32 @@ def get_system_info() -> dict:
                 if len(parts) >= 3:
                     info['memory'] = f'{parts[2]} / {parts[1]}'
 
+        # IP Address
+        try:
+            result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=2)
+            if result.stdout:
+                info['ip_address'] = result.stdout.strip().split()[0]
+        except:
+            info['ip_address'] = '--'
+
+        # Hostname
+        try:
+            result = subprocess.run(['hostname'], capture_output=True, text=True, timeout=2)
+            info['hostname'] = result.stdout.strip() if result.stdout else '--'
+        except:
+            info['hostname'] = '--'
+
+        # Git info
+        try:
+            result = subprocess.run(
+                ['git', 'describe', '--tags', '--always'],
+                capture_output=True, text=True, timeout=2,
+                cwd='/home/kirsten/beosound5c'
+            )
+            info['git_tag'] = result.stdout.strip() if result.stdout else '--'
+        except:
+            info['git_tag'] = '--'
+
         # Service status
         services = ['beo-http', 'beo-ui', 'beo-media', 'beo-input', 'beo-bluetooth', 'beo-masterlink']
         info['services'] = {}
@@ -129,6 +155,60 @@ def get_system_info() -> dict:
     except Exception as e:
         print(f'[SYSTEM INFO ERROR] {e}')
     return info
+
+# Live log streaming
+log_stream_processes = {}
+
+async def start_log_stream(ws, service: str):
+    """Start streaming logs for a service."""
+    global log_stream_processes
+
+    # Stop any existing stream for this websocket
+    await stop_log_stream(ws)
+
+    try:
+        process = subprocess.Popen(
+            ['journalctl', '-u', service, '-f', '-n', '50', '--no-pager', '-o', 'short'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        log_stream_processes[id(ws)] = process
+        print(f'[LOG STREAM] Started for {service}')
+
+        # Read and send log lines in background
+        async def stream_logs():
+            try:
+                while process.poll() is None:
+                    line = await asyncio.get_event_loop().run_in_executor(
+                        None, process.stdout.readline
+                    )
+                    if line and id(ws) in log_stream_processes:
+                        try:
+                            await ws.send(json.dumps({
+                                'type': 'log_line',
+                                'service': service,
+                                'line': line.rstrip()
+                            }))
+                        except:
+                            break
+                    await asyncio.sleep(0.01)
+            except Exception as e:
+                print(f'[LOG STREAM ERROR] {e}')
+
+        asyncio.create_task(stream_logs())
+    except Exception as e:
+        print(f'[LOG STREAM] Failed to start: {e}')
+
+async def stop_log_stream(ws):
+    """Stop log streaming for a websocket."""
+    global log_stream_processes
+    ws_id = id(ws)
+    if ws_id in log_stream_processes:
+        process = log_stream_processes[ws_id]
+        process.terminate()
+        del log_stream_processes[ws_id]
+        print('[LOG STREAM] Stopped')
 
 def restart_service(action: str):
     """Restart a service or reboot the system."""
@@ -152,6 +232,7 @@ async def handler(ws, path=None):
     finally:
         recv_task.cancel()
         clients.remove(ws)
+        await stop_log_stream(ws)  # Clean up any active log streams
 
 async def broadcast(msg: str):
     if not clients:
@@ -187,6 +268,10 @@ async def receive_commands(ws):
             elif cmd == 'get_logs':
                 logs = get_service_logs(params.get('service', 'beo-input'), params.get('lines', 100))
                 await ws.send(json.dumps({'type': 'logs', 'service': params.get('service'), 'logs': logs}))
+            elif cmd == 'start_log_stream':
+                await start_log_stream(ws, params.get('service', 'beo-masterlink'))
+            elif cmd == 'stop_log_stream':
+                await stop_log_stream(ws)
             elif cmd == 'get_system_info':
                 info = get_system_info()
                 await ws.send(json.dumps({'type': 'system_info', **info}))

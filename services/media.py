@@ -337,6 +337,30 @@ class MediaServer:
                 except Exception as e:
                     logger.warning(f"Failed to fetch artwork: {e}")
             
+            # Get speaker info
+            coordinator = self.sonos_viewer.get_coordinator()
+            speaker_name = coordinator.player_name if coordinator else 'Unknown'
+            speaker_ip = coordinator.ip_address if coordinator else SONOS_IP
+
+            # Get playback state
+            try:
+                transport_info = coordinator.get_current_transport_info() if coordinator else {}
+                playback_state = transport_info.get('current_transport_state', 'STOPPED').lower()
+                if playback_state == 'playing':
+                    state = 'playing'
+                elif playback_state == 'paused_playback':
+                    state = 'paused'
+                else:
+                    state = 'stopped'
+            except:
+                state = 'unknown'
+
+            # Get volume
+            try:
+                volume = coordinator.volume if coordinator else 0
+            except:
+                volume = 0
+
             # Build media data
             media_data = {
                 'title': track_info.get('title', '—'),
@@ -346,7 +370,10 @@ class MediaServer:
                 'artwork_size': artwork_size,
                 'position': track_info.get('position', '0:00'),
                 'duration': track_info.get('duration', '0:00'),
-                'state': 'playing' if track_info.get('position') else 'paused',
+                'state': state,
+                'volume': volume,
+                'speaker_name': speaker_name,
+                'speaker_ip': speaker_ip,
                 'uri': track_info.get('uri', ''),
                 'timestamp': int(time.time())
             }
