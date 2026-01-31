@@ -9,6 +9,7 @@ Type=simple
 User=kirsten
 Group=kirsten
 WorkingDirectory=/home/kirsten/beosound5c/services
+EnvironmentFile=-/etc/beosound5c/config.env
 ExecStart=/home/kirsten/beosound5c/services/bluetooth.sh
 Restart=always
 RestartSec=10

@@ -15,7 +15,7 @@ import urllib.error
 from datetime import datetime
 
 # Spotify user ID to fetch playlists from
-SPOTIFY_USER_ID = "mkirsten"
+SPOTIFY_USER_ID = os.getenv('SPOTIFY_USER_ID', 'mkirsten')
 
 # Paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

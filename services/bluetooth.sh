@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Set these up based on device and endpoint for webhooks
-MAC="48:D0:CF:BD:CE:35"
+# Load configuration from /etc/beosound5c/config.env if it exists
+CONFIG_FILE="/etc/beosound5c/config.env"
+if [[ -f "$CONFIG_FILE" ]]; then
+    # shellcheck source=/dev/null
+    source "$CONFIG_FILE"
+fi
+
+# Use environment variables with fallbacks
+MAC="${BEOREMOTE_MAC:-48:D0:CF:BD:CE:35}"
+DEVICE_NAME="${DEVICE_NAME:-Church}"
+
 # Use same webhook as IR remote for unified handling
 WEBHOOK="http://homeassistant.local:8123/api/webhook/beosound5c"
 # Legacy webhook for raw pass-through (lights, digits, unknowns)
 WEBHOOK_RAW="http://homeassistant.local:8123/api/webhook/beoremote-event"
 
-# Handles for Bluetooth GATT
+# Handles for Bluetooth GATT (hardware-specific, don't change)
 DESC1="0x0025"
 DESC2="0x0026"
 
@@ -169,7 +178,7 @@ send_webhook() {
   local action="$1"
   local device_type="$2"
 
-  local json="{\"device_name\":\"Church\",\"action\":\"${action}\",\"device_type\":\"${device_type}\"}"
+  local json="{\"device_name\":\"${DEVICE_NAME}\",\"action\":\"${action}\",\"device_type\":\"${device_type}\"}"
 
   if curl -X POST "${WEBHOOK}" \
     --silent --output /dev/null \
@@ -497,7 +506,7 @@ while true; do
               if [[ -n "$playlist_uri" ]]; then
                 log "[PLAYLIST] Digit $result_value -> $playlist_uri"
                 # Send play_playlist action with the URI
-                digit_json="{\"device_name\":\"Church\",\"action\":\"play_playlist\",\"playlist_uri\":\"${playlist_uri}\",\"device_type\":\"Audio\"}"
+                digit_json="{\"device_name\":\"${DEVICE_NAME}\",\"action\":\"play_playlist\",\"playlist_uri\":\"${playlist_uri}\",\"device_type\":\"Audio\"}"
                 if curl -X POST "${WEBHOOK}" \
                   --silent --output /dev/null \
                   --connect-timeout 1 \

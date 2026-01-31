@@ -5,6 +5,7 @@ import threading
 import queue
 import sys
 import json
+import os
 import websocket
 import aiohttp
 import asyncio
@@ -32,7 +33,7 @@ def get_playlist_uri(digit):
 # Home Assistant webhook and WebSocket URLs
 WEBHOOK_URL = "http://homeassistant.local:8123/api/webhook/beosound5c"
 WEBSOCKET_URL = "ws://localhost:8765"
-BEOSOUND_DEVICE_NAME = "Church"
+BEOSOUND_DEVICE_NAME = os.getenv('DEVICE_NAME', 'Church')
 
 # Message processing settings
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
