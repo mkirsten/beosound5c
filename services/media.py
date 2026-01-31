@@ -37,7 +37,7 @@ except ImportError:
     sys.exit(1)
 
 # Configuration
-SONOS_IP = '192.168.1.111'
+SONOS_IP = '192.168.0.190'  # Church Living
 WEBSOCKET_PORT = 8766
 POLL_INTERVAL = 2.0  # seconds between change checks
 MAX_ARTWORK_SIZE = 500 * 1024  # 500KB limit for artwork
