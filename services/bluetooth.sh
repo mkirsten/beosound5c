@@ -13,10 +13,8 @@ MAC="${BEOREMOTE_MAC:-00:00:00:00:00:00}"
 DEVICE_NAME="${DEVICE_NAME:-BeoSound5c}"
 BS5C_BASE_PATH="${BS5C_BASE_PATH:-/home/kirsten/beosound5c}"
 
-# Home Assistant webhooks (use environment variables)
+# Home Assistant webhook (use environment variable)
 WEBHOOK="${HA_WEBHOOK_URL:-http://homeassistant.local:8123/api/webhook/beosound5c}"
-# Legacy webhook for raw pass-through (lights, digits, unknowns)
-WEBHOOK_RAW="${HA_WEBHOOK_URL_RAW:-http://homeassistant.local:8123/api/webhook/beoremote-event}"
 
 # Handles for Bluetooth GATT (hardware-specific, don't change)
 DESC1="0x0025"
@@ -130,25 +128,38 @@ get_button_action() {
     "10") echo "mode:Audio" ;;      # MUSIC button -> switch to Audio mode (no action)
 
     # Navigation buttons - action depends on current mode
-    "2a"|"42") echo "nav:up" ;;     # UP (hex 2a = dec 42)
-    "2b"|"43") echo "nav:down" ;;   # DOWN
-    "2c"|"44") echo "nav:left" ;;   # LEFT
-    "2d"|"45") echo "nav:right" ;;  # RIGHT
-    "29"|"41") echo "nav:go" ;;     # GO/SELECT
-    "18"|"24") echo "nav:stop" ;;   # STOP/BACK
-    "1e"|"30") echo "nav:off" ;;    # OFF/POWER
+    "42") echo "nav:up" ;;     # UP
+    "43") echo "nav:down" ;;   # DOWN
+    "44") echo "nav:left" ;;   # LEFT
+    "45") echo "nav:right" ;;  # RIGHT
+    "41") echo "nav:go" ;;     # GO/SELECT
+    "24") echo "nav:stop" ;;   # BACK
+    "23") echo "nav:exit" ;;   # HOME
+    "1e") echo "nav:off" ;;    # OFF/POWER
 
-    # Media transport buttons (always audio)
-    "b5") echo "audio:up" ;;        # FF/Next
-    "b6") echo "audio:down" ;;      # REW/Prev
+    # Media transport buttons (mode-aware)
+    "b5") echo "nav:up" ;;          # FF/Next
+    "b6") echo "nav:down" ;;        # REW/Prev
+    "b0") echo "nav:play" ;;        # Play
+    "b1") echo "nav:pause" ;;       # Pause
 
     # Volume (pass through as-is, no mode logic)
     "e9") echo "pass:volup" ;;      # VOL+
     "ea") echo "pass:voldown" ;;    # VOL-
     "e2") echo "pass:mute" ;;       # MUTE
 
-    # Info button
-    "3c"|"60") echo "pass:info" ;;  # INFO
+    # Guide button
+    "60") echo "pass:guide" ;;  # GUIDE
+
+    # Channel buttons
+    "9c") echo "pass:chdown" ;;  # Program/Channel Down
+    "9d") echo "pass:chup" ;;    # Program/Channel Up
+
+    # Control/Light buttons (always trigger scenes)
+    "12") echo "scene:dinner" ;;      # CONTROL-1 -> Dinner scene
+    "14") echo "scene:cozy" ;;        # CONTROL-2 -> Cozy scene
+    "0f") echo "scene:church_off" ;;  # CONTROL-3 -> All off
+    "11") echo "scene:all_on" ;;      # CONTROL-4 -> All on
 
     # Color buttons (keep for lights/scenes)
     "01") echo "pass:red" ;;        # RED
@@ -157,16 +168,16 @@ get_button_action() {
     "04") echo "pass:blue" ;;       # BLUE
 
     # Digit buttons (BeoRemote One: digit N = 0x05 + N)
-    "05"|"5") echo "digit:0" ;;
-    "06"|"6") echo "digit:1" ;;
-    "07"|"7") echo "digit:2" ;;
-    "08"|"8") echo "digit:3" ;;
-    "09"|"9") echo "digit:4" ;;
-    "0a"|"10") echo "digit:5" ;;
-    "0b"|"11") echo "digit:6" ;;
-    "0c"|"12") echo "digit:7" ;;
-    "0d"|"13") echo "digit:8" ;;
-    "0e"|"14") echo "digit:9" ;;
+    "05") echo "digit:0" ;;
+    "06") echo "digit:1" ;;
+    "07") echo "digit:2" ;;
+    "08") echo "digit:3" ;;
+    "09") echo "digit:4" ;;
+    "0a") echo "digit:5" ;;
+    "0b") echo "digit:6" ;;
+    "0c") echo "digit:7" ;;
+    "0d") echo "digit:8" ;;
+    "0e") echo "digit:9" ;;
 
     # Unknown - pass through raw
     *) echo "raw:$cmd" ;;
@@ -178,8 +189,9 @@ get_button_action() {
 send_webhook() {
   local action="$1"
   local device_type="$2"
+  local extra_fields="${3:-}"  # Optional extra JSON fields (without leading comma)
 
-  local json="{\"device_name\":\"${DEVICE_NAME}\",\"action\":\"${action}\",\"device_type\":\"${device_type}\"}"
+  local json="{\"device_name\":\"${DEVICE_NAME}\",\"source\":\"bluetooth\",\"action\":\"${action}\",\"device_type\":\"${device_type}\"${extra_fields:+,$extra_fields}}"
 
   if curl -X POST "${WEBHOOK}" \
     --silent --output /dev/null \
@@ -231,25 +243,6 @@ except:
     echo ""
   fi
   return 0
-}
-
-# Send raw webhook for legacy handling (lights, digits, etc)
-# Always returns 0 to prevent script exit with set -e
-send_webhook_raw() {
-  local address="$1"
-  local command="$2"
-
-  if curl -G "${WEBHOOK_RAW}" \
-    --silent --output /dev/null \
-    --connect-timeout 1 \
-    --max-time 2 \
-    --data-urlencode "address=${address}" \
-    --data-urlencode "command=${command}"; then
-    log "[WEBHOOK_RAW] Success: command=$command address=$address"
-  else
-    log "[WEBHOOK_RAW] Failed: command=$command address=$address (curl exit: $?)"
-  fi
-  return 0  # Always succeed to prevent script crash
 }
 
 log "=========================================="
@@ -482,24 +475,20 @@ while true; do
               fi
               ;;
             "audio")
-              # Always audio (FF/REW buttons)
-              send_webhook "$result_value" "Audio"
+              # Always audio (FF/REW/Play/Pause buttons)
+              case "$result_value" in
+                "play") send_webhook "play" "Audio" ;;
+                "pause") send_webhook "pause" "Audio" ;;
+                *) send_webhook "$result_value" "Audio" ;;
+              esac
               ;;
             "pass")
-              # Pass through - volume goes to current mode, others to raw webhook
-              case "$result_value" in
-                "volup"|"voldown"|"mute")
-                  # Volume controls go to current mode's handler
-                  send_webhook "$result_value" "$current_mode"
-                  ;;
-                "red"|"green"|"yellow"|"blue"|"info")
-                  # Color buttons, info -> legacy webhook for lights/scenes
-                  send_webhook_raw "$address" "$command"
-                  ;;
-                *)
-                  send_webhook "$result_value" "$current_mode"
-                  ;;
-              esac
+              # Pass through with current mode
+              send_webhook "$result_value" "$current_mode"
+              ;;
+            "scene")
+              # Scene triggers - always go to Light mode
+              send_webhook "$result_value" "Light"
               ;;
             "digit")
               # Digit buttons - look up playlist and send play_playlist action
@@ -525,9 +514,9 @@ while true; do
               fi
               ;;
             "raw")
-              # Unknown button - send raw for debugging
+              # Unknown button - send for debugging
               log "[UNKNOWN] Raw command: $command address: $address"
-              send_webhook_raw "$address" "$command"
+              send_webhook "unknown_$command" "$current_mode"
               ;;
           esac
 
