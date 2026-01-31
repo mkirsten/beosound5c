@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """
-Fetch public Spotify playlists and their tracks.
+Fetch all Spotify playlists for a user.
+Auto-detects digit playlists by name pattern (e.g., "5: Dinner" → digit 5).
 Uses client credentials flow - no user auth required.
 Run via cron to keep playlists updated.
-
-Fetches:
-1. All public playlists from the configured user
-2. Updates digit_playlists.json with track data for quick-access buttons
 """
 
 import json
 import os
+import re
 import base64
 import urllib.request
 import urllib.error
@@ -92,7 +90,7 @@ def fetch_playlist_tracks(token, playlist_id, max_tracks=100):
     return tracks
 
 def fetch_user_playlists(token, user_id):
-    """Fetch all public playlists for a user."""
+    """Fetch all playlists for a user."""
     headers = {'Authorization': f'Bearer {token}'}
     playlists = []
     url = f'https://api.spotify.com/v1/users/{user_id}/playlists?limit=50'
@@ -122,27 +120,13 @@ def fetch_user_playlists(token, user_id):
 
     return playlists
 
-def fetch_playlist_info(token, playlist_id):
-    """Fetch a single playlist's info."""
-    headers = {'Authorization': f'Bearer {token}'}
-    try:
-        req = urllib.request.Request(
-            f'https://api.spotify.com/v1/playlists/{playlist_id}',
-            headers=headers
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            pl = json.loads(resp.read().decode())
-            return {
-                'id': pl['id'],
-                'name': pl['name'],
-                'url': pl.get('external_urls', {}).get('spotify', ''),
-                'image': pl['images'][0]['url'] if pl.get('images') else None,
-                'owner': pl.get('owner', {}).get('id', ''),
-                'public': pl.get('public', False)
-            }
-    except Exception as e:
-        log(f"Error fetching playlist {playlist_id}: {e}")
-        return None
+def detect_digit_playlist(name):
+    """Check if playlist name starts with a digit pattern like '5:' or '5 -'.
+    Returns the digit (0-9) or None."""
+    match = re.match(r'^(\d)[\s]*[:\-]', name)
+    if match:
+        return match.group(1)
+    return None
 
 def main():
     log("=== Spotify Playlist Fetch Starting ===")
@@ -155,40 +139,31 @@ def main():
         log(f"ERROR: Failed to get access token: {e}")
         return 1
 
-    # Collect all playlist IDs to fetch
-    playlist_ids = set()
-
-    # 1. Get digit playlists (curated, may not be owned by user)
-    if os.path.exists(DIGIT_PLAYLISTS_FILE):
-        with open(DIGIT_PLAYLISTS_FILE, 'r') as f:
-            digit_mapping = json.load(f)
-        for info in digit_mapping.values():
-            if info.get('id'):
-                playlist_ids.add(info['id'])
-        log(f"Added {len(playlist_ids)} digit playlists")
-
-    # 2. Get user's own playlists
+    # Fetch all user's playlists
     log(f"Fetching playlists for user: {SPOTIFY_USER_ID}")
-    user_playlists = fetch_user_playlists(token, SPOTIFY_USER_ID)
-    for pl in user_playlists:
-        playlist_ids.add(pl['id'])
-    log(f"Added {len(user_playlists)} user playlists (total: {len(playlist_ids)})")
+    all_playlists = fetch_user_playlists(token, SPOTIFY_USER_ID)
+    log(f"Found {len(all_playlists)} playlists")
 
-    # Fetch full info and tracks for all playlists
+    # Fetch tracks for each playlist and detect digit playlists
     playlists_with_tracks = []
-    for pl_id in playlist_ids:
-        # Check if we already have info from user playlists
-        pl = next((p for p in user_playlists if p['id'] == pl_id), None)
-        if not pl:
-            pl = fetch_playlist_info(token, pl_id)
-        if not pl:
-            continue
+    digit_mapping = {}
 
+    for pl in all_playlists:
         log(f"Fetching tracks: {pl['name']}")
         tracks = fetch_playlist_tracks(token, pl['id'])
         pl['tracks'] = tracks
         playlists_with_tracks.append(pl)
         log(f"  Got {len(tracks)} tracks")
+
+        # Check if this is a digit playlist
+        digit = detect_digit_playlist(pl['name'])
+        if digit:
+            digit_mapping[digit] = {
+                'id': pl['id'],
+                'name': pl['name'],
+                'image': pl.get('image')
+            }
+            log(f"  -> Digit {digit} playlist")
 
     # Sort by name
     playlists_with_tracks.sort(key=lambda p: p['name'].lower())
@@ -199,23 +174,10 @@ def main():
         json.dump(playlists_with_tracks, f, indent=2)
     log(f"Saved {len(playlists_with_tracks)} playlists to {OUTPUT_FILE}")
 
-    # Update digit_playlists.json with latest info from fetched data
-    if os.path.exists(DIGIT_PLAYLISTS_FILE):
-        with open(DIGIT_PLAYLISTS_FILE, 'r') as f:
-            digit_mapping = json.load(f)
-
-        # Update names/images from fetched data
-        playlist_lookup = {p['id']: p for p in playlists_with_tracks}
-        for digit, info in digit_mapping.items():
-            pl_id = info.get('id')
-            if pl_id and pl_id in playlist_lookup:
-                fetched = playlist_lookup[pl_id]
-                digit_mapping[digit]['name'] = fetched['name']
-                digit_mapping[digit]['image'] = fetched.get('image')
-
-        with open(DIGIT_PLAYLISTS_FILE, 'w') as f:
-            json.dump(digit_mapping, f, indent=2)
-        log(f"Updated {DIGIT_PLAYLISTS_FILE}")
+    # Save digit mapping
+    with open(DIGIT_PLAYLISTS_FILE, 'w') as f:
+        json.dump(digit_mapping, f, indent=2)
+    log(f"Saved {len(digit_mapping)} digit playlists to {DIGIT_PLAYLISTS_FILE}")
 
     log("=== Done ===")
     return 0
