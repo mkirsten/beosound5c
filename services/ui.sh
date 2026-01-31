@@ -2,7 +2,7 @@
 # Kill potential conflicting X instances
 sudo pkill X || true
 
-# Wait for X to be ready (so xset doesn’t silently fail)
+# Wait for X to be ready (so xset doesn't silently fail)
 #export DISPLAY=:0
 #export XAUTHORITY=/home/kirsten/.Xauthority
 #for i in $(seq 1 30); do
@@ -12,7 +12,7 @@ sudo pkill X || true
 
 # Turn off screensaver, screen blank and DPMS completely
 #xset s off          # disable screen saver
-#xset s noblank      # don’t blank the video device
+#xset s noblank      # don't blank the video device
 #xset -dpms          # disable DPMS (Energy Star) features
 #xset dpms 0 0 0     # set standby, suspend, off timers to 0 (never)
 
@@ -21,11 +21,9 @@ rm -rf ~/.cache/chromium/Default/Cache/*
 rm -rf ~/.cache/chromium/Default/Code\ Cache/*
 rm -rf ~/.cache/chromium/Default/Service\ Worker/*
 
-# Hide mouse cursor using unclutter (runs in background)
-# -idle 0 = hide immediately, -root = hide on root window too
-unclutter -idle 0 -root &
-
-xinit /usr/bin/chromium-browser \
+# Start X with Chromium, and unclutter to hide cursor
+# Using a wrapper script approach: start unclutter in background, then chromium
+xinit /bin/bash -c 'unclutter -idle 0.1 -root & exec /usr/bin/chromium-browser \
   --force-dark-mode \
   --enable-features=WebUIDarkMode \
   --disable-application-cache \
@@ -49,5 +47,4 @@ xinit /usr/bin/chromium-browser \
   --enable-features=OverlayScrollbar \
   --overscroll-history-navigation=0 \
   --disable-features=MediaRouter \
-  --disable-features=InfiniteSessionRestore \
-  -- :0
+  --disable-features=InfiniteSessionRestore' -- :0
