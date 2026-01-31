@@ -160,6 +160,7 @@ get_button_action() {
     "14") echo "scene:cozy" ;;        # CONTROL-2 -> Cozy scene
     "0f") echo "scene:church_off" ;;  # CONTROL-3 -> All off
     "11") echo "scene:all_on" ;;      # CONTROL-4 -> All on
+    "30") echo "scene:artwork" ;;     # POWER -> Artwork scene
 
     # Color buttons (keep for lights/scenes)
     "01") echo "pass:red" ;;        # RED
