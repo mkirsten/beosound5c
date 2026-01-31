@@ -730,6 +730,7 @@ class UIStore {
 
         // Click feedback when navigating to a new page (not on every laser movement)
         if (viewChanged) {
+            console.log(`[CLICK] View changed to ${viewInfo.path} - sending click`);
             this.sendClickCommand();
         }
 
@@ -791,13 +792,14 @@ class UIStore {
     
 
     navigateToView(path) {
-        
+        // Update route immediately to prevent repeated navigation triggers
+        this.currentRoute = path;
+
         // For overlay transitions, update immediately to prevent content hiding
         const isOverlayTransition = path === 'menu/playing' || path === 'menu/showing';
-        
+
         if (isOverlayTransition) {
             // Overlay transitions: update immediately and ensure content stays visible
-            this.currentRoute = path;
             this.updateView();
             this.ensureContentVisible(); // Force content to stay visible
         } else {
@@ -806,11 +808,9 @@ class UIStore {
             if (contentArea) {
                 contentArea.style.opacity = 0;
                 setTimeout(() => {
-                    this.currentRoute = path;
                     this.updateView();
                 }, 250);
             } else {
-                this.currentRoute = path;
                 this.updateView();
             }
         }
