@@ -3,6 +3,10 @@
 Fetch public Spotify playlists and their tracks.
 Uses client credentials flow - no user auth required.
 Run via cron to keep playlists updated.
+
+Fetches:
+1. All public playlists from the configured user
+2. Updates digit_playlists.json with track data for quick-access buttons
 """
 
 import json
@@ -11,6 +15,9 @@ import base64
 import urllib.request
 import urllib.error
 from datetime import datetime
+
+# Spotify user ID to fetch playlists from
+SPOTIFY_USER_ID = "mkirsten"
 
 # Paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -52,62 +59,93 @@ def get_access_token():
         data = json.loads(resp.read().decode())
         return data['access_token']
 
-def fetch_playlist(token, playlist_id, max_tracks=100):
-    """Fetch a playlist and its tracks."""
+def fetch_playlist_tracks(token, playlist_id, max_tracks=100):
+    """Fetch tracks for a playlist."""
     headers = {'Authorization': f'Bearer {token}'}
-
-    # Get playlist info
-    req = urllib.request.Request(
-        f'https://api.spotify.com/v1/playlists/{playlist_id}',
-        headers=headers
-    )
+    tracks = []
 
     try:
+        req = urllib.request.Request(
+            f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks?limit=50',
+            headers=headers
+        )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            playlist = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        log(f"  Error fetching playlist {playlist_id}: {e.code}")
+            data = json.loads(resp.read().decode())
+
+        for item in data.get('items', [])[:max_tracks]:
+            track = item.get('track')
+            if not track:
+                continue
+            url = track.get('external_urls', {}).get('spotify')
+            if not url:
+                continue
+            tracks.append({
+                'name': track['name'],
+                'artist': ', '.join([a['name'] for a in track.get('artists', []) if a.get('name')]),
+                'id': track['id'],
+                'url': url,
+                'image': track['album']['images'][0]['url'] if track.get('album', {}).get('images') else None
+            })
+    except Exception as e:
+        log(f"  Error fetching tracks: {e}")
+
+    return tracks
+
+def fetch_user_playlists(token, user_id):
+    """Fetch all public playlists for a user."""
+    headers = {'Authorization': f'Bearer {token}'}
+    playlists = []
+    url = f'https://api.spotify.com/v1/users/{user_id}/playlists?limit=50'
+
+    while url:
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+
+            for pl in data.get('items', []):
+                if not pl:
+                    continue
+                playlists.append({
+                    'id': pl['id'],
+                    'name': pl['name'],
+                    'url': pl.get('external_urls', {}).get('spotify', ''),
+                    'image': pl['images'][0]['url'] if pl.get('images') else None,
+                    'owner': pl.get('owner', {}).get('id', ''),
+                    'public': pl.get('public', False)
+                })
+
+            url = data.get('next')  # Pagination
+        except Exception as e:
+            log(f"Error fetching playlists: {e}")
+            break
+
+    return playlists
+
+def fetch_playlist_info(token, playlist_id):
+    """Fetch a single playlist's info."""
+    headers = {'Authorization': f'Bearer {token}'}
+    try:
+        req = urllib.request.Request(
+            f'https://api.spotify.com/v1/playlists/{playlist_id}',
+            headers=headers
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            pl = json.loads(resp.read().decode())
+            return {
+                'id': pl['id'],
+                'name': pl['name'],
+                'url': pl.get('external_urls', {}).get('spotify', ''),
+                'image': pl['images'][0]['url'] if pl.get('images') else None,
+                'owner': pl.get('owner', {}).get('id', ''),
+                'public': pl.get('public', False)
+            }
+    except Exception as e:
+        log(f"Error fetching playlist {playlist_id}: {e}")
         return None
-
-    # Extract tracks
-    tracks = []
-    for item in playlist.get('tracks', {}).get('items', [])[:max_tracks]:
-        track = item.get('track')
-        if not track:
-            continue
-
-        url = track.get('external_urls', {}).get('spotify')
-        if not url:
-            continue
-
-        tracks.append({
-            'name': track['name'],
-            'artist': ', '.join([a['name'] for a in track.get('artists', []) if a.get('name')]),
-            'id': track['id'],
-            'url': url,
-            'image': track['album']['images'][0]['url'] if track.get('album', {}).get('images') else None
-        })
-
-    return {
-        'name': playlist['name'],
-        'id': playlist['id'],
-        'url': playlist.get('external_urls', {}).get('spotify', ''),
-        'image': playlist['images'][0]['url'] if playlist.get('images') else None,
-        'tracks': tracks
-    }
 
 def main():
     log("=== Spotify Playlist Fetch Starting ===")
-
-    # Load digit playlist mapping
-    if not os.path.exists(DIGIT_PLAYLISTS_FILE):
-        log(f"ERROR: Digit playlists file not found: {DIGIT_PLAYLISTS_FILE}")
-        return 1
-
-    with open(DIGIT_PLAYLISTS_FILE, 'r') as f:
-        digit_mapping = json.load(f)
-
-    log(f"Loaded {len(digit_mapping)} digit mappings")
 
     # Get access token
     try:
@@ -117,37 +155,69 @@ def main():
         log(f"ERROR: Failed to get access token: {e}")
         return 1
 
-    # Fetch each playlist
-    playlists = []
-    for digit, info in sorted(digit_mapping.items()):
-        playlist_id = info['id']
-        log(f"Fetching digit {digit}: {info.get('name', playlist_id)}")
+    # Collect all playlist IDs to fetch
+    playlist_ids = set()
 
-        playlist_data = fetch_playlist(token, playlist_id)
-        if playlist_data:
-            playlist_data['digit'] = digit  # Add digit reference
-            playlists.append(playlist_data)
-            log(f"  Got {len(playlist_data['tracks'])} tracks")
-        else:
-            log(f"  FAILED")
+    # 1. Get digit playlists (curated, may not be owned by user)
+    if os.path.exists(DIGIT_PLAYLISTS_FILE):
+        with open(DIGIT_PLAYLISTS_FILE, 'r') as f:
+            digit_mapping = json.load(f)
+        for info in digit_mapping.values():
+            if info.get('id'):
+                playlist_ids.add(info['id'])
+        log(f"Added {len(playlist_ids)} digit playlists")
 
-    # Update digit_playlists.json with fetched names
-    for playlist in playlists:
-        digit = playlist.get('digit')
-        if digit and digit in digit_mapping:
-            digit_mapping[digit]['name'] = playlist['name']
-            digit_mapping[digit]['image'] = playlist.get('image')
+    # 2. Get user's own playlists
+    log(f"Fetching playlists for user: {SPOTIFY_USER_ID}")
+    user_playlists = fetch_user_playlists(token, SPOTIFY_USER_ID)
+    for pl in user_playlists:
+        playlist_ids.add(pl['id'])
+    log(f"Added {len(user_playlists)} user playlists (total: {len(playlist_ids)})")
 
-    with open(DIGIT_PLAYLISTS_FILE, 'w') as f:
-        json.dump(digit_mapping, f, indent=2)
-    log(f"Updated {DIGIT_PLAYLISTS_FILE}")
+    # Fetch full info and tracks for all playlists
+    playlists_with_tracks = []
+    for pl_id in playlist_ids:
+        # Check if we already have info from user playlists
+        pl = next((p for p in user_playlists if p['id'] == pl_id), None)
+        if not pl:
+            pl = fetch_playlist_info(token, pl_id)
+        if not pl:
+            continue
 
-    # Write playlists with tracks
+        log(f"Fetching tracks: {pl['name']}")
+        tracks = fetch_playlist_tracks(token, pl['id'])
+        pl['tracks'] = tracks
+        playlists_with_tracks.append(pl)
+        log(f"  Got {len(tracks)} tracks")
+
+    # Sort by name
+    playlists_with_tracks.sort(key=lambda p: p['name'].lower())
+
+    # Save all playlists
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
     with open(OUTPUT_FILE, 'w') as f:
-        json.dump(playlists, f, indent=2)
+        json.dump(playlists_with_tracks, f, indent=2)
+    log(f"Saved {len(playlists_with_tracks)} playlists to {OUTPUT_FILE}")
 
-    log(f"Success: {len(playlists)} playlists saved to {OUTPUT_FILE}")
+    # Update digit_playlists.json with latest info from fetched data
+    if os.path.exists(DIGIT_PLAYLISTS_FILE):
+        with open(DIGIT_PLAYLISTS_FILE, 'r') as f:
+            digit_mapping = json.load(f)
+
+        # Update names/images from fetched data
+        playlist_lookup = {p['id']: p for p in playlists_with_tracks}
+        for digit, info in digit_mapping.items():
+            pl_id = info.get('id')
+            if pl_id and pl_id in playlist_lookup:
+                fetched = playlist_lookup[pl_id]
+                digit_mapping[digit]['name'] = fetched['name']
+                digit_mapping[digit]['image'] = fetched.get('image')
+
+        with open(DIGIT_PLAYLISTS_FILE, 'w') as f:
+            json.dump(digit_mapping, f, indent=2)
+        log(f"Updated {DIGIT_PLAYLISTS_FILE}")
+
+    log("=== Done ===")
     return 0
 
 if __name__ == '__main__':
