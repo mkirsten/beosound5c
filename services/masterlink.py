@@ -12,6 +12,22 @@ import soco
 from datetime import datetime
 from collections import defaultdict
 
+# Digit-to-playlist mapping file
+DIGIT_PLAYLISTS_FILE = "/home/kirsten/beosound5c/web/json/digit_playlists.json"
+
+def get_playlist_uri(digit):
+    """Get Spotify playlist URI by digit from digit_playlists.json mapping"""
+    try:
+        with open(DIGIT_PLAYLISTS_FILE, 'r') as f:
+            mapping = json.load(f)
+        if str(digit) in mapping:
+            playlist_id = mapping[str(digit)].get('id')
+            if playlist_id:
+                return f"spotify:playlist:{playlist_id}"
+    except Exception as e:
+        print(f"Error reading digit playlists: {e}")
+    return None
+
 # Configuration variables
 # Home Assistant webhook and WebSocket URLs
 WEBHOOK_URL = "http://homeassistant.local:8123/api/webhook/beosound5c"
@@ -381,10 +397,21 @@ class PC2Device:
             'count': message.get('count', 1),
             'timestamp': datetime.now().isoformat()
         }
-        
+
         # Check if this is an Audio command that we should handle directly with Sonos
         action = webhook_data['action']
         device_type = webhook_data['device_type']
+
+        # Handle digit buttons - look up playlist and send play_playlist action
+        if action in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
+            digit = int(action)
+            playlist_uri = get_playlist_uri(digit)
+            if playlist_uri:
+                print(f"[PLAYLIST] Digit {digit} -> {playlist_uri}")
+                webhook_data['action'] = 'play_playlist'
+                webhook_data['playlist_uri'] = playlist_uri
+            else:
+                print(f"[PLAYLIST] No playlist found for digit {digit}")
     
         # Otherwise, continue with sending the webhook
         # DIAGNOSTIC: Print webhook attempt
