@@ -146,17 +146,17 @@ get_button_action() {
     "03") echo "pass:yellow" ;;     # YELLOW
     "04") echo "pass:blue" ;;       # BLUE
 
-    # Digit buttons
-    "20"|"32") echo "pass:0" ;;
-    "21"|"33") echo "pass:1" ;;
-    "22"|"34") echo "pass:2" ;;
-    "23"|"35") echo "pass:3" ;;
-    "24"|"36") echo "pass:4" ;;
-    "25"|"37") echo "pass:5" ;;
-    "26"|"38") echo "pass:6" ;;
-    "27"|"39") echo "pass:7" ;;
-    "28"|"40") echo "pass:8" ;;
-    "29"|"41") echo "pass:9" ;;
+    # Digit buttons (BeoRemote One: digit N = 0x05 + N)
+    "05"|"5") echo "digit:0" ;;
+    "06"|"6") echo "digit:1" ;;
+    "07"|"7") echo "digit:2" ;;
+    "08"|"8") echo "digit:3" ;;
+    "09"|"9") echo "digit:4" ;;
+    "0a"|"10") echo "digit:5" ;;
+    "0b"|"11") echo "digit:6" ;;
+    "0c"|"12") echo "digit:7" ;;
+    "0d"|"13") echo "digit:8" ;;
+    "0e"|"14") echo "digit:9" ;;
 
     # Unknown - pass through raw
     *) echo "raw:$cmd" ;;
@@ -164,6 +164,7 @@ get_button_action() {
 }
 
 # Send webhook with device_type (same JSON format as IR remote)
+# Always returns 0 to prevent script exit with set -e
 send_webhook() {
   local action="$1"
   local device_type="$2"
@@ -177,14 +178,53 @@ send_webhook() {
     -H "Content-Type: application/json" \
     -d "$json"; then
     log "[WEBHOOK] Success: action=$action device_type=$device_type"
-    return 0
   else
-    log "[WEBHOOK] Failed: action=$action device_type=$device_type (exit code: $?)"
-    return 1
+    log "[WEBHOOK] Failed: action=$action device_type=$device_type (curl exit: $?)"
   fi
+  return 0  # Always succeed to prevent script crash
+}
+
+# Get playlist URI by digit from digit_playlists.json mapping
+# Returns spotify:playlist:ID or empty string if not found
+get_playlist_uri() {
+  local digit="$1"
+  local mapping_file="/home/kirsten/beosound5c/web/json/digit_playlists.json"
+
+  if [[ ! -f "$mapping_file" ]]; then
+    log "[PLAYLIST] Mapping file not found: $mapping_file"
+    echo ""
+    return 0
+  fi
+
+  # Use jq if available (faster), fall back to python
+  if command -v jq &>/dev/null; then
+    local playlist_id
+    playlist_id=$(jq -r ".[\"$digit\"].id // empty" "$mapping_file" 2>/dev/null)
+    if [[ -n "$playlist_id" ]]; then
+      echo "spotify:playlist:$playlist_id"
+    else
+      echo ""
+    fi
+  elif command -v python3 &>/dev/null; then
+    python3 -c "
+import json
+try:
+    with open('$mapping_file') as f:
+        mapping = json.load(f)
+    if '$digit' in mapping:
+        print(f\"spotify:playlist:{mapping['$digit']['id']}\")
+except:
+    pass
+" 2>/dev/null
+  else
+    log "[PLAYLIST] Neither jq nor python3 available"
+    echo ""
+  fi
+  return 0
 }
 
 # Send raw webhook for legacy handling (lights, digits, etc)
+# Always returns 0 to prevent script exit with set -e
 send_webhook_raw() {
   local address="$1"
   local command="$2"
@@ -196,11 +236,10 @@ send_webhook_raw() {
     --data-urlencode "address=${address}" \
     --data-urlencode "command=${command}"; then
     log "[WEBHOOK_RAW] Success: command=$command address=$address"
-    return 0
   else
-    log "[WEBHOOK_RAW] Failed: command=$command address=$address (exit code: $?)"
-    return 1
+    log "[WEBHOOK_RAW] Failed: command=$command address=$address (curl exit: $?)"
   fi
+  return 0  # Always succeed to prevent script crash
 }
 
 log "=========================================="
@@ -443,14 +482,37 @@ while true; do
                   # Volume controls go to current mode's handler
                   send_webhook "$result_value" "$current_mode"
                   ;;
-                "red"|"green"|"yellow"|"blue"|"info"|[0-9])
-                  # Color buttons, info, digits -> legacy webhook for lights/scenes
+                "red"|"green"|"yellow"|"blue"|"info")
+                  # Color buttons, info -> legacy webhook for lights/scenes
                   send_webhook_raw "$address" "$command"
                   ;;
                 *)
                   send_webhook "$result_value" "$current_mode"
                   ;;
               esac
+              ;;
+            "digit")
+              # Digit buttons - look up playlist and send play_playlist action
+              playlist_uri=$(get_playlist_uri "$result_value")
+              if [[ -n "$playlist_uri" ]]; then
+                log "[PLAYLIST] Digit $result_value -> $playlist_uri"
+                # Send play_playlist action with the URI
+                digit_json="{\"device_name\":\"Church\",\"action\":\"play_playlist\",\"playlist_uri\":\"${playlist_uri}\",\"device_type\":\"Audio\"}"
+                if curl -X POST "${WEBHOOK}" \
+                  --silent --output /dev/null \
+                  --connect-timeout 1 \
+                  --max-time 2 \
+                  -H "Content-Type: application/json" \
+                  -d "$digit_json"; then
+                  log "[WEBHOOK] Success: play_playlist $playlist_uri"
+                else
+                  log "[WEBHOOK] Failed: play_playlist $playlist_uri (curl exit: $?)"
+                fi
+              else
+                log "[PLAYLIST] No playlist found for digit $result_value"
+                # Fall back to sending digit as-is
+                send_webhook "$result_value" "$current_mode"
+              fi
               ;;
             "raw")
               # Unknown button - send raw for debugging

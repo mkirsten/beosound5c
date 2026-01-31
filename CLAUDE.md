@@ -159,7 +159,21 @@ The system integrates with Home Assistant for scene control and automation:
 - MasterLink service sends IR commands to HA webhook
 - Requires CORS configuration and trusted network authentication
 - Kiosk mode removes HA sidebar for embedded display
-- All logic what happens when a button is pressed is generally handeled in HA for flexibility
+- All logic what happens when a button is pressed is generally handled in HA for flexibility
+
+**HA Configuration Files:**
+- Located in: `../homeassistant-stuff/` (relative to this project)
+- `automations.yaml` - HA automations including beosound5c webhook handling
+- Scripts and other HA config may be in backup folders
+
+**Webhook format from BS5 to HA:**
+```json
+{
+  "device_name": "Church",
+  "action": "up|down|left|right|go|stop|tv|0-9|etc",
+  "device_type": "Video|Audio"
+}
+```
 
 ## File Structure Notes
 
