@@ -21,6 +21,10 @@ rm -rf ~/.cache/chromium/Default/Cache/*
 rm -rf ~/.cache/chromium/Default/Code\ Cache/*
 rm -rf ~/.cache/chromium/Default/Service\ Worker/*
 
+# Hide mouse cursor using unclutter (runs in background)
+# -idle 0 = hide immediately, -root = hide on root window too
+unclutter -idle 0 -root &
+
 xinit /usr/bin/chromium-browser \
   --force-dark-mode \
   --enable-features=WebUIDarkMode \
