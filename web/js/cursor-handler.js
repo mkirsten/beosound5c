@@ -666,17 +666,17 @@ function handleButtonEvent(uiStore, data) {
     }
     
     // Forward button events to iframe pages that handle their own navigation
-    const localHandledPages = ['menu/music', 'menu/settings', 'menu/scenes'];
+    const localHandledPages = ['menu/music', 'menu/system', 'menu/scenes'];
     if (localHandledPages.includes(currentPage)) {
         console.log(`🔵 [BUTTON] On ${currentPage} page - forwarding button to iframe`);
         if (window.uiStore && window.uiStore.logWebsocketMessage) {
             window.uiStore.logWebsocketMessage(`🔵 On ${currentPage} page - forwarding button to iframe`);
         }
-        
+
         // Forward the button event to the appropriate iframe
         let iframeName = '';
         if (currentPage === 'menu/music') iframeName = 'music-iframe';
-        else if (currentPage === 'menu/settings') iframeName = 'settings-iframe';
+        else if (currentPage === 'menu/system') iframeName = 'system-iframe';
         else if (currentPage === 'menu/scenes') iframeName = 'scenes-iframe';
         
         const iframe = document.getElementById(iframeName);
