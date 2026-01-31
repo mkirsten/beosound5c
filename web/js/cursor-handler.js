@@ -549,13 +549,13 @@ function initMediaWebSocket() {
 function handleNavEvent(uiStore, data) {
     // Check if we need to forward nav events to iframe pages
     const currentPage = uiStore.currentRoute || 'unknown';
-    const localHandledPages = ['menu/music', 'menu/settings', 'menu/scenes'];
-    
+    const localHandledPages = ['menu/music', 'menu/system', 'menu/scenes'];
+
     if (localHandledPages.includes(currentPage)) {
         // Forward nav events to iframe
         let iframeName = '';
         if (currentPage === 'menu/music') iframeName = 'music-iframe';
-        else if (currentPage === 'menu/settings') iframeName = 'settings-iframe';
+        else if (currentPage === 'menu/system') iframeName = 'system-iframe';
         else if (currentPage === 'menu/scenes') iframeName = 'scenes-iframe';
         
         const iframe = document.getElementById(iframeName);
