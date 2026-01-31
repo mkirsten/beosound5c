@@ -43,7 +43,7 @@ class UIStore {
         
         this.menuItems = [
             {title: 'SHOWING', path: 'menu/showing'},
-            {title: 'SETTINGS', path: 'menu/settings'},
+            {title: 'SYSTEM', path: 'menu/system'},
             {title: 'SECURITY', path: 'menu/security'},
             {title: 'SCENES', path: 'menu/scenes'},
             {title: 'MUSIC', path: 'menu/music'},
@@ -81,11 +81,11 @@ class UIStore {
                     </div>
                 `
             },
-            'menu/settings': {
-                title: 'Settings',
+            'menu/system': {
+                title: 'System',
                 content: `
-                    <div id="settings-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                        <iframe id="settings-iframe" src="softarc/settings.html" style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);" allowfullscreen></iframe>
+                    <div id="system-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                        <iframe id="system-iframe" src="softarc/system.html" style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);" allowfullscreen></iframe>
                     </div>
                 `
             },
@@ -999,10 +999,10 @@ class UIStore {
         // Map current route to iframe IDs
         const iframeIdMap = {
             'menu/music': 'music-iframe',
-            'menu/scenes': 'scenes-iframe', 
-            'menu/settings': 'settings-iframe'
+            'menu/scenes': 'scenes-iframe',
+            'menu/system': 'system-iframe'
         };
-        
+
         const iframeId = iframeIdMap[this.currentRoute];
         console.log(`🔍 DEBUG: mapped iframeId: ${iframeId}`);
         
@@ -1047,10 +1047,10 @@ class UIStore {
         // Map current route to iframe IDs
         const iframeIdMap = {
             'menu/music': 'music-iframe',
-            'menu/scenes': 'scenes-iframe', 
-            'menu/settings': 'settings-iframe'
+            'menu/scenes': 'scenes-iframe',
+            'menu/system': 'system-iframe'
         };
-        
+
         const iframeId = iframeIdMap[this.currentRoute];
         if (!iframeId) {
             return;

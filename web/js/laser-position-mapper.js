@@ -27,7 +27,7 @@ const LASER_MAPPING_CONFIG = {
     // Menu configuration
     MENU_ITEMS: [
         { title: 'SHOWING', path: 'menu/showing' },
-        { title: 'SETTINGS', path: 'menu/settings' },
+        { title: 'SYSTEM', path: 'menu/system' },
         { title: 'SECURITY', path: 'menu/security' },
         { title: 'SCENES', path: 'menu/scenes' },
         { title: 'MUSIC', path: 'menu/music' },
