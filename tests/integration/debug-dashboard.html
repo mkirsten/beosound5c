@@ -310,6 +310,120 @@
         .full-width {
             grid-column: 1 / -1;
         }
+
+        /* Sonos Player Styles */
+        .sonos-player {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+        }
+
+        .sonos-artwork-container {
+            position: relative;
+            width: 120px;
+            height: 120px;
+            flex-shrink: 0;
+            background: #1e1e1e;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .sonos-artwork {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+        }
+
+        .sonos-artwork.loaded {
+            display: block;
+        }
+
+        .sonos-no-artwork {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 11px;
+        }
+
+        .sonos-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .sonos-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sonos-artist {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sonos-album {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sonos-progress {
+            font-size: 12px;
+            color: #666;
+            font-family: monospace;
+            margin-bottom: 8px;
+        }
+
+        .sonos-controls {
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+        }
+
+        .sonos-state {
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .sonos-state.playing {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .sonos-state.paused {
+            background: #ff9800;
+            color: white;
+        }
+
+        .sonos-state.stopped {
+            background: #666;
+            color: white;
+        }
+
+        .sonos-volume {
+            color: #666;
+        }
+
+        .event-media { background: #e91e63; }
     </style>
 </head>
 <body>
@@ -320,6 +434,37 @@
         </div>
         
         <div class="dashboard-grid">
+            <!-- Sonos Now Playing Panel -->
+            <div class="dashboard-panel">
+                <div class="panel-header">
+                    Sonos Now Playing
+                    <span class="service-status">
+                        <span class="status-indicator status-disconnected" id="sonos-status"></span>
+                        <span id="sonos-speaker">—</span>
+                    </span>
+                </div>
+                <div class="panel-content">
+                    <div class="sonos-player">
+                        <div class="sonos-artwork-container">
+                            <img id="sonos-artwork" src="" alt="Album Art" class="sonos-artwork">
+                            <div class="sonos-no-artwork" id="sonos-no-artwork">No Artwork</div>
+                        </div>
+                        <div class="sonos-info">
+                            <div class="sonos-title" id="sonos-title">—</div>
+                            <div class="sonos-artist" id="sonos-artist">—</div>
+                            <div class="sonos-album" id="sonos-album">—</div>
+                            <div class="sonos-progress">
+                                <span id="sonos-position">0:00</span> / <span id="sonos-duration">0:00</span>
+                            </div>
+                            <div class="sonos-controls">
+                                <span class="sonos-state" id="sonos-state">STOPPED</span>
+                                <span class="sonos-volume">Vol: <span id="sonos-volume">0</span>%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Service Status Panel -->
             <div class="dashboard-panel">
                 <div class="panel-header">
@@ -369,7 +514,29 @@
                     </div>
                 </div>
             </div>
-            
+
+            <!-- Webhook Flow Visualizer -->
+            <div class="dashboard-panel">
+                <div class="panel-header">Webhook Flow</div>
+                <div class="panel-content">
+                    <div class="webhook-visualizer">
+                        <div class="webhook-flow">
+                            <div class="flow-node" id="masterlink-node">MasterLink</div>
+                            <div class="flow-arrow" id="flow-arrow-1"></div>
+                            <div class="flow-node" id="webhook-node">Webhook</div>
+                            <div class="flow-arrow" id="flow-arrow-2"></div>
+                            <div class="flow-node" id="ha-node">Home Assistant</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <div class="controls">
+                            <button class="btn btn-primary" onclick="testWebhook()">Test Webhook</button>
+                            <button class="btn btn-warning" onclick="simulateFailure()">Simulate Failure</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Real-time Metrics -->
             <div class="dashboard-panel">
                 <div class="panel-header">Performance Metrics</div>
@@ -398,9 +565,9 @@
                     </div>
                 </div>
             </div>
-            
+
             <!-- Event Timeline -->
-            <div class="dashboard-panel">
+            <div class="dashboard-panel full-width">
                 <div class="panel-header">Event Timeline</div>
                 <div class="panel-content">
                     <div class="event-timeline" id="event-timeline"></div>
@@ -409,28 +576,7 @@
                         <span style="color: #4CAF50; margin-left: 15px;">● Button</span>
                         <span style="color: #ff9800; margin-left: 15px;">● Navigation</span>
                         <span style="color: #9c27b0; margin-left: 15px;">● Volume</span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Webhook Flow Visualizer -->
-            <div class="dashboard-panel">
-                <div class="panel-header">Webhook Flow</div>
-                <div class="panel-content">
-                    <div class="webhook-visualizer">
-                        <div class="webhook-flow">
-                            <div class="flow-node" id="masterlink-node">MasterLink</div>
-                            <div class="flow-arrow" id="flow-arrow-1"></div>
-                            <div class="flow-node" id="webhook-node">Webhook</div>
-                            <div class="flow-arrow" id="flow-arrow-2"></div>
-                            <div class="flow-node" id="ha-node">Home Assistant</div>
-                        </div>
-                    </div>
-                    <div style="margin-top: 10px;">
-                        <div class="controls">
-                            <button class="btn btn-primary" onclick="testWebhook()">Test Webhook</button>
-                            <button class="btn btn-warning" onclick="simulateFailure()">Simulate Failure</button>
-                        </div>
+                        <span style="color: #e91e63; margin-left: 15px;">● Media</span>
                     </div>
                 </div>
             </div>
@@ -561,17 +707,56 @@
         
         function handleMediaEvent(event) {
             try {
-                const data = JSON.parse(event.data);
-                logMessage(`MEDIA: ${data.type || 'update'} - ${data.title || 'No title'}`, 'info');
-                
+                const msg = JSON.parse(event.data);
+                const data = msg.data || msg;
+
+                logMessage(`MEDIA: ${msg.type || 'update'} - ${data.title || 'No title'} by ${data.artist || 'Unknown'}`, 'info');
+
+                // Update Sonos panel
+                updateSonosPanel(data);
+
                 // Add to timeline
                 addTimelineEvent('media', 'media');
-                
+
                 // Update event rate
                 updateEventRate();
-                
+
             } catch (error) {
                 logMessage(`Failed to parse media event: ${error.message}`, 'error');
+            }
+        }
+
+        function updateSonosPanel(data) {
+            // Update text fields
+            document.getElementById('sonos-title').textContent = data.title || '—';
+            document.getElementById('sonos-artist').textContent = data.artist || '—';
+            document.getElementById('sonos-album').textContent = data.album || '—';
+            document.getElementById('sonos-position').textContent = data.position || '0:00';
+            document.getElementById('sonos-duration').textContent = data.duration || '0:00';
+            document.getElementById('sonos-volume').textContent = data.volume || '0';
+            document.getElementById('sonos-speaker').textContent = data.speaker_name || '—';
+
+            // Update state indicator
+            const stateEl = document.getElementById('sonos-state');
+            const state = (data.state || 'stopped').toLowerCase();
+            stateEl.textContent = state.toUpperCase();
+            stateEl.className = 'sonos-state ' + state;
+
+            // Update connection status
+            const statusEl = document.getElementById('sonos-status');
+            statusEl.className = 'status-indicator status-connected';
+
+            // Update artwork
+            const artworkEl = document.getElementById('sonos-artwork');
+            const noArtworkEl = document.getElementById('sonos-no-artwork');
+
+            if (data.artwork) {
+                artworkEl.src = data.artwork;
+                artworkEl.classList.add('loaded');
+                noArtworkEl.style.display = 'none';
+            } else {
+                artworkEl.classList.remove('loaded');
+                noArtworkEl.style.display = 'flex';
             }
         }
         

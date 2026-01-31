@@ -1091,4 +1091,16 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('UIStore not initialized yet');
         }
     };
+
+    // Fade out splash screen after UI is ready
+    setTimeout(() => {
+        const splash = document.getElementById('splash-overlay');
+        if (splash) {
+            splash.classList.add('fade-out');
+            // Remove from DOM after animation completes
+            setTimeout(() => {
+                splash.classList.add('hidden');
+            }, 800);
+        }
+    }, 500); // Brief delay to ensure UI is rendered
 }); 

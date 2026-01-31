@@ -2,8 +2,19 @@
 # BeoSound 5c UI Service
 # Runs Chromium in kiosk mode with crash recovery
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SPLASH_IMAGE="${SCRIPT_DIR}/../assets/splashscreen-red.png"
+
 # Kill potential conflicting X instances
 sudo pkill X || true
+
+# Note: Plymouth handles boot splash now (see /usr/share/plymouth/themes/beosound5c)
+# This fbi fallback only runs if Plymouth isn't active
+if [ -f "$SPLASH_IMAGE" ] && command -v fbi &>/dev/null && ! pidof plymouthd &>/dev/null; then
+  sudo pkill fbi 2>/dev/null || true
+  sudo fbi -T 1 -d /dev/fb0 --noverbose -a "$SPLASH_IMAGE" &>/dev/null &
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Splash screen displayed (fbi fallback)"
+fi
 
 # Clear Chromium cache before starting (prevents stale state)
 rm -rf ~/.cache/chromium/Default/Cache/*
@@ -22,8 +33,24 @@ log() {
 
 log "=== BeoSound 5c UI Service Starting ==="
 
+# Tell Plymouth to quit but retain the splash image on framebuffer
+# This keeps the splash visible until X/Chromium draws over it
+if pidof plymouthd &>/dev/null; then
+  log "Telling Plymouth to quit with retained splash..."
+  sudo plymouth quit --retain-splash || true
+fi
+
 # Start X with a wrapper that includes crash recovery
 xinit /bin/bash -c '
+  # Kill fbi if running (Plymouth already quit with retain-splash)
+  sudo pkill fbi 2>/dev/null || true
+
+  # Set X root window to splash image immediately (fills gap while Chromium loads)
+  SPLASH="/home/kirsten/beosound5c/assets/splashscreen-red.png"
+  if [ -f "$SPLASH" ] && command -v feh &>/dev/null; then
+    feh --bg-scale "$SPLASH" 2>/dev/null &
+  fi
+
   # Hide cursor
   unclutter -idle 0.1 -root &
 

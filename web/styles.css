@@ -220,3 +220,34 @@ html, body {
   background: rgba(102, 153, 255, 0.6);
   border-radius: 3px;
 }
+
+/* Splash screen overlay */
+#splash-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: black;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  transition: opacity 0.8s ease-out;
+  pointer-events: none;
+}
+
+#splash-overlay.fade-out {
+  opacity: 0;
+}
+
+#splash-overlay.hidden {
+  display: none;
+}
+
+#splash-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
