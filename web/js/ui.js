@@ -725,11 +725,9 @@ class UIStore {
             // Update selected menu item state
             if (viewInfo.menuItem) {
                 this.selectedMenuItem = viewInfo.menuItem.index;
-                
-                // Send click command only when exactly on menu item AND view changed
-                if (viewInfo.reason === 'menu_item_selected' && viewChanged) {
-                    this.sendClickCommand();
-                }
+
+                // Click feedback is now only triggered by button press, not laser movement
+                // This prevents click sounds on every position change
             }
             
             // Update menu highlighting to reflect current laser position
