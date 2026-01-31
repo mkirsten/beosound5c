@@ -80,6 +80,70 @@ def toggle_backlight():
     print(f"[BACKLIGHT] Toggling from {backlight_on} to {new_state}")
     set_backlight(new_state)
 
+def get_service_logs(service: str, lines: int = 100) -> list:
+    """Fetch logs for a systemd service using journalctl."""
+    try:
+        result = subprocess.run(
+            ['journalctl', '-u', service, '-n', str(lines), '--no-pager', '-o', 'short'],
+            capture_output=True, text=True, timeout=5
+        )
+        return result.stdout.strip().split('\n') if result.stdout else []
+    except Exception as e:
+        return [f'Error fetching logs: {e}']
+
+def get_system_info() -> dict:
+    """Get system information including uptime, temp, memory, and service status."""
+    info = {}
+    try:
+        # Uptime
+        result = subprocess.run(['uptime', '-p'], capture_output=True, text=True, timeout=2)
+        info['uptime'] = result.stdout.strip().replace('up ', '') if result.stdout else '--'
+
+        # CPU Temperature
+        try:
+            with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
+                temp = int(f.read().strip()) / 1000
+                info['cpu_temp'] = f'{temp:.1f}C'
+        except:
+            info['cpu_temp'] = '--'
+
+        # Memory usage
+        result = subprocess.run(['free', '-h'], capture_output=True, text=True, timeout=2)
+        if result.stdout:
+            lines = result.stdout.strip().split('\n')
+            if len(lines) >= 2:
+                parts = lines[1].split()
+                if len(parts) >= 3:
+                    info['memory'] = f'{parts[2]} / {parts[1]}'
+
+        # Service status
+        services = ['beo-http', 'beo-ui', 'beo-media', 'beo-input', 'beo-bluetooth', 'beo-masterlink']
+        info['services'] = {}
+        for svc in services:
+            result = subprocess.run(
+                ['systemctl', 'is-active', svc],
+                capture_output=True, text=True, timeout=2
+            )
+            status = result.stdout.strip()
+            info['services'][svc] = 'Running' if status == 'active' else status.capitalize()
+    except Exception as e:
+        print(f'[SYSTEM INFO ERROR] {e}')
+    return info
+
+def restart_service(action: str):
+    """Restart a service or reboot the system."""
+    print(f'[RESTART] Executing action: {action}')
+    try:
+        if action == 'reboot':
+            subprocess.Popen(['sudo', 'reboot'])
+        elif action == 'restart-all':
+            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-http', 'beo-ui', 'beo-media', 'beo-input', 'beo-bluetooth', 'beo-masterlink'])
+        elif action.startswith('restart-'):
+            service = 'beo-' + action.replace('restart-', '')
+            subprocess.Popen(['sudo', 'systemctl', 'restart', service])
+    except Exception as e:
+        print(f'[RESTART ERROR] {e}')
+
 async def handler(ws, path=None):
     clients.add(ws)
     recv_task = asyncio.create_task(receive_commands(ws))
@@ -102,16 +166,16 @@ async def receive_commands(ws):
         try:
             msg = json.loads(raw)
             print('[WS RECEIVED]', msg)  # Log every received message
-            
+
             # Handle media requests by forwarding to media server
             if msg.get('type') == 'media_request':
                 await forward_to_media_server(raw)
                 continue
-                
+
             # Handle hardware commands
             if msg.get('type') != 'command':
                 continue
-                
+
             cmd    = msg.get('command')
             params = msg.get('params', {})
             if cmd == 'click':
@@ -120,8 +184,16 @@ async def receive_commands(ws):
                 set_led(params.get('mode','on'))
             elif cmd == 'backlight':
                 set_backlight(bool(params.get('on',True)))
-        except Exception:
-            pass
+            elif cmd == 'get_logs':
+                logs = get_service_logs(params.get('service', 'beo-input'), params.get('lines', 100))
+                await ws.send(json.dumps({'type': 'logs', 'service': params.get('service'), 'logs': logs}))
+            elif cmd == 'get_system_info':
+                info = get_system_info()
+                await ws.send(json.dumps({'type': 'system_info', **info}))
+            elif cmd == 'restart_service':
+                restart_service(params.get('action', ''))
+        except Exception as e:
+            print(f'[WS ERROR] {e}')
 
 # ——— HID parse & broadcast loop ———
 
