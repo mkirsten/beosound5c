@@ -293,7 +293,12 @@ function processWebSocketEvent(message) {
                 uiStore.handleMediaUpdate(data.data, data.reason);
             }
             break;
-            
+
+        case 'navigate':
+            // Handle external navigation commands (from HA webhook)
+            handleExternalNavigation(uiStore, data);
+            break;
+
         default:
             console.log(`[EVENT] Unknown event type: ${type}`);
     }
@@ -652,6 +657,38 @@ function startVolumeProcessor() {
     
     // Start the processor loop
     processVolumeChanges();
+}
+
+// Handle external navigation commands (from HA webhook via input.py)
+function handleExternalNavigation(uiStore, data) {
+    const page = data.page;
+    console.log(`🌐 [NAVIGATE] External navigation to: ${page}`);
+
+    if (window.uiStore && window.uiStore.logWebsocketMessage) {
+        window.uiStore.logWebsocketMessage(`🌐 External navigation to: ${page}`);
+    }
+
+    // Map page names to routes (use actual route paths from ui.js)
+    const pageRoutes = {
+        'now_playing': 'menu/playing',
+        'playing': 'menu/playing',
+        'music': 'menu/music',
+        'scenes': 'menu/scenes',
+        'security': 'menu/security',
+        'system': 'menu/system',
+        'showing': 'menu/showing',
+        'home': 'menu/home'
+    };
+
+    const route = pageRoutes[page] || page;
+
+    // Navigate to the page using navigateToView (the actual method in ui.js)
+    if (uiStore.navigateToView) {
+        uiStore.navigateToView(route);
+        console.log(`🌐 [NAVIGATE] Navigated to: ${route}`);
+    } else {
+        console.warn(`🌐 [NAVIGATE] No navigateToView method available on uiStore`);
+    }
 }
 
 // Handle button press events

@@ -4,6 +4,7 @@ import hid, websockets
 import subprocess  # Add subprocess for xset commands
 import os  # For path operations
 import logging  # For media server communication logging
+from aiohttp import web  # For HTTP webhook server
 
 VID, PID = 0x0cd4, 0x1112
 BTN_MAP = {0x20:'left', 0x10:'right', 0x40:'go', 0x80:'power'}
@@ -224,6 +225,80 @@ def restart_service(action: str):
     except Exception as e:
         print(f'[RESTART ERROR] {e}')
 
+# ——— HTTP Webhook Server ———
+
+async def handle_webhook(request):
+    """Handle incoming webhook requests from Home Assistant."""
+    try:
+        data = await request.json()
+        print(f'[WEBHOOK] Received: {data}')
+
+        command = data.get('command', '')
+        params = data.get('params', {})
+
+        if command == 'screen_on':
+            print('[WEBHOOK] Turning screen ON')
+            set_backlight(True)
+            return web.json_response({'status': 'ok', 'screen': 'on'})
+
+        elif command == 'screen_off':
+            print('[WEBHOOK] Turning screen OFF')
+            set_backlight(False)
+            return web.json_response({'status': 'ok', 'screen': 'off'})
+
+        elif command == 'screen_toggle':
+            print('[WEBHOOK] Toggling screen')
+            toggle_backlight()
+            return web.json_response({'status': 'ok', 'screen': 'on' if backlight_on else 'off'})
+
+        elif command == 'show_page':
+            page = params.get('page', 'now_playing')
+            print(f'[WEBHOOK] Showing page: {page}')
+            # Broadcast to all WebSocket clients to navigate
+            await broadcast(json.dumps({
+                'type': 'navigate',
+                'data': {'page': page}
+            }))
+            return web.json_response({'status': 'ok', 'page': page})
+
+        elif command == 'restart':
+            target = params.get('target', 'all')
+            print(f'[WEBHOOK] Restarting: {target}')
+            if target == 'system':
+                restart_service('reboot')
+            else:
+                restart_service('restart-all')
+            return web.json_response({'status': 'ok', 'restart': target})
+
+        elif command == 'wake':
+            # Combined: turn on screen and show a page
+            page = params.get('page', 'now_playing')
+            print(f'[WEBHOOK] Waking up and showing: {page}')
+            set_backlight(True)
+            await broadcast(json.dumps({
+                'type': 'navigate',
+                'data': {'page': page}
+            }))
+            return web.json_response({'status': 'ok', 'screen': 'on', 'page': page})
+
+        elif command == 'status':
+            info = get_system_info()
+            info['screen'] = 'on' if backlight_on else 'off'
+            return web.json_response({'status': 'ok', **info})
+
+        else:
+            return web.json_response({'status': 'error', 'message': f'Unknown command: {command}'}, status=400)
+
+    except json.JSONDecodeError:
+        return web.json_response({'status': 'error', 'message': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        print(f'[WEBHOOK ERROR] {e}')
+        return web.json_response({'status': 'error', 'message': str(e)}, status=500)
+
+async def handle_health(request):
+    """Health check endpoint."""
+    return web.json_response({'status': 'ok', 'service': 'beo-input', 'screen': 'on' if backlight_on else 'off'})
+
 async def handler(ws, path=None):
     clients.add(ws)
     recv_task = asyncio.create_task(receive_commands(ws))
@@ -430,13 +505,23 @@ async def forward_to_media_server(message):
 async def main():
     ws_srv = await websockets.serve(handler, '0.0.0.0', 8765)
     print("WebSocket server listening on ws://0.0.0.0:8765")
-    
+
+    # Start HTTP webhook server
+    app = web.Application()
+    app.router.add_post('/webhook', handle_webhook)
+    app.router.add_get('/health', handle_health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    http_site = web.TCPSite(runner, '0.0.0.0', 8767)
+    await http_site.start()
+    print("HTTP webhook server listening on http://0.0.0.0:8767")
+
     # Start HID scanning thread
     threading.Thread(target=scan_loop, args=(asyncio.get_event_loop(),), daemon=True).start()
-    
+
     # Start media server connection task
     media_task = asyncio.create_task(connect_to_media_server())
-    
+
     # Wait for server to close
     await ws_srv.wait_closed()
 
