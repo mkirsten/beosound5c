@@ -3,7 +3,10 @@ set -euo pipefail
 
 # Set these up based on device and endpoint for webhooks
 MAC="48:D0:CF:BD:CE:35"
-WEBHOOK="http://homeassistant.local:8123/api/webhook/beoremote-event"
+# Use same webhook as IR remote for unified handling
+WEBHOOK="http://homeassistant.local:8123/api/webhook/beosound5c"
+# Legacy webhook for raw pass-through (lights, digits, unknowns)
+WEBHOOK_RAW="http://homeassistant.local:8123/api/webhook/beoremote-event"
 
 # Handles for Bluetooth GATT
 DESC1="0x0025"
@@ -102,6 +105,103 @@ total_failures=0
 successful_connections=0
 reset_level=1
 last_successful_connection=""
+
+# Remote mode tracking (like IR remote's device_type)
+# Modes: "Video" (TV) or "Audio" (MUSIC)
+current_mode="Video"
+
+# Button command to action mapping
+# Returns: "action:device_type" or "mode:NewMode" or "ignore"
+get_button_action() {
+  local cmd="$1"
+  case "$cmd" in
+    # Source buttons - mode switching
+    "13") echo "mode:Video" ;;      # TV button -> switch to Video mode + turn on TV
+    "10") echo "mode:Audio" ;;      # MUSIC button -> switch to Audio mode (no action)
+
+    # Navigation buttons - action depends on current mode
+    "2a"|"42") echo "nav:up" ;;     # UP (hex 2a = dec 42)
+    "2b"|"43") echo "nav:down" ;;   # DOWN
+    "2c"|"44") echo "nav:left" ;;   # LEFT
+    "2d"|"45") echo "nav:right" ;;  # RIGHT
+    "29"|"41") echo "nav:go" ;;     # GO/SELECT
+    "18"|"24") echo "nav:stop" ;;   # STOP/BACK
+    "1e"|"30") echo "nav:off" ;;    # OFF/POWER
+
+    # Media transport buttons (always audio)
+    "b5") echo "audio:up" ;;        # FF/Next
+    "b6") echo "audio:down" ;;      # REW/Prev
+
+    # Volume (pass through as-is, no mode logic)
+    "e9") echo "pass:volup" ;;      # VOL+
+    "ea") echo "pass:voldown" ;;    # VOL-
+    "e2") echo "pass:mute" ;;       # MUTE
+
+    # Info button
+    "3c"|"60") echo "pass:info" ;;  # INFO
+
+    # Color buttons (keep for lights/scenes)
+    "01") echo "pass:red" ;;        # RED
+    "02") echo "pass:green" ;;      # GREEN
+    "03") echo "pass:yellow" ;;     # YELLOW
+    "04") echo "pass:blue" ;;       # BLUE
+
+    # Digit buttons
+    "20"|"32") echo "pass:0" ;;
+    "21"|"33") echo "pass:1" ;;
+    "22"|"34") echo "pass:2" ;;
+    "23"|"35") echo "pass:3" ;;
+    "24"|"36") echo "pass:4" ;;
+    "25"|"37") echo "pass:5" ;;
+    "26"|"38") echo "pass:6" ;;
+    "27"|"39") echo "pass:7" ;;
+    "28"|"40") echo "pass:8" ;;
+    "29"|"41") echo "pass:9" ;;
+
+    # Unknown - pass through raw
+    *) echo "raw:$cmd" ;;
+  esac
+}
+
+# Send webhook with device_type (same JSON format as IR remote)
+send_webhook() {
+  local action="$1"
+  local device_type="$2"
+
+  local json="{\"device_name\":\"Church\",\"action\":\"${action}\",\"device_type\":\"${device_type}\"}"
+
+  if curl -X POST "${WEBHOOK}" \
+    --silent --output /dev/null \
+    --connect-timeout 1 \
+    --max-time 2 \
+    -H "Content-Type: application/json" \
+    -d "$json"; then
+    log "[WEBHOOK] Success: action=$action device_type=$device_type"
+    return 0
+  else
+    log "[WEBHOOK] Failed: action=$action device_type=$device_type (exit code: $?)"
+    return 1
+  fi
+}
+
+# Send raw webhook for legacy handling (lights, digits, etc)
+send_webhook_raw() {
+  local address="$1"
+  local command="$2"
+
+  if curl -G "${WEBHOOK_RAW}" \
+    --silent --output /dev/null \
+    --connect-timeout 1 \
+    --max-time 2 \
+    --data-urlencode "address=${address}" \
+    --data-urlencode "command=${command}"; then
+    log "[WEBHOOK_RAW] Success: command=$command address=$address"
+    return 0
+  else
+    log "[WEBHOOK_RAW] Failed: command=$command address=$address (exit code: $?)"
+    return 1
+  fi
+}
 
 log "=========================================="
 log "BeoRemote Bluetooth Service Starting"
@@ -299,18 +399,66 @@ while true; do
 
         # Handle new or repeated commands
         if [[ "$command" != "$last_command" ]]; then
-          # New command - send webhook immediately
-          log "[EVENT] Press: $command (new) [total events: $events_received]"
-          if curl -G "${WEBHOOK}" \
-            --silent --output /dev/null \
-            --connect-timeout 1 \
-            --max-time 2 \
-            --data-urlencode "address=${address}" \
-            --data-urlencode "command=${command}"; then
-            log "[WEBHOOK] Success: $command sent to ${WEBHOOK}"
-          else
-            log "[WEBHOOK] Failed: Could not send $command to ${WEBHOOK} (exit code: $?)"
-          fi
+          # New command - process based on button mapping
+          button_result=$(get_button_action "$command")
+          result_type="${button_result%%:*}"
+          result_value="${button_result#*:}"
+
+          log "[EVENT] Press: $command -> $button_result (mode: $current_mode) [total events: $events_received]"
+
+          case "$result_type" in
+            "mode")
+              # Mode switch button
+              current_mode="$result_value"
+              log "[MODE] Switched to: $current_mode"
+              if [[ "$result_value" == "Video" ]]; then
+                # TV button: turn on TV
+                send_webhook "tv" "Video"
+              fi
+              # MUSIC button: just switch mode, no webhook
+              ;;
+            "nav")
+              # Navigation button - behavior depends on current mode
+              if [[ "$current_mode" == "Video" ]]; then
+                send_webhook "$result_value" "Video"
+              else
+                # Audio mode: map navigation to media controls
+                case "$result_value" in
+                  "up"|"right") send_webhook "up" "Audio" ;;     # Next track
+                  "down"|"left") send_webhook "down" "Audio" ;;  # Prev track
+                  "go") send_webhook "go" "Audio" ;;             # Play/pause
+                  "stop"|"off") send_webhook "stop" "Audio" ;;   # Pause
+                  *) send_webhook "$result_value" "Audio" ;;
+                esac
+              fi
+              ;;
+            "audio")
+              # Always audio (FF/REW buttons)
+              send_webhook "$result_value" "Audio"
+              ;;
+            "pass")
+              # Pass through - volume goes to current mode, others to raw webhook
+              case "$result_value" in
+                "volup"|"voldown"|"mute")
+                  # Volume controls go to current mode's handler
+                  send_webhook "$result_value" "$current_mode"
+                  ;;
+                "red"|"green"|"yellow"|"blue"|"info"|[0-9])
+                  # Color buttons, info, digits -> legacy webhook for lights/scenes
+                  send_webhook_raw "$address" "$command"
+                  ;;
+                *)
+                  send_webhook "$result_value" "$current_mode"
+                  ;;
+              esac
+              ;;
+            "raw")
+              # Unknown button - send raw for debugging
+              log "[UNKNOWN] Raw command: $command address: $address"
+              send_webhook_raw "$address" "$command"
+              ;;
+          esac
+
           last_command="$command"
           repeat_count=1
           pressed=true
@@ -320,16 +468,25 @@ while true; do
 
           # Send webhook on first press and after 3rd repeat, as debouncing logic
           if [[ $repeat_count -gt 3 ]]; then
+            button_result=$(get_button_action "$command")
+            result_type="${button_result%%:*}"
+            result_value="${button_result#*:}"
+
             log "[EVENT] Press: $command (repeat $repeat_count)"
-            if curl -G "${WEBHOOK}" \
-              --silent --output /dev/null \
-              --connect-timeout 1 \
-              --max-time 2 \
-              --data-urlencode "address=${address}" \
-              --data-urlencode "command=${command}"; then
-              log "[WEBHOOK] Success: $command (repeat) sent to ${WEBHOOK}"
-            else
-              log "[WEBHOOK] Failed: Could not send $command (repeat) to ${WEBHOOK} (exit code: $?)"
+
+            # Only repeat nav commands, not mode switches
+            if [[ "$result_type" == "nav" ]]; then
+              if [[ "$current_mode" == "Video" ]]; then
+                send_webhook "$result_value" "Video"
+              else
+                case "$result_value" in
+                  "up"|"right") send_webhook "up" "Audio" ;;
+                  "down"|"left") send_webhook "down" "Audio" ;;
+                  "go") send_webhook "go" "Audio" ;;
+                  "stop"|"off") send_webhook "stop" "Audio" ;;
+                  *) send_webhook "$result_value" "Audio" ;;
+                esac
+              fi
             fi
           else
             log "[EVENT] Press: $command (ignored repeat $repeat_count)"
