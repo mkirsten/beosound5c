@@ -424,6 +424,34 @@
         }
 
         .event-media { background: #e91e63; }
+
+        /* Info Grid Styles */
+        .info-grid {
+            font-size: 13px;
+        }
+
+        .info-section h4 {
+            font-size: 14px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid #f5f5f5;
+        }
+
+        .info-label {
+            color: #666;
+        }
+
+        .info-value {
+            font-family: monospace;
+            color: #333;
+            font-weight: 500;
+        }
     </style>
 </head>
 <body>
@@ -434,6 +462,54 @@
         </div>
         
         <div class="dashboard-grid">
+            <!-- Spotify & System Info Panel -->
+            <div class="dashboard-panel">
+                <div class="panel-header">
+                    Spotify & System Info
+                </div>
+                <div class="panel-content">
+                    <div class="info-grid">
+                        <div class="info-section">
+                            <h4 style="margin: 0 0 10px 0; color: #1DB954;">Spotify</h4>
+                            <div class="info-item">
+                                <span class="info-label">User:</span>
+                                <span class="info-value" id="spotify-user">mkirsten</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Playlists:</span>
+                                <span class="info-value" id="spotify-playlists">—</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Digit Playlists:</span>
+                                <span class="info-value" id="spotify-digit-playlists">—</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Last Fetch:</span>
+                                <span class="info-value" id="spotify-last-fetch">—</span>
+                            </div>
+                        </div>
+                        <div class="info-section" style="margin-top: 15px;">
+                            <h4 style="margin: 0 0 10px 0; color: #2196F3;">Network</h4>
+                            <div class="info-item">
+                                <span class="info-label">Device IP:</span>
+                                <span class="info-value" id="device-ip">—</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">HA Host:</span>
+                                <span class="info-value" id="ha-host">homeassistant.local</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Webhook:</span>
+                                <span class="info-value" id="webhook-url">/api/webhook/beosound5c</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="controls" style="margin-top: 15px;">
+                        <button class="btn btn-success" onclick="refreshSpotifyPlaylists()">Refresh Playlists</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Sonos Now Playing Panel -->
             <div class="dashboard-panel">
                 <div class="panel-header">
@@ -633,8 +709,68 @@
             initializeWebSockets();
             startMetricsUpdater();
             setupEventListeners();
+            loadSpotifyInfo();
+            loadNetworkInfo();
             logMessage('Debug dashboard started', 'info');
         });
+
+        function loadSpotifyInfo() {
+            // Load playlists info
+            fetch('/json/playlists_with_tracks.json')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('spotify-playlists').textContent = data.length;
+                    logMessage(`Loaded ${data.length} Spotify playlists`, 'info');
+                })
+                .catch(err => {
+                    document.getElementById('spotify-playlists').textContent = 'Error';
+                    logMessage('Failed to load playlists: ' + err.message, 'error');
+                });
+
+            // Load digit playlists info
+            fetch('/json/digit_playlists.json')
+                .then(response => response.json())
+                .then(data => {
+                    const count = Object.keys(data).length;
+                    document.getElementById('spotify-digit-playlists').textContent = count + ' mapped';
+                })
+                .catch(err => {
+                    document.getElementById('spotify-digit-playlists').textContent = 'Error';
+                });
+
+            // Check last fetch time from log (approximate based on file modification)
+            fetch('/json/playlists_with_tracks.json', { method: 'HEAD' })
+                .then(response => {
+                    const lastModified = response.headers.get('Last-Modified');
+                    if (lastModified) {
+                        const date = new Date(lastModified);
+                        document.getElementById('spotify-last-fetch').textContent = date.toLocaleString();
+                    } else {
+                        document.getElementById('spotify-last-fetch').textContent = 'Unknown';
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('spotify-last-fetch').textContent = 'Unknown';
+                });
+        }
+
+        function loadNetworkInfo() {
+            // Get device IP from current location
+            const currentHost = window.location.hostname;
+            document.getElementById('device-ip').textContent = currentHost || 'localhost';
+        }
+
+        function refreshSpotifyPlaylists() {
+            logMessage('Refreshing Spotify playlists...', 'info');
+            document.getElementById('spotify-playlists').textContent = 'Refreshing...';
+
+            // This would need a backend endpoint to trigger the fetch script
+            // For now, just reload the data after a delay
+            setTimeout(() => {
+                loadSpotifyInfo();
+                logMessage('Playlist data reloaded', 'success');
+            }, 1000);
+        }
         
         function initializeWebSockets() {
             // Connect to input WebSocket
