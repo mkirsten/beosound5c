@@ -67,8 +67,8 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
     } else {
         style.textContent = `
-            * { cursor: none !important; }
-            iframe, #security-iframe { cursor: auto !important; pointer-events: auto !important; z-index: 1000 !important; }
+            *, iframe, #security-iframe { cursor: none !important; }
+            iframe, #security-iframe { pointer-events: auto !important; z-index: 1000 !important; }
         `;
     }
     document.head.appendChild(style);
