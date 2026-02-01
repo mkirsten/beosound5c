@@ -120,6 +120,8 @@ log_info "Installing X11 and display packages..."
 apt-get install -y --no-install-recommends \
     xserver-xorg \
     x11-xserver-utils \
+    x11-utils \
+    xdotool \
     xinit \
     openbox \
     chromium-browser \
