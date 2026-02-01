@@ -108,11 +108,12 @@ let dummyServer = null;
 class LaserPointerSimulator {
     constructor(server) {
         this.server = server;
-        // Use the same calibration values as the real hardware
-        this.MIN_LASER_POS = 3;
-        this.MID_LASER_POS = 72;
-        this.MAX_LASER_POS = 123;
-        this.currentLaserPosition = 90; // Start at NOW PLAYING menu item (~192.5°)
+        // Use centralized constants with fallbacks
+        const laser = window.Constants?.laser || {};
+        this.MIN_LASER_POS = laser.minPosition || 3;
+        this.MID_LASER_POS = laser.midPosition || 72;
+        this.MAX_LASER_POS = laser.maxPosition || 123;
+        this.currentLaserPosition = laser.defaultPosition || 93;
         this.isEnabled = false;
     }
 

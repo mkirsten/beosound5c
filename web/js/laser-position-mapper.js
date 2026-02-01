@@ -8,33 +8,47 @@
 
 /**
  * Configuration constants for laser position mapping
+ * Uses centralized Constants when available (browser), falls back to local values (Node.js testing)
  */
-const LASER_MAPPING_CONFIG = {
-    // Laser position range (from hardware)
-    MIN_LASER_POS: 3,
-    MID_LASER_POS: 72,
-    MAX_LASER_POS: 123,
-    
-    // Angle range (internal UI representation)
-    MIN_ANGLE: 150,
-    MID_ANGLE: 180,
-    MAX_ANGLE: 210,
-    
-    // View transition thresholds (based on angles)
-    TOP_OVERLAY_START: 160,    // Below this angle = 'menu/showing'
-    BOTTOM_OVERLAY_START: 200, // Above this angle = 'menu/playing'
-    
-    // Menu configuration
-    MENU_ITEMS: [
-        { title: 'SHOWING', path: 'menu/showing' },
-        { title: 'SYSTEM', path: 'menu/system' },
-        { title: 'SECURITY', path: 'menu/security' },
-        { title: 'SCENES', path: 'menu/scenes' },
-        { title: 'MUSIC', path: 'menu/music' },
-        { title: 'PLAYING', path: 'menu/playing' }
-    ],
-    MENU_ANGLE_STEP: 5
-};
+const LASER_MAPPING_CONFIG = (function() {
+    // Check if Constants is available (browser environment)
+    if (typeof window !== 'undefined' && window.Constants) {
+        const c = window.Constants;
+        return {
+            MIN_LASER_POS: c.laser.minPosition,
+            MID_LASER_POS: c.laser.midPosition,
+            MAX_LASER_POS: c.laser.maxPosition,
+            MIN_ANGLE: c.laser.minAngle,
+            MID_ANGLE: c.laser.midAngle,
+            MAX_ANGLE: c.laser.maxAngle,
+            TOP_OVERLAY_START: c.overlays.topOverlayStart,
+            BOTTOM_OVERLAY_START: c.overlays.bottomOverlayStart,
+            MENU_ITEMS: c.menuItems,
+            MENU_ANGLE_STEP: c.arc.menuAngleStep
+        };
+    }
+
+    // Fallback for Node.js testing environment
+    return {
+        MIN_LASER_POS: 3,
+        MID_LASER_POS: 72,
+        MAX_LASER_POS: 123,
+        MIN_ANGLE: 150,
+        MID_ANGLE: 180,
+        MAX_ANGLE: 210,
+        TOP_OVERLAY_START: 160,
+        BOTTOM_OVERLAY_START: 200,
+        MENU_ITEMS: [
+            { title: 'SHOWING', path: 'menu/showing' },
+            { title: 'SYSTEM', path: 'menu/system' },
+            { title: 'SECURITY', path: 'menu/security' },
+            { title: 'SCENES', path: 'menu/scenes' },
+            { title: 'MUSIC', path: 'menu/music' },
+            { title: 'PLAYING', path: 'menu/playing' }
+        ],
+        MENU_ANGLE_STEP: 5
+    };
+})();
 
 /**
  * Convert laser position to angle using the current calibration

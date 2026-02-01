@@ -1,17 +1,23 @@
 // Debug: Check if this file is loading
 
 
-// Configuration - WebSocket URL loaded from AppConfig (config.js)
+// Configuration - uses Constants for timeout values
 const config = {
     showMouseCursor: false,   // Hide mouse cursor on hardware device
     wsUrl: AppConfig.websocket.input,  // Loaded from centralized config
     skipFactor: 1,          // Process 1 out of every N events (higher = more skipping)
-    disableTransitions: true, // Set to true to disable CSS transitions on the pointer
+    disableTransitions: true, // Disable CSS transitions on the pointer for responsiveness
     bypassRAF: true,        // Bypass requestAnimationFrame for immediate updates
     useShadowPointer: false, // Use a shadow pointer for immediate visual feedback
     showDebugOverlay: true, // Show the debug overlay to help diagnose issues
-    volumeProcessingDelay: 50, // Delay between volume updates processing in ms
-    cursorHideDelay: 2000   // Delay in ms before hiding cursor after inactivity
+
+    // Timeouts from centralized Constants (with fallbacks)
+    get volumeProcessingDelay() {
+        return window.Constants?.timeouts?.volumeProcessing || 50;
+    },
+    get cursorHideDelay() {
+        return window.Constants?.timeouts?.cursorHide || 2000;
+    }
 };
 
 // Reference to dummy hardware manager (from dummy-hardware.js)
@@ -20,33 +26,18 @@ const config = {
 // Hardware simulation is now handled by dummy-hardware.js module
 
 // Global variables for laser event optimization
-let lastLaserEvent = { position: 93 };  // Initialize with position 93
-let isAnimationRunning = false;
-let lastVolumeUpdate = 0;
-let volumeUpdatePending = false;
-let pendingVolumeData = null;
+// Default position from Constants (fallback to 93)
+const defaultLaserPosition = window.Constants?.laser?.defaultPosition || 93;
+let lastLaserEvent = { position: defaultLaserPosition };
 let cursorHideTimeout = null;
-
-// Volume adjustment variables
-let requestVolumeChangeNotStarted = 0;
-let requestVolumeChangeInProgress = 0;
-let volumeProcessorRunning = false;
 
 // Performance tracking
 let lastUpdateTime = 0;
 let frameTimeAvg = 0;
-
-// Counters for debugging
-let eventsReceived = 0;
 let eventsProcessed = 0;
-let skippedEvents = 0;
 
-// DOM manipulation tracking
-let domUpdateSuccesses = 0;
-let domUpdateFailures = 0;
+// Pointer state
 let lastKnownPointerAngle = 180; // Default middle position
-let transformProperty = null;
-let pointerElements = [];
 let shadowPointer = null;
 
 // Mouse cursor visibility control
@@ -260,7 +251,6 @@ function processLaserEvents() {
     
     // Continue the animation loop
     requestAnimationFrame(processLaserEvents);
-    isAnimationRunning = true;
 }
 
 // Process WebSocket events (from real hardware or dummy server)
@@ -307,35 +297,15 @@ function processWebSocketEvent(message) {
 // Process a single laser event
 function processLaserEvent(data) {
     const pos = data.position;
-    let angle;
-    
-    // Use laser position mapper if available
-    if (window.LaserPositionMapper) {
-        const { laserPositionToAngle } = window.LaserPositionMapper;
-        angle = laserPositionToAngle(pos);
-    } else {
-        // Fallback to original calibration logic
-        const MIN_LASER_POS = 3;
-        const MID_LASER_POS = 72;
-        const MAX_LASER_POS = 123;
-        
-        const MIN_ANGLE = 150;
-        const MID_ANGLE = 180;
-        const MAX_ANGLE = 210;
-        
-        if (pos <= MIN_LASER_POS) {
-            angle = MIN_ANGLE;
-        } else if (pos < MID_LASER_POS) {
-            const slope = (MID_ANGLE - MIN_ANGLE) / (MID_LASER_POS - MIN_LASER_POS);
-            angle = MIN_ANGLE + slope * (pos - MIN_LASER_POS);
-        } else if (pos <= MAX_LASER_POS) {
-            const slope = (MAX_ANGLE - MID_ANGLE) / (MAX_LASER_POS - MID_LASER_POS);
-            angle = MID_ANGLE + slope * (pos - MID_LASER_POS);
-        } else {
-            angle = MAX_ANGLE;
-        }
+
+    // Convert laser position to angle using the mapper
+    if (!window.LaserPositionMapper) {
+        console.error('[LASER] LaserPositionMapper not loaded');
+        return;
     }
-    
+    const { laserPositionToAngle } = window.LaserPositionMapper;
+    const angle = laserPositionToAngle(pos);
+
     // Store the last known angle
     lastKnownPointerAngle = angle;
     
@@ -434,7 +404,7 @@ function initWebSocket() {
     
     // Try to connect to real hardware server (silent attempt)
     try {
-        const ws = new WebSocket('ws://localhost:8765');
+        const ws = new WebSocket(AppConfig.websocket.input);
         
         // Set a short connection timeout
         const connectionTimeout = setTimeout(() => {
@@ -503,7 +473,7 @@ function initMediaWebSocket() {
     mediaWebSocketConnecting = true;
     
     try {
-        const mediaWs = new WebSocket('ws://localhost:8766');
+        const mediaWs = new WebSocket(AppConfig.websocket.media);
         window.mediaWebSocket = mediaWs;
         
         // Prevent browser from logging WebSocket errors
@@ -523,12 +493,13 @@ function initMediaWebSocket() {
         mediaWs.onclose = () => {
             mediaWebSocketConnecting = false;
             window.mediaWebSocket = null;
-            // Reconnect after delay
+            // Reconnect after delay (from Constants)
+            const reconnectDelay = window.Constants?.timeouts?.websocketReconnect || 3000;
             setTimeout(() => {
                 if (!window.mediaWebSocket) {
                     initMediaWebSocket();
                 }
-            }, 3000);
+            }, reconnectDelay);
         };
         
         mediaWs.onmessage = (event) => {
@@ -552,111 +523,31 @@ function initMediaWebSocket() {
 
 // Handle navigation wheel events
 function handleNavEvent(uiStore, data) {
-    // Check if we need to forward nav events to iframe pages
     const currentPage = uiStore.currentRoute || 'unknown';
-    const localHandledPages = ['menu/music', 'menu/system', 'menu/scenes'];
 
-    if (localHandledPages.includes(currentPage)) {
-        // Forward nav events to iframe
-        let iframeName = '';
-        if (currentPage === 'menu/music') iframeName = 'music-iframe';
-        else if (currentPage === 'menu/system') iframeName = 'system-iframe';
-        else if (currentPage === 'menu/scenes') iframeName = 'scenes-iframe';
-        
-        const iframe = document.getElementById(iframeName);
-        if (iframe && iframe.contentWindow) {
-            iframe.contentWindow.postMessage({
-                type: 'nav',
-                data: data
-            }, '*');
-        }
+    // Forward nav events to iframe pages that handle their own navigation
+    if (window.IframeMessenger && window.IframeMessenger.routeHasIframe(currentPage)) {
+        window.IframeMessenger.sendNavEvent(currentPage, data);
         return; // Don't process nav events in parent when iframe should handle them
     }
-    
+
     // Set topWheelPosition based on direction
     // clock = clockwise = down = positive
     // counter = counterclockwise = up = negative
-    if (data.direction === 'clock') {
-        uiStore.topWheelPosition = 1;
-    } else {
-        uiStore.topWheelPosition = -1;
-    }
-    
+    uiStore.topWheelPosition = data.direction === 'clock' ? 1 : -1;
+
     // Let the UI handle the movement based on position
     uiStore.handleWheelChange();
 }
 
 // Handle volume wheel events
+// Currently just logs the event - volume control implementation pending
 function handleVolumeEvent(uiStore, data) {
     if (!uiStore) return;
-    
-    // Convert the incoming volume change to a step size
-    // The speed is the magnitude, the direction determines sign
-    const volumeStepChange = data.direction === 'clock' 
-        ? Math.min(3, data.speed / 10) // Cap adjustment for clockwise (increase)
-        : -Math.min(3, data.speed / 10); // Cap adjustment for counter-clockwise (decrease)
-    
-    // Log the requested change for debugging
-    console.log(`Volume change requested: ${volumeStepChange.toFixed(1)}`);
-    
-    // Accumulate the requested change
-    // This is thread 1 - it just adds to the pending change amount
-    requestVolumeChangeNotStarted += volumeStepChange;
-    
-    // Log the accumulated change for debugging
-    console.log(`Accumulated volume change: ${requestVolumeChangeNotStarted.toFixed(1)}`);
-}
 
-// Start the volume processor - this runs as "thread 2"
-function startVolumeProcessor() {
-    // Only start if not already running
-    if (volumeProcessorRunning) return;
-    
-    volumeProcessorRunning = true;
-    
-    // Log that we're starting the processor
-    console.log("Volume processor started");
-    
-    // Define the processor function
-    const processVolumeChanges = async () => {
-        while (volumeProcessorRunning) {
-            // Check if there are pending volume changes
-            if (requestVolumeChangeNotStarted !== 0) {
-                // Thread safety: Quickly capture and reset the pending value
-                // This minimizes the time we're accessing the shared variable
-                requestVolumeChangeInProgress = requestVolumeChangeNotStarted;
-                requestVolumeChangeNotStarted = 0;
-                
-                // Log the processing step
-                console.log(`Processing volume change: ${requestVolumeChangeInProgress.toFixed(1)}`);
-                
-                // Apply the change to the UI store
-                const uiStore = window.uiStore;
-                if (uiStore) {
-                    // Apply the volume change with limits
-                    uiStore.volume = Math.max(0, Math.min(100, uiStore.volume + requestVolumeChangeInProgress));
-                    
-                    // Update the volume arc UI
-                    uiStore.updateVolumeArc();
-                    
-                    // Log to debug overlay
-                    if (uiStore.logWebsocketMessage) {
-                        uiStore.logWebsocketMessage(`Volume adjusted to: ${uiStore.volume.toFixed(1)}%`);
-                    }
-                }
-                
-                // Clear the in-progress flag
-                requestVolumeChangeInProgress = 0;
-            }
-            
-            // Wait a bit before processing more changes
-            // This introduces a small delay between updates to avoid UI lag
-            await new Promise(resolve => setTimeout(resolve, config.volumeProcessingDelay));
-        }
-    };
-    
-    // Start the processor loop
-    processVolumeChanges();
+    // Log volume event for debugging (implementation pending)
+    const direction = data.direction === 'clock' ? 'up' : 'down';
+    console.log(`[VOLUME] ${direction} (speed: ${data.speed})`);
 }
 
 // Handle external navigation commands (from HA webhook via input.py)
@@ -693,60 +584,26 @@ function handleExternalNavigation(uiStore, data) {
 
 // Handle button press events
 function handleButtonEvent(uiStore, data) {
-    // Log current page/route
     const currentPage = uiStore.currentRoute || 'unknown';
-    console.log(`🔵 [BUTTON] Button pressed: ${data.button} on page: ${currentPage}`);
-    
-    // Log to debug overlay
-    if (window.uiStore && window.uiStore.logWebsocketMessage) {
-        window.uiStore.logWebsocketMessage(`🔵 Button pressed: ${data.button} on page: ${currentPage}`);
-    }
-    
-    // Forward button events to iframe pages that handle their own navigation
-    const localHandledPages = ['menu/music', 'menu/system', 'menu/scenes'];
-    if (localHandledPages.includes(currentPage)) {
-        console.log(`🔵 [BUTTON] On ${currentPage} page - forwarding button to iframe`);
-        if (window.uiStore && window.uiStore.logWebsocketMessage) {
-            window.uiStore.logWebsocketMessage(`🔵 On ${currentPage} page - forwarding button to iframe`);
-        }
+    console.log(`[BUTTON] ${data.button} on ${currentPage}`);
 
-        // Forward the button event to the appropriate iframe
-        let iframeName = '';
-        if (currentPage === 'menu/music') iframeName = 'music-iframe';
-        else if (currentPage === 'menu/system') iframeName = 'system-iframe';
-        else if (currentPage === 'menu/scenes') iframeName = 'scenes-iframe';
-        
-        const iframe = document.getElementById(iframeName);
-        if (iframe && iframe.contentWindow) {
-            console.log(`🔵 [BUTTON] Sending button event to iframe ${iframeName}`);
-            // Send the button event to the iframe
-            iframe.contentWindow.postMessage({
-                type: 'button',
-                button: data.button
-            }, '*');
-        } else {
-            console.log(`🔴 [BUTTON] ERROR: Iframe ${iframeName} not found or not ready`);
-        }
+    // Forward button events to iframe pages that handle their own navigation
+    if (window.IframeMessenger && window.IframeMessenger.routeHasIframe(currentPage)) {
+        window.IframeMessenger.sendButtonEvent(currentPage, data.button);
         return;
     }
-    
 
-    
-    // Send webhook for all contexts
+    // Send webhook for non-iframe contexts
     const contextMap = {
         'menu/security': 'security',
         'menu/playing': 'now_playing',
         'menu/showing': 'now_showing',
         'menu/music': 'music',
-        'menu/settings': 'settings', 
+        'menu/settings': 'settings',
         'menu/scenes': 'scenes'
     };
-    
+
     const panelContext = contextMap[currentPage] || 'unknown';
-    console.log(`🟡 [WEBHOOK] Preparing webhook for ${currentPage} (context: ${panelContext}): ${data.button}`);
-    if (window.uiStore && window.uiStore.logWebsocketMessage) {
-        window.uiStore.logWebsocketMessage(`🟡 Preparing webhook for ${panelContext}: ${data.button}`);
-    }
     sendWebhook(panelContext, data.button);
 }
 

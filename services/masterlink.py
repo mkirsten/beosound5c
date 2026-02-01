@@ -13,22 +13,8 @@ import soco
 from datetime import datetime
 from collections import defaultdict
 
-# Digit-to-playlist mapping file
-BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/kirsten/beosound5c')
-DIGIT_PLAYLISTS_FILE = os.path.join(BS5C_BASE_PATH, "web/json/digit_playlists.json")
-
-def get_playlist_uri(digit):
-    """Get Spotify playlist URI by digit from digit_playlists.json mapping"""
-    try:
-        with open(DIGIT_PLAYLISTS_FILE, 'r') as f:
-            mapping = json.load(f)
-        if str(digit) in mapping:
-            playlist_id = mapping[str(digit)].get('id')
-            if playlist_id:
-                return f"spotify:playlist:{playlist_id}"
-    except Exception as e:
-        print(f"Error reading digit playlists: {e}")
-    return None
+# Shared playlist lookup (single source of truth)
+from playlist_lookup import get_playlist_uri
 
 # Configuration variables
 # Home Assistant webhook and WebSocket URLs
@@ -394,6 +380,7 @@ class PC2Device:
         # Prepare webhook payload for Home Assistant
         webhook_data = {
             'device_name': BEOSOUND_DEVICE_NAME,
+            'source': 'ir',
             'action': message.get('key_name', ''),
             'device_type': message.get('device_type', ''),
             'count': message.get('count', 1),
@@ -414,7 +401,7 @@ class PC2Device:
                 webhook_data['playlist_uri'] = playlist_uri
             else:
                 print(f"[PLAYLIST] No playlist found for digit {digit}")
-    
+
         # Otherwise, continue with sending the webhook
         # DIAGNOSTIC: Print webhook attempt
         print(f"🔍 DEBUG: Attempting to send webhook: {webhook_data['action']} to {WEBHOOK_URL}")

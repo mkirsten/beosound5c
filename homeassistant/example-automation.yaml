@@ -10,6 +10,27 @@
 #   - <YOUR_BS5C_IP> with your BeoSound 5c IP or hostname
 #
 # =============================================================================
+# WEBHOOK PAYLOAD FORMAT
+# =============================================================================
+#
+# All button events are sent as JSON to the beosound5c webhook:
+#
+# {
+#   "device_name": "Living Room",     # Configured in /etc/beosound5c/config.env
+#   "source": "bluetooth|ir",         # Which remote triggered this event
+#   "device_type": "Video|Audio|Light",  # Current mode of the remote
+#   "action": "up|down|go|...",       # Button pressed (see list below)
+#   "playlist_uri": "spotify:..."     # Only for digit buttons with playlist mapping
+# }
+#
+# Available actions:
+#   Navigation: up, down, left, right, go, stop, off
+#   Volume: volup, voldown, mute
+#   Colors: red, green, yellow, blue
+#   Other: info, tv, play_playlist
+#   Digits: 0-9 (when no playlist mapped)
+#
+# =============================================================================
 # WEBHOOK AUTOMATION - Main entry point for BeoSound 5c events
 # =============================================================================
 #
@@ -34,6 +55,7 @@
               data:
                 action: "{{ trigger.json.action }}"
                 device_name: "{{ trigger.json.device_name }}"
+                source: "{{ trigger.json.source | default('unknown') }}"
 
         # Audio mode - Music controls
         - conditions:
@@ -44,6 +66,7 @@
               data:
                 action: "{{ trigger.json.action }}"
                 device_name: "{{ trigger.json.device_name }}"
+                source: "{{ trigger.json.source | default('unknown') }}"
                 playlist_uri: "{{ trigger.json.playlist_uri | default('') }}"
 
         # Light mode - Lighting controls
@@ -54,6 +77,7 @@
             - service: script.beosound_light
               data:
                 action: "{{ trigger.json.action }}"
+                source: "{{ trigger.json.source | default('unknown') }}"
 
 # =============================================================================
 # SCRIPTS - Action handlers
@@ -129,6 +153,55 @@
 #               - service: media_player.volume_down
 #                 target:
 #                   entity_id: <YOUR_MEDIA_PLAYER>
+#           # Color buttons - example: toggle scene or light
+#           - conditions: "{{ action == 'red' }}"
+#             sequence:
+#               - service: scene.turn_on
+#                 target:
+#                   entity_id: scene.movie_mode
+#           - conditions: "{{ action == 'green' }}"
+#             sequence:
+#               - service: light.toggle
+#                 target:
+#                   entity_id: light.living_room
+#           - conditions: "{{ action == 'yellow' }}"
+#             sequence:
+#               - service: scene.turn_on
+#                 target:
+#                   entity_id: scene.relax
+#           - conditions: "{{ action == 'blue' }}"
+#             sequence:
+#               - service: scene.turn_on
+#                 target:
+#                   entity_id: scene.bright
+#
+#   beosound_light:
+#     alias: "BeoSound Light Handler"
+#     mode: queued
+#     fields:
+#       action:
+#         description: "Button action"
+#     sequence:
+#       - choose:
+#           - conditions: "{{ action == 'up' }}"
+#             sequence:
+#               - service: light.turn_on
+#                 target:
+#                   entity_id: light.living_room
+#                 data:
+#                   brightness_step_pct: 10
+#           - conditions: "{{ action == 'down' }}"
+#             sequence:
+#               - service: light.turn_on
+#                 target:
+#                   entity_id: light.living_room
+#                 data:
+#                   brightness_step_pct: -10
+#           - conditions: "{{ action == 'go' }}"
+#             sequence:
+#               - service: light.toggle
+#                 target:
+#                   entity_id: light.living_room
 
 # =============================================================================
 # REST COMMANDS - Control BeoSound 5c from Home Assistant

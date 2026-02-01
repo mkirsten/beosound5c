@@ -1,6 +1,7 @@
 const arcs = {
-    cx: 1147, // Horizontal center
-    cy: 387,  // Vertical center
+    // Use centralized constants with fallbacks
+    get cx() { return window.Constants?.arc?.centerX || 1147; },
+    get cy() { return window.Constants?.arc?.centerY || 387; },
 
     polarToCartesian(cx, cy, radius, angleInDegrees) {
         const angleInRadians = (angleInDegrees * Math.PI) / 180.0;

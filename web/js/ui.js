@@ -5,8 +5,8 @@ class UIStore {
         this.isNowPlayingOverlayActive = false;
         this.selectedMenuItem = -1;
         
-        // Initialize laser position to 93 (matches cursor-handler.js)
-        this.laserPosition = 93;
+        // Initialize laser position from constants (matches cursor-handler.js)
+        this.laserPosition = window.Constants?.laser?.defaultPosition || 93;
         
         // Debug info
         this.debugEnabled = true;
@@ -32,21 +32,22 @@ class UIStore {
             state: 'unknown'
         };
         
-        // In-memory artwork cache
-        this.artworkCache = {};
+        // Artwork cache delegated to ArtworkManager
         
-        this.menuItems = [
+        // Menu items from centralized constants
+        this.menuItems = (window.Constants?.menuItems || [
             {title: 'SHOWING', path: 'menu/showing'},
             {title: 'SYSTEM', path: 'menu/system'},
             {title: 'SECURITY', path: 'menu/security'},
             {title: 'SCENES', path: 'menu/scenes'},
             {title: 'MUSIC', path: 'menu/music'},
             {title: 'PLAYING', path: 'menu/playing'}
-        ];
+        ]).map(item => ({title: item.title, path: item.path}));
 
-        // Constants
-        this.radius = 1000;
-        this.angleStep = 5;
+        // Get constants from centralized config
+        const c = window.Constants || {};
+        this.radius = c.arc?.radius || 1000;
+        this.angleStep = c.arc?.menuAngleStep || 5;
         
         // Menu visibility state (simplified)
         this.menuVisible = true;
@@ -95,12 +96,10 @@ class UIStore {
                 title: 'SECURITY',
                 content: `
                     <div id="security-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
-                        <iframe id="security-iframe" 
-                                style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); pointer-events: auto;" 
-                                allowfullscreen 
-                                tabindex="0"
-                                sandbox="allow-same-origin allow-scripts allow-forms allow-pointer-lock allow-popups allow-popups-to-escape-sandbox"
-                                allow="camera; microphone; geolocation"></iframe>
+                        <iframe id="security-iframe"
+                                style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); pointer-events: auto;"
+                                allowfullscreen
+                                tabindex="0"></iframe>
                     </div>
                 `
             },
@@ -140,24 +139,12 @@ class UIStore {
         this.setupAppleTVMediaInfoRefresh();
     }
     
-    // Helper to preload and cache images
+    // Image preloading delegated to ArtworkManager
     preloadAndCacheImage(url) {
-        return new Promise((resolve, reject) => {
-            if (!url) return resolve(null);
-            if (this.artworkCache[url] && this.artworkCache[url].complete) {
-                return resolve(this.artworkCache[url]);
-            }
-
-            const img = new window.Image();
-            img.onload = () => {
-                this.artworkCache[url] = img;
-                resolve(img);
-            };
-            img.onerror = () => {
-                reject(new Error('Failed to load image'));
-            };
-            img.src = url;
-        });
+        if (window.ArtworkManager) {
+            return window.ArtworkManager.preloadImage(url);
+        }
+        return Promise.resolve(null);
     }
     
     // REMOVED: requestMediaUpdate - now using push-based updates from media server
@@ -195,71 +182,25 @@ class UIStore {
         const artistEl = document.getElementById('media-artist');
         const albumEl = document.getElementById('media-album');
         const playPauseBtn = document.getElementById('play-pause');
-        
-        if (!artworkEl || !titleEl || !artistEl || !albumEl) return;
-        
+
+        if (!titleEl || !artistEl || !albumEl) return;
+
         // Update text elements
         titleEl.textContent = this.mediaInfo.title;
         artistEl.textContent = this.mediaInfo.artist;
         albumEl.textContent = this.mediaInfo.album;
-        
+
         // Update play/pause button based on state
         if (playPauseBtn) {
             playPauseBtn.textContent = this.mediaInfo.state === 'playing' ? '⏸' : '▶️';
         }
-        
-        // Handle artwork display
-        const artworkUrl = this.mediaInfo.artwork;
-        
-        if (artworkUrl) {
-            // Check if it's a data URL (from direct Sonos API)
-            if (artworkUrl.startsWith('data:')) {
-                // Direct data URL - set immediately
-                if (artworkEl.src !== artworkUrl) {
-                    artworkEl.style.opacity = 0;
-                    setTimeout(() => {
-                        artworkEl.src = artworkUrl;
-                        setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
-                    }, 100);
-                }
-            } else {
-                // Regular URL (from HA) - use caching system
-                if (this.artworkCache[artworkUrl] && this.artworkCache[artworkUrl].complete) {
-                    if (artworkEl.src !== this.artworkCache[artworkUrl].src) {
-                        artworkEl.style.opacity = 0;
-                        setTimeout(() => {
-                            artworkEl.src = this.artworkCache[artworkUrl].src;
-                            setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
-                        }, 100);
-                    }
-                } else {
-                    // Preload and cache for next time
-                    this.preloadAndCacheImage(artworkUrl).then(img => {
-                        if (img && artworkEl.src !== img.src) {
-                            artworkEl.style.opacity = 0;
-                            setTimeout(() => {
-                                artworkEl.src = img.src;
-                                setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
-                            }, 100);
-                        }
-                    }).catch(error => {
-                        console.error('Error loading now playing artwork:', error.message);
-                        if (error.message.includes('0 bytes')) {
-                            console.warn('Home Assistant media player proxy returned 0 bytes - this is a known issue with Sonos artwork URLs');
-                        }
-                        // Set a default placeholder image
-                        artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23333'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3EArtwork%3C/text%3E%3Ctext x='100' y='120' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3EUnavailable%3C/text%3E%3C/svg%3E";
-                        artworkEl.style.opacity = 1;
-                    });
-                }
-            }
-        } else {
-            // Show placeholder when no artwork URL is available
-            artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23333'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3ENo Artwork%3C/text%3E%3Ctext x='100' y='120' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3EAvailable%3C/text%3E%3C/svg%3E";
-            artworkEl.style.opacity = 1;
+
+        // Use centralized artwork manager for display
+        if (artworkEl && window.ArtworkManager) {
+            window.ArtworkManager.displayArtwork(artworkEl, this.mediaInfo.artwork, 'noArtwork');
         }
     }
-    
+
     // Fetch Apple TV media info from backend (which proxies HA)
     async fetchAppleTVMediaInfo() {
         try {
@@ -294,20 +235,9 @@ class UIStore {
         if (detailsEl) detailsEl.textContent = this.appleTVMediaInfo.app_name;
         if (stateEl) stateEl.textContent = this.appleTVMediaInfo.state;
 
-        // Handle artwork
-        const artworkUrl = this.appleTVMediaInfo.artwork;
-        if (artworkUrl && artworkEl) {
-            if (artworkEl.src !== artworkUrl) {
-                artworkEl.style.opacity = 0;
-                setTimeout(() => {
-                    artworkEl.src = artworkUrl;
-                    setTimeout(() => { artworkEl.style.opacity = 1; }, 20);
-                }, 100);
-            }
-        } else if (artworkEl) {
-            // Show placeholder when no artwork
-            artworkEl.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23222'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='16' fill='%23666' text-anchor='middle' dominant-baseline='middle'%3ESHOWING%3C/text%3E%3C/svg%3E";
-            artworkEl.style.opacity = 1;
+        // Use centralized artwork manager for display
+        if (artworkEl && window.ArtworkManager) {
+            window.ArtworkManager.displayArtwork(artworkEl, this.appleTVMediaInfo.artwork, 'showing');
         }
     }
 
@@ -455,7 +385,7 @@ class UIStore {
     // Send click command to server (graceful fallback)
     sendClickCommand() {
         try {
-            const ws = new WebSocket('ws://localhost:8765/ws');
+            const ws = new WebSocket(AppConfig.websocket.input);
             
             const timeout = setTimeout(() => {
                 ws.close();
@@ -912,87 +842,18 @@ class UIStore {
      * Forward button press to active iframe for hierarchical navigation
      */
     forwardButtonToActiveIframe(button) {
-        console.log(`🔍 DEBUG: forwardButtonToActiveIframe called with button: ${button}`);
-        console.log(`🔍 DEBUG: currentRoute: ${this.currentRoute}`);
-        
-        // Map current route to iframe IDs
-        const iframeIdMap = {
-            'menu/music': 'music-iframe',
-            'menu/scenes': 'scenes-iframe',
-            'menu/system': 'system-iframe'
-        };
-
-        const iframeId = iframeIdMap[this.currentRoute];
-        console.log(`🔍 DEBUG: mapped iframeId: ${iframeId}`);
-        
-        if (!iframeId) {
-            console.log(`❌ No iframe to forward button to for route: ${this.currentRoute}`);
-            return;
-        }
-        
-        const iframe = document.getElementById(iframeId);
-        console.log(`🔍 DEBUG: iframe element found:`, iframe);
-        
-        if (!iframe) {
-            console.log(`❌ Iframe not found: ${iframeId}`);
-            return;
-        }
-        
-        // Check if iframe is loaded
-        if (!iframe.contentWindow) {
-            console.log(`❌ Iframe contentWindow not available: ${iframeId}`);
-            return;
-        }
-        
-        // Send button press to iframe
-        const message = {
-            type: 'button',
-            button: button
-        };
-        
-        console.log(`✅ Forwarding ${button} button press to iframe: ${iframeId}`, message);
-        try {
-            iframe.contentWindow.postMessage(message, '*');
-            console.log(`✅ postMessage sent successfully`);
-        } catch (error) {
-            console.error(`❌ Error sending postMessage:`, error);
+        if (window.IframeMessenger) {
+            window.IframeMessenger.sendButtonEvent(this.currentRoute, button);
         }
     }
-    
+
     /**
      * Forward keyboard event to active iframe for enhanced navigation
      */
     forwardKeyboardToActiveIframe(event) {
-        // Map current route to iframe IDs
-        const iframeIdMap = {
-            'menu/music': 'music-iframe',
-            'menu/scenes': 'scenes-iframe',
-            'menu/system': 'system-iframe'
-        };
-
-        const iframeId = iframeIdMap[this.currentRoute];
-        if (!iframeId) {
-            return;
+        if (window.IframeMessenger) {
+            window.IframeMessenger.sendKeyboardEvent(this.currentRoute, event);
         }
-        
-        const iframe = document.getElementById(iframeId);
-        if (!iframe) {
-            return;
-        }
-        
-        // Send keyboard event to iframe
-        const message = {
-            type: 'keyboard',
-            key: event.key,
-            code: event.code,
-            ctrlKey: event.ctrlKey,
-            shiftKey: event.shiftKey,
-            altKey: event.altKey,
-            metaKey: event.metaKey
-        };
-        
-        console.log(`Forwarding keyboard event (${event.key}) to iframe: ${iframeId}`);
-        iframe.contentWindow.postMessage(message, '*');
     }
 }
 
@@ -1012,6 +873,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Fade out splash screen after UI is ready
+    const timeouts = window.Constants?.timeouts || {};
     setTimeout(() => {
         const splash = document.getElementById('splash-overlay');
         if (splash) {
@@ -1019,7 +881,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Remove from DOM after animation completes
             setTimeout(() => {
                 splash.classList.add('hidden');
-            }, 800);
+            }, timeouts.splashRemoveDelay || 800);
         }
-    }, 500); // Brief delay to ensure UI is rendered
+    }, timeouts.splashFadeDelay || 500); // Brief delay to ensure UI is rendered
 }); 

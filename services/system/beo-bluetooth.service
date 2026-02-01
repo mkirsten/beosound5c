@@ -13,8 +13,10 @@ EnvironmentFile=-/etc/beosound5c/config.env
 ExecStart=/home/kirsten/beosound5c/services/bluetooth.sh
 Restart=always
 RestartSec=10
+# Watchdog: auto-restart if no heartbeat for 5 minutes
+WatchdogSec=300
 StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=multi-user.target 
+WantedBy=multi-user.target

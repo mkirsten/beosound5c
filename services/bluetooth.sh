@@ -35,6 +35,21 @@ log_stats() {
   log "[STATS] Consecutive failures: $consecutive_failures, Total failures: $total_failures, Reset level: $reset_level, Successful connections: $successful_connections"
 }
 
+# Systemd watchdog helper - notify systemd we're alive
+watchdog_ping() {
+  if [[ -n "${WATCHDOG_USEC:-}" ]]; then
+    systemd-notify WATCHDOG=1
+  fi
+}
+
+# Notify systemd we're ready and start watchdog
+watchdog_ready() {
+  if [[ -n "${NOTIFY_SOCKET:-}" ]]; then
+    systemd-notify --ready --status="Starting up..."
+    log ">>> Systemd watchdog enabled (interval: ${WATCHDOG_USEC:-0}us)"
+  fi
+}
+
 # Escalating reset function
 # Level 1: btmgmt power cycle (fast, usually works)
 # Level 2: hciconfig down/up (more thorough)
@@ -86,8 +101,27 @@ do_reset() {
       ;;
   esac
 
-  # Log HCI state after reset
-  log ">>> HCI state after reset:"
+  # Verify HCI is UP after reset, retry if needed
+  log ">>> Verifying HCI state after reset..."
+  local hci_up=false
+  for attempt in 1 2 3; do
+    if hciconfig hci0 2>&1 | grep -q "UP RUNNING"; then
+      hci_up=true
+      log ">>> HCI is UP RUNNING (attempt $attempt)"
+      break
+    else
+      log ">>> HCI not UP (attempt $attempt), trying to bring it up..."
+      sudo hciconfig hci0 up 2>&1 || true
+      sleep 2
+    fi
+  done
+
+  if [[ "$hci_up" != "true" ]]; then
+    log "!!! WARNING: HCI failed to come UP after reset - will retry on next cycle"
+  fi
+
+  # Log final HCI state
+  log ">>> Final HCI state:"
   hciconfig hci0 2>&1 | head -5 | while read -r line; do log "[hciconfig] $line"; done || log ">>> Warning: Could not get HCI state"
 }
 
@@ -207,42 +241,11 @@ send_webhook() {
   return 0  # Always succeed to prevent script crash
 }
 
-# Get playlist URI by digit from digit_playlists.json mapping
+# Get playlist URI by digit - uses shared Python module
 # Returns spotify:playlist:ID or empty string if not found
 get_playlist_uri() {
   local digit="$1"
-  local mapping_file="${BS5C_BASE_PATH}/web/json/digit_playlists.json"
-
-  if [[ ! -f "$mapping_file" ]]; then
-    log "[PLAYLIST] Mapping file not found: $mapping_file"
-    echo ""
-    return 0
-  fi
-
-  # Use jq if available (faster), fall back to python
-  if command -v jq &>/dev/null; then
-    local playlist_id
-    playlist_id=$(jq -r ".[\"$digit\"].id // empty" "$mapping_file" 2>/dev/null)
-    if [[ -n "$playlist_id" ]]; then
-      echo "spotify:playlist:$playlist_id"
-    else
-      echo ""
-    fi
-  elif command -v python3 &>/dev/null; then
-    python3 -c "
-import json
-try:
-    with open('$mapping_file') as f:
-        mapping = json.load(f)
-    if '$digit' in mapping:
-        print(f\"spotify:playlist:{mapping['$digit']['id']}\")
-except:
-    pass
-" 2>/dev/null
-  else
-    log "[PLAYLIST] Neither jq nor python3 available"
-    echo ""
-  fi
+  python3 "${BS5C_BASE_PATH}/services/playlist_lookup.py" "$digit" 2>/dev/null
   return 0
 }
 
@@ -253,6 +256,9 @@ log "MAC: $MAC"
 log "Webhook: $WEBHOOK"
 log "PID: $$"
 log "=========================================="
+
+# Signal systemd we're ready (for Type=notify, optional for Type=simple)
+watchdog_ready
 
 # The idea is basically to
 # 1) Kill old gatttool CLI tools running and reset bt controller
@@ -265,6 +271,7 @@ while true; do
   log "=== CLEANUP ==="
   log ">>> Starting new connection attempt cycle"
   log_stats
+  watchdog_ping  # Keep systemd watchdog alive
 
   pkill -f "gatttool -b $MAC" 2>/dev/null || true
 
@@ -315,9 +322,29 @@ while true; do
   connection_success=false
 
   # Keep issuing "connect" until success (3a), or until we force a restart in various ways (3b)
+  # Limit total connection time to prevent infinite loops
+  connection_start=$SECONDS
+  max_connection_time=120  # 2 minutes max per connection attempt cycle
+
   while true; do
-    echo "connect" >&"$GIN"
-    while read -r -u "$GOUT" line; do
+    # Check if we've exceeded max connection time
+    if (( SECONDS - connection_start > max_connection_time )); then
+      log ">>> Connection attempt exceeded ${max_connection_time}s—restarting cycle"
+      consecutive_failures=$((consecutive_failures + 1))
+      total_failures=$((total_failures + 1))
+      kill "$GPID" 2>/dev/null || true
+      break
+    fi
+
+    watchdog_ping  # Keep watchdog alive during connection attempts
+
+    echo "connect" >&"$GIN" 2>/dev/null || {
+      log ">>> Failed to send connect command—gatttool may have died"
+      break
+    }
+
+    # Read with timeout to prevent hanging forever
+    while read -r -u "$GOUT" -t 45 line; do
       [[ -n "$line" ]] && log "[gatttool] $line"
 
       if [[ "$line" == *"Connection successful"* ]]; then
@@ -344,31 +371,24 @@ while true; do
         sleep 2
         break    # exit read-loop only; retry connect in the inner connecting-loop
 
-      elif [[ "$line" == *"Function not implemented"* ]]; then
+      elif [[ "$line" == *"Function not implemented"* ]] || [[ "$line" == *"Too many open files"* ]] || [[ "$line" =~ ^Error: ]]; then
         consecutive_failures=$((consecutive_failures + 1))
         total_failures=$((total_failures + 1))
-        log ">>> HCI function not implemented (failure #$consecutive_failures)—doing full restart"
+        log ">>> Fatal error (failure #$consecutive_failures): $line"
         kill "$GPID" 2>/dev/null || true
         sleep 2
-        break 3  # exit all the way to outer loop → cleanup/HCI reset
-
-      elif [[ "$line" == *"Too many open files"* ]]; then
-        consecutive_failures=$((consecutive_failures + 1))
-        total_failures=$((total_failures + 1))
-        log ">>> Too many open files (failure #$consecutive_failures)—forcing full restart"
-        kill "$GPID" 2>/dev/null || true
-        sleep 1
-        break 3  # exit all loops → cleanup/HCI reset
-
-      elif [[ "$line" =~ ^Error: ]]; then
-        consecutive_failures=$((consecutive_failures + 1))
-        total_failures=$((total_failures + 1))
-        log ">>> Fatal error (failure #$consecutive_failures)—restarting"
-        kill "$GPID" 2>/dev/null || true
-        sleep 2
-        break 3  # exit all loops → cleanup/HCI reset
+        break 2  # exit to outer cleanup/HCI reset
       fi
     done
+
+    # If read timed out (exit code > 128), check if process died
+    if [[ $? -gt 128 ]]; then
+      if ! kill -0 "$GPID" 2>/dev/null; then
+        log ">>> gatttool died during connection attempt"
+        break
+      fi
+      log ">>> Connection read timed out, retrying..."
+    fi
   done
 
   # Check if we should be listening or restarting
@@ -496,21 +516,9 @@ while true; do
               playlist_uri=$(get_playlist_uri "$result_value")
               if [[ -n "$playlist_uri" ]]; then
                 log "[PLAYLIST] Digit $result_value -> $playlist_uri"
-                # Send play_playlist action with the URI
-                digit_json="{\"device_name\":\"${DEVICE_NAME}\",\"action\":\"play_playlist\",\"playlist_uri\":\"${playlist_uri}\",\"device_type\":\"Audio\"}"
-                if curl -X POST "${WEBHOOK}" \
-                  --silent --output /dev/null \
-                  --connect-timeout 1 \
-                  --max-time 2 \
-                  -H "Content-Type: application/json" \
-                  -d "$digit_json"; then
-                  log "[WEBHOOK] Success: play_playlist $playlist_uri"
-                else
-                  log "[WEBHOOK] Failed: play_playlist $playlist_uri (curl exit: $?)"
-                fi
+                send_webhook "play_playlist" "Audio" "\"playlist_uri\":\"${playlist_uri}\""
               else
                 log "[PLAYLIST] No playlist found for digit $result_value"
-                # Fall back to sending digit as-is
                 send_webhook "$result_value" "$current_mode"
               fi
               ;;
@@ -559,7 +567,8 @@ while true; do
       # read failed or timed out
       read_exit_code=$?
       if [[ $read_exit_code -gt 128 ]]; then
-        # Timeout occurred, check if process is still alive and continue
+        # Timeout occurred - ping watchdog and check if process is still alive
+        watchdog_ping  # Critical: keep systemd watchdog alive
         # Only log every 5 minutes to reduce noise
         if [[ $((SECONDS % 300)) -lt 30 ]]; then
           log ">>> Heartbeat: Connection alive, waiting for events... (events received: $events_received)"

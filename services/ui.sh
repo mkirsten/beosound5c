@@ -26,6 +26,14 @@ rm -rf ~/.config/chromium/Singleton*
 rm -rf ~/.config/chromium/Default/Preferences.bak
 rm -rf ~/.config/chromium/Default/Session*
 rm -rf ~/.config/chromium/Default/Current*
+rm -rf ~/.config/chromium/Crash\ Reports/pending/*
+
+# Patch Chromium preferences to disable crash restore
+PREFS_FILE="$HOME/.config/chromium/Default/Preferences"
+if [ -f "$PREFS_FILE" ]; then
+  # Set exit_type to Normal and exited_cleanly to true
+  sed -i 's/"exit_type":"[^"]*"/"exit_type":"Normal"/g; s/"exited_cleanly":false/"exited_cleanly":true/g' "$PREFS_FILE" 2>/dev/null || true
+fi
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -108,7 +116,10 @@ xinit /bin/bash -c '
       --disable-pinch \
       --disable-gesture-typing \
       --disable-hang-monitor \
-      --disable-prompt-on-repost
+      --disable-prompt-on-repost \
+      --hide-crash-restore-bubble \
+      --disable-breakpad \
+      --disable-crash-reporter
 
     EXIT_CODE=$?
     END_TIME=$(date +%s)
@@ -138,6 +149,13 @@ xinit /bin/bash -c '
     # Clear any crash state before restarting
     rm -rf ~/.config/chromium/Default/Session* 2>/dev/null
     rm -rf ~/.config/chromium/Singleton* 2>/dev/null
+    rm -rf ~/.config/chromium/Crash\ Reports/pending/* 2>/dev/null
+
+    # Patch preferences to prevent crash restore dialog
+    PREFS="$HOME/.config/chromium/Default/Preferences"
+    if [ -f "$PREFS" ]; then
+      sed -i "s/\"exit_type\":\"[^\"]*\"/\"exit_type\":\"Normal\"/g; s/\"exited_cleanly\":false/\"exited_cleanly\":true/g" "$PREFS" 2>/dev/null || true
+    fi
 
     log "Restarting Chromium..."
   done

@@ -7,8 +7,8 @@ const AppConfig = {
 
     // WebSocket endpoints (browser connects to same host as web UI)
     websocket: {
-        input: 'ws://localhost:8765/ws',
-        media: 'ws://localhost:8766/ws'
+        input: 'ws://localhost:8765',
+        media: 'ws://localhost:8766'
     },
 
     // Debug settings
