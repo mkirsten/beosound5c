@@ -144,6 +144,10 @@ log "Webhook: $WEBHOOK"
 log "PID: $$"
 log "=========================================="
 
+# Log Bluetooth adapter state for diagnostics
+log ">>> Checking Bluetooth adapter state..."
+btmgmt info 2>&1 | head -5 | while read -r line; do log "[btmgmt] $line"; done
+
 # The idea is basically to
 # 1) Kill old gatttool CLI tools running and reset bt controller
 # 2) Start gatttool CLI and try to connect to the B&O BT remote
@@ -154,6 +158,9 @@ log "=========================================="
 while true; do
   log "=== CLEANUP ==="
   log ">>> Starting new connection attempt cycle"
+  log ">>> Cleaning up old gatttool processes"
+  existing_pids=$(pgrep -f "gatttool -b $MAC" 2>/dev/null || echo "none")
+  log ">>> Existing gatttool PIDs: $existing_pids"
   pkill -f "gatttool -b $MAC" 2>/dev/null || true
 
   # (1) Simple reset - just power cycle the adapter
@@ -239,9 +246,13 @@ while true; do
 
   # Enable notifications on both CCCD handles immediately after connection
   log ">>> Enabling notifications on CCCD handles..."
-  echo "char-write-cmd $DESC1 0100" >&"$GIN" 2>/dev/null || true
+  echo "char-write-req $DESC1 0100" >&"$GIN" 2>/dev/null || true
+  read -r -u "$GOUT" -t 5 cccd_response1 || cccd_response1="(timeout)"
+  log ">>> CCCD1 response: $cccd_response1"
   sleep 0.1
-  echo "char-write-cmd $DESC2 0100" >&"$GIN" 2>/dev/null || true
+  echo "char-write-req $DESC2 0100" >&"$GIN" 2>/dev/null || true
+  read -r -u "$GOUT" -t 5 cccd_response2 || cccd_response2="(timeout)"
+  log ">>> CCCD2 response: $cccd_response2"
   sleep 0.1
 
   # (3a) Awesome, let's listen for button events from the remote
@@ -250,6 +261,8 @@ while true; do
   pressed=false
   last_command=""
   repeat_count=0
+  listen_cycles=0
+  notification_count=0
 
   # Listen loop: breaks back to outer while on EOF or FD error
   while true; do
@@ -286,6 +299,8 @@ while true; do
 
       # Parse notifications
       if [[ "$line" =~ Notification[[:space:]]handle[[:space:]]\=[[:space:]]([^[:space:]]+)[[:space:]]value:[[:space:]]([0-9A-Fa-f]{2})[[:space:]]([0-9A-Fa-f]{2}) ]]; then
+        notification_count=$((notification_count + 1))
+        log ">>> [DIAG] Notification #$notification_count received"
         address="${BASH_REMATCH[1]}"
         command="${BASH_REMATCH[2],,}"
 
@@ -404,7 +419,11 @@ while true; do
           log ">>> Process died during timeout—restarting"
           break
         fi
-        # Still alive, continue listening silently
+        # Still alive, continue listening
+        listen_cycles=$((listen_cycles + 1))
+        if (( listen_cycles % 10 == 0 )); then
+          log ">>> [DIAG] Health: cycles=$listen_cycles notifications=$notification_count process=$(kill -0 $GPID 2>/dev/null && echo alive || echo dead)"
+        fi
         continue
       else
         # EOF or other error
