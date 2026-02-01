@@ -10,6 +10,9 @@ VID, PID = 0x0cd4, 0x1112
 BTN_MAP = {0x20:'left', 0x10:'right', 0x40:'go', 0x80:'power'}
 clients = set()
 
+# Base path for BeoSound 5c installation (from env or default)
+BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/kirsten/beosound5c')
+
 # Media server connection
 MEDIA_SERVER_URL = 'ws://localhost:8766'
 media_server_ws = None
@@ -137,7 +140,7 @@ def get_system_info() -> dict:
             result = subprocess.run(
                 ['git', 'describe', '--tags', '--always'],
                 capture_output=True, text=True, timeout=2,
-                cwd='/home/kirsten/beosound5c'
+                cwd=BS5C_BASE_PATH
             )
             info['git_tag'] = result.stdout.strip() if result.stdout else '--'
         except:
@@ -232,12 +235,13 @@ async def refresh_spotify_playlists(ws):
     print('[SPOTIFY] Starting playlist refresh')
     try:
         # Run fetch_playlists.py in background
+        spotify_dir = os.path.join(BS5C_BASE_PATH, 'tools/spotify')
         process = subprocess.Popen(
-            ['python3', '/home/kirsten/beosound5c/tools/spotify/fetch_playlists.py'],
+            ['python3', os.path.join(spotify_dir, 'fetch_playlists.py')],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            cwd='/home/kirsten/beosound5c/tools/spotify'
+            cwd=spotify_dir
         )
 
         # Send initial status
@@ -361,6 +365,19 @@ async def handle_health(request):
     """Health check endpoint."""
     return web.json_response({'status': 'ok', 'service': 'beo-input', 'screen': 'on' if backlight_on else 'off'})
 
+async def handle_led(request):
+    """Quick LED control for visual feedback. GET /led?mode=pulse|on|off|blink"""
+    mode = request.query.get('mode', 'pulse')
+
+    if mode == 'pulse':
+        # Quick pulse: on then off after 100ms
+        set_led('on')
+        asyncio.get_event_loop().call_later(0.1, lambda: set_led('off'))
+    else:
+        set_led(mode)
+
+    return web.Response(text='ok')
+
 async def handle_forward(request):
     """Forward webhook to Home Assistant."""
     # Handle CORS preflight
@@ -432,6 +449,52 @@ async def handle_appletv(request):
     except Exception as e:
         print(f'[APPLETV ERROR] {e}')
         response = web.json_response({'error': str(e), 'title': '—', 'app_name': '—', 'friendly_name': '—', 'artwork': '', 'state': 'error'})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+
+async def handle_people(request):
+    """Fetch all person.* entities from Home Assistant."""
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        return web.Response(headers={
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+        })
+
+    ha_url = os.getenv('HA_URL', 'http://homeassistant.local:8123')
+    ha_token = os.getenv('HA_TOKEN', '')
+
+    try:
+        async with ClientSession() as session:
+            headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
+            async with session.get(f'{ha_url}/api/states', headers=headers) as resp:
+                if resp.status == 200:
+                    all_states = await resp.json()
+                    # Filter for person.* entities
+                    people = []
+                    for entity in all_states:
+                        entity_id = entity.get('entity_id', '')
+                        if entity_id.startswith('person.'):
+                            attrs = entity.get('attributes', {})
+                            entity_picture = attrs.get('entity_picture', '')
+                            # Prepend HA URL to picture if relative
+                            if entity_picture and not entity_picture.startswith('http'):
+                                entity_picture = f'{ha_url}{entity_picture}'
+                            people.append({
+                                'entity_id': entity_id,
+                                'friendly_name': attrs.get('friendly_name', entity_id.replace('person.', '').title()),
+                                'state': entity.get('state', 'unknown'),
+                                'entity_picture': entity_picture
+                            })
+                    response = web.json_response(people)
+                else:
+                    response = web.json_response({'error': 'Failed to fetch'}, status=resp.status)
+                response.headers['Access-Control-Allow-Origin'] = '*'
+                return response
+    except Exception as e:
+        print(f'[PEOPLE ERROR] {e}')
+        response = web.json_response({'error': str(e)})
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
 
@@ -651,7 +714,10 @@ async def main():
     app.router.add_options('/forward', handle_forward)  # CORS preflight
     app.router.add_get('/appletv', handle_appletv)
     app.router.add_options('/appletv', handle_appletv)  # CORS preflight
+    app.router.add_get('/people', handle_people)
+    app.router.add_options('/people', handle_people)  # CORS preflight
     app.router.add_get('/health', handle_health)
+    app.router.add_get('/led', handle_led)
     runner = web.AppRunner(app)
     await runner.setup()
     http_site = web.TCPSite(runner, '0.0.0.0', 8767)

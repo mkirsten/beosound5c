@@ -1,0 +1,28 @@
+# BeoSound 5c Plymouth Script
+
+# Set background to black
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
+
+# Load and display the splash image
+splash_image = Image("splashscreen-red.png");
+
+# Get screen and image dimensions
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
+image_width = splash_image.GetWidth();
+image_height = splash_image.GetHeight();
+
+# Calculate scale to fit screen while maintaining aspect ratio
+scale_x = screen_width / image_width;
+scale_y = screen_height / image_height;
+scale = Math.Min(scale_x, scale_y);
+
+# Scale the image
+scaled_image = splash_image.Scale(image_width * scale, image_height * scale);
+
+# Center the image
+sprite = Sprite(scaled_image);
+sprite.SetX(Window.GetX() + (screen_width - scaled_image.GetWidth()) / 2);
+sprite.SetY(Window.GetY() + (screen_height - scaled_image.GetHeight()) / 2);
+sprite.SetZ(100);

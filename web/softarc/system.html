@@ -351,6 +351,85 @@
         .services-legend .dot.yellow { background: #fa0; }
         .services-legend .dot.red { background: #a44; }
 
+        /* People section */
+        .people-section .people-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 25px;
+            max-width: 700px;
+        }
+
+        .person-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 15px;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .person-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 3px solid #555;
+            background: #222;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: 300;
+            color: #666;
+            overflow: hidden;
+            transition: border-color 0.3s;
+        }
+
+        .person-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .person-avatar.home {
+            border-color: #4a4;
+            box-shadow: 0 0 12px rgba(68, 170, 68, 0.3);
+        }
+
+        .person-avatar.away {
+            border-color: #555;
+        }
+
+        .person-name {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #fff;
+            text-align: center;
+        }
+
+        .person-status {
+            margin-top: 4px;
+            font-size: 11px;
+            color: #666;
+            text-transform: capitalize;
+        }
+
+        .person-status.home {
+            color: #4a4;
+        }
+
+        .people-loading {
+            color: #666;
+            font-style: italic;
+            font-size: 13px;
+        }
+
+        .people-error {
+            color: #a44;
+            font-size: 13px;
+        }
+
         /* Section hint */
         .section-hint {
             margin-top: 15px;
@@ -417,6 +496,7 @@
             <div class="section-tab" data-section="debug">Debug</div>
             <div class="section-tab" data-section="logs">Logs</div>
             <div class="section-tab" data-section="services">Services</div>
+            <div class="section-tab" data-section="people">People</div>
         </nav>
 
         <!-- Info Section -->
@@ -625,6 +705,13 @@
             <div class="section-hint"><span class="key">GO</span> Restart selected</div>
         </div>
 
+        <!-- People Section -->
+        <div class="section-content people-section" id="people">
+            <div class="people-grid" id="people-grid">
+                <span class="people-loading">Loading people...</span>
+            </div>
+        </div>
+
         <div class="nav-hint">
             <span><span class="key">LEFT/RIGHT</span> Sections</span>
             <span><span class="key">WHEEL</span> Scroll / Select</span>
@@ -634,7 +721,7 @@
     <script>
         class SystemPanel {
             constructor() {
-                this.sections = ['info', 'debug', 'logs', 'services'];
+                this.sections = ['info', 'debug', 'logs', 'services', 'people'];
                 this.currentSection = 0;
                 this.logServices = ['beo-masterlink', 'beo-bluetooth', 'beo-input', 'beo-media', 'beo-http', 'beo-ui', 'beo-spotify-fetch'];
                 this.currentLogService = 0;
@@ -662,7 +749,9 @@
                 this.connectMediaWebSocket();
                 this.checkServiceStatus();
                 this.fetchSpotifyInfo();
+                this.fetchPeople();
                 setInterval(() => this.checkServiceStatus(), 10000);
+                setInterval(() => this.fetchPeople(), 30000);
 
                 // Spotify refresh button handler
                 document.getElementById('spotify-refresh-btn').addEventListener('click', () => {
@@ -864,6 +953,11 @@
                 if (this.sections[this.currentSection] === 'logs' && !this.isStreaming) {
                     this.startLogStream(this.logServices[this.currentLogService]);
                 }
+
+                // Refresh people when entering people section
+                if (this.sections[this.currentSection] === 'people') {
+                    this.fetchPeople();
+                }
             }
 
             updateServiceSelection() {
@@ -1039,6 +1133,56 @@
                     btn.disabled = false;
                     btn.textContent = 'Refresh Playlists';
                 }
+            }
+
+            async fetchPeople() {
+                const grid = document.getElementById('people-grid');
+                try {
+                    const resp = await fetch('http://localhost:8767/people');
+                    if (!resp.ok) throw new Error('Failed to fetch');
+                    const people = await resp.json();
+
+                    if (people.error) {
+                        grid.innerHTML = `<span class="people-error">Error: ${people.error}</span>`;
+                        return;
+                    }
+
+                    if (people.length === 0) {
+                        grid.innerHTML = '<span class="people-loading">No people found</span>';
+                        return;
+                    }
+
+                    grid.innerHTML = people.map(person => {
+                        const isHome = person.state === 'home';
+                        const initials = this.getInitials(person.friendly_name);
+                        const avatarContent = person.entity_picture
+                            ? `<img src="${person.entity_picture}" alt="${person.friendly_name}" onerror="this.parentElement.innerHTML='${initials}'">`
+                            : initials;
+
+                        return `
+                            <div class="person-card">
+                                <div class="person-avatar ${isHome ? 'home' : 'away'}">
+                                    ${avatarContent}
+                                </div>
+                                <div class="person-name">${person.friendly_name}</div>
+                                <div class="person-status ${isHome ? 'home' : ''}">${person.state.replace('_', ' ')}</div>
+                            </div>
+                        `;
+                    }).join('');
+                } catch (e) {
+                    console.error('[PEOPLE] Error fetching:', e);
+                    // Keep existing content on error, or show error if empty
+                    if (grid.querySelector('.people-loading')) {
+                        grid.innerHTML = '<span class="people-error">Unable to connect to Home Assistant</span>';
+                    }
+                }
+            }
+
+            getInitials(name) {
+                return name.split(' ')
+                    .map(part => part.charAt(0).toUpperCase())
+                    .slice(0, 2)
+                    .join('');
             }
         }
 

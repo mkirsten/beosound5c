@@ -377,6 +377,12 @@ class PC2Device:
     
     async def _send_webhook_async(self, message):
         """Send a message via webhook asynchronously with retry logic"""
+        # Visual feedback: pulse LED on button press (fire-and-forget)
+        try:
+            asyncio.create_task(self._pulse_led())
+        except:
+            pass
+
         # Prepare webhook payload for Home Assistant
         webhook_data = {
             'device_name': BEOSOUND_DEVICE_NAME,
@@ -453,7 +459,15 @@ class PC2Device:
                 return False
         
         return False
-    
+
+    async def _pulse_led(self):
+        """Pulse LED for visual feedback (fire-and-forget)"""
+        try:
+            async with self.session.get('http://localhost:8767/led?mode=pulse', timeout=aiohttp.ClientTimeout(total=0.5)) as resp:
+                pass  # Don't care about response
+        except:
+            pass  # Ignore errors - this is just visual feedback
+
     def _connect_websocket(self):
         """Connect to the WebSocket server"""
         try:

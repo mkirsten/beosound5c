@@ -4,6 +4,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SPLASH_IMAGE="${SCRIPT_DIR}/../assets/splashscreen-red.png"
+export SPLASH_IMAGE  # Export for xinit subshell
 
 # Kill potential conflicting X instances
 sudo pkill X || true
@@ -11,7 +12,7 @@ sudo pkill X || true
 # Note: Plymouth handles boot splash now (see /usr/share/plymouth/themes/beosound5c)
 # This fbi fallback only runs if Plymouth isn't active
 if [ -f "$SPLASH_IMAGE" ] && command -v fbi &>/dev/null && ! pidof plymouthd &>/dev/null; then
-  sudo pkill fbi 2>/dev/null || true
+  sudo pkill -9 fbi 2>/dev/null || true
   sudo fbi -T 1 -d /dev/fb0 --noverbose -a "$SPLASH_IMAGE" &>/dev/null &
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] Splash screen displayed (fbi fallback)"
 fi
@@ -51,12 +52,12 @@ fi
 # Start X with a wrapper that includes crash recovery
 xinit /bin/bash -c '
   # Kill fbi if running (Plymouth already quit with retain-splash)
-  sudo pkill fbi 2>/dev/null || true
+  sudo pkill -9 fbi 2>/dev/null || true
 
   # Set X root window to splash image immediately (fills gap while Chromium loads)
-  SPLASH="/home/kirsten/beosound5c/assets/splashscreen-red.png"
-  if [ -f "$SPLASH" ] && command -v feh &>/dev/null; then
-    feh --bg-scale "$SPLASH" 2>/dev/null &
+  # SPLASH_IMAGE is exported from parent script
+  if [ -f "$SPLASH_IMAGE" ] && command -v feh &>/dev/null; then
+    feh --bg-scale "$SPLASH_IMAGE" 2>/dev/null &
   fi
 
   # Hide cursor
@@ -73,14 +74,58 @@ xinit /bin/bash -c '
 
   log "X session started, launching Chromium with crash recovery..."
 
+  # Wait for HTTP server to be ready
+  log "Waiting for HTTP server..."
+  for i in {1..30}; do
+    if curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/ | grep -q "200"; then
+      log "HTTP server ready"
+      break
+    fi
+    sleep 0.5
+  done
+
   # Crash recovery loop - restart Chromium if it exits
   CRASH_COUNT=0
   MAX_CRASHES=10
   CRASH_RESET_TIME=300  # Reset crash count after 5 minutes of stability
+  REBOOT_THRESHOLD=5    # Reboot system after this many consecutive window failures
+  WINDOW_FAIL_COUNT=0
 
   while true; do
     START_TIME=$(date +%s)
     log "Starting Chromium (crash count: $CRASH_COUNT)"
+
+    # Start window health check in background
+    (
+      sleep 15  # Give Chromium time to start
+      # Check if a real Chromium window exists (not just clipboard)
+      if ! xwininfo -root -tree 2>/dev/null | grep -q "Beosound\|localhost"; then
+        log "No Chromium window detected after 15s, killing to trigger restart..."
+
+        # Track window failures in a file (persists across restarts)
+        FAIL_FILE="/tmp/beo-ui-window-failures"
+        if [ -f "$FAIL_FILE" ]; then
+          WINDOW_FAIL_COUNT=$(cat "$FAIL_FILE")
+        else
+          WINDOW_FAIL_COUNT=0
+        fi
+        WINDOW_FAIL_COUNT=$((WINDOW_FAIL_COUNT + 1))
+        echo "$WINDOW_FAIL_COUNT" > "$FAIL_FILE"
+
+        log "Window failure count: $WINDOW_FAIL_COUNT / 5"
+
+        if [ "$WINDOW_FAIL_COUNT" -ge 5 ]; then
+          log "Too many window failures, rebooting system..."
+          rm -f "$FAIL_FILE"
+          sudo reboot
+        else
+          pkill -9 chromium
+        fi
+      else
+        # Window appeared successfully, reset failure count
+        rm -f /tmp/beo-ui-window-failures
+      fi
+    ) &
 
     /usr/bin/chromium-browser \
       --force-dark-mode \

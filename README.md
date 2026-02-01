@@ -1,5 +1,110 @@
 # Beosound 5c Recreated
 
+## 🚀 Fresh Installation (from vanilla Raspberry Pi 5)
+
+For a complete installation on a fresh Raspberry Pi 5:
+
+1. **Flash Raspberry Pi OS Lite (64-bit)** to an SD card using Raspberry Pi Imager
+   - Enable SSH in the imager settings
+   - Set hostname to `beosound5c`
+   - Create your user account
+
+2. **Boot and connect via SSH**:
+   ```bash
+   ssh beosound5c.local
+   ```
+
+3. **Clone the repository**:
+   ```bash
+   git clone <repo-url> ~/beosound5c
+   cd ~/beosound5c
+   ```
+
+4. **Run the installer**:
+   ```bash
+   sudo ./install.sh
+   ```
+   The installer will:
+   - Install all required system packages (X11, Chromium, Python, Bluetooth, etc.)
+   - Configure USB permissions for BeoSound 5 hardware
+   - Set up Plymouth boot splash
+   - Configure HDMI for the 1024x768 panel
+   - Prompt for configuration values (Sonos IP, Home Assistant URL, etc.)
+   - Install and start all system services
+
+5. **Reboot**:
+   ```bash
+   sudo reboot
+   ```
+
+After reboot, the BeoSound 5c interface will start automatically.
+
+### Installation Options
+
+```bash
+# Install with default user (current user)
+sudo ./install.sh
+
+# Install for a specific user
+sudo ./install.sh --user myusername
+```
+
+### Pairing a BeoRemote One (Bluetooth)
+
+After installation, you can pair a BeoRemote One for wireless control:
+
+**1. Put the remote in pairing mode:**
+   - Press **LIST** on the remote
+   - Navigate to **Settings → Pairing → Pair**
+   - Wait until it says "Open for pairing"
+
+**2. On the BeoSound 5c device, scan and pair:**
+```bash
+# Stop the bluetooth service temporarily
+sudo systemctl stop beo-bluetooth
+
+# Scan for the remote (it will appear as "BEORC")
+bluetoothctl scan on
+# Wait until you see: Device XX:XX:XX:XX:XX:XX BEORC
+
+# Pair, trust, and connect (replace with your MAC address)
+bluetoothctl pair XX:XX:XX:XX:XX:XX
+bluetoothctl trust XX:XX:XX:XX:XX:XX
+bluetoothctl connect XX:XX:XX:XX:XX:XX
+
+# Verify pairing
+bluetoothctl info XX:XX:XX:XX:XX:XX
+# Should show: Paired: yes, Trusted: yes, Connected: yes
+```
+
+**3. Update the configuration:**
+```bash
+# Edit config and set BEOREMOTE_MAC to your remote's MAC address
+sudo nano /etc/beosound5c/config.env
+# Change: BEOREMOTE_MAC="XX:XX:XX:XX:XX:XX"
+
+# Restart the bluetooth service
+sudo systemctl start beo-bluetooth
+
+# Verify it's connecting
+journalctl -u beo-bluetooth -f
+# Should show: "Connected!" and "=== LISTENING ==="
+```
+
+**4. Test button presses:**
+```bash
+# Watch for button events
+journalctl -u beo-bluetooth -f | grep EVENT
+```
+
+Press buttons on the remote - you should see events like:
+```
+[EVENT] Press: 42 -> nav:up (mode: Video)
+[WEBHOOK] Success: action=up device_type=Video
+```
+
+---
+
 ## 📋 Project Overview
 
 This project recreates the Bang & Olufsen BeoSound 5 experience using modern web technologies and hardware interfacing. It provides a touch-based circular UI that mimics the original BeoSound 5's interface while integrating with modern audio systems like Sonos and Spotify.
