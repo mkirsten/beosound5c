@@ -373,6 +373,7 @@ async def handle_webhook(request):
 
         elif command == 'next_screen':
             print('[WEBHOOK] Next screen')
+            set_backlight(True)
             await broadcast(json.dumps({
                 'type': 'navigate',
                 'data': {'page': 'next'}
@@ -381,6 +382,7 @@ async def handle_webhook(request):
 
         elif command == 'prev_screen':
             print('[WEBHOOK] Previous screen')
+            set_backlight(True)
             await broadcast(json.dumps({
                 'type': 'navigate',
                 'data': {'page': 'previous'}
