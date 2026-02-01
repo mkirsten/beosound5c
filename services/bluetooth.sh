@@ -544,7 +544,7 @@ while true; do
 
             log "[EVENT] Press: $command (repeat $repeat_count)"
 
-            # Only repeat nav commands, not mode switches
+            # Handle repeats for nav and volume commands
             if [[ "$result_type" == "nav" ]]; then
               if [[ "$current_mode" == "Video" ]]; then
                 send_webhook "$result_value" "Video"
@@ -557,6 +557,13 @@ while true; do
                   *) send_webhook "$result_value" "Audio" ;;
                 esac
               fi
+            elif [[ "$result_type" == "pass" ]]; then
+              # Handle volume and other pass-through repeats
+              case "$result_value" in
+                "volup"|"voldown"|"chup"|"chdown")
+                  send_webhook "$result_value" "$current_mode"
+                  ;;
+              esac
             fi
           else
             log "[EVENT] Press: $command (ignored repeat $repeat_count)"
