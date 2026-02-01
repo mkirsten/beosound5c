@@ -7,6 +7,7 @@ Wants=network.target
 Type=simple
 User=kirsten
 WorkingDirectory=/home/kirsten/beosound5c/web
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 -m http.server 8000
 Restart=always
 RestartSec=5

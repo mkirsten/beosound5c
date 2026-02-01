@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=oneshot
 User=kirsten
 EnvironmentFile=-/etc/beosound5c/config.env
+Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=/home/kirsten/beosound5c/tools/spotify
 ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/tools/spotify/fetch_playlists.py
 TimeoutStartSec=300
