@@ -360,10 +360,18 @@ class MediaServer:
                 except Exception as e:
                     logger.warning(f"Failed to fetch artwork: {e}")
             
-            # Get speaker info
+            # Get speaker info - show configured speaker, note if grouped
             coordinator = self.sonos_viewer.get_coordinator()
-            speaker_name = coordinator.player_name if coordinator else 'Unknown'
-            speaker_ip = coordinator.ip_address if coordinator else SONOS_IP
+            actual_speaker = self.sonos_viewer.sonos
+            speaker_name = actual_speaker.player_name if actual_speaker else 'Unknown'
+            speaker_ip = SONOS_IP
+
+            # Check if grouped with a different coordinator
+            is_grouped = False
+            coordinator_name = None
+            if coordinator and coordinator.ip_address != SONOS_IP:
+                is_grouped = True
+                coordinator_name = coordinator.player_name
 
             # Get playback state
             try:
@@ -397,6 +405,8 @@ class MediaServer:
                 'volume': volume,
                 'speaker_name': speaker_name,
                 'speaker_ip': speaker_ip,
+                'is_grouped': is_grouped,
+                'coordinator_name': coordinator_name,
                 'uri': track_info.get('uri', ''),
                 'timestamp': int(time.time())
             }

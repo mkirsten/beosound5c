@@ -2,6 +2,12 @@
 // All HA communication goes through the backend - no credentials needed here
 
 const AppConfig = {
+    // Device identification
+    deviceName: 'church',  // 'church' (5c) or 'kitchen' (5d)
+
+    // Device-specific data files
+    scenesFile: '../json/scenes.json',  // Override per device: '../json/scenes_kitchen.json'
+
     // Webhook forwarding endpoint (backend forwards to HA)
     webhookUrl: 'http://localhost:8767/forward',
 

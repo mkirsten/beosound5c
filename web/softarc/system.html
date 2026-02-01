@@ -533,6 +533,10 @@
                         <span class="value" id="sonos-ip">--</span>
                     </div>
                     <div class="debug-item">
+                        <span class="label">Grouped With</span>
+                        <span class="value" id="sonos-grouped">--</span>
+                    </div>
+                    <div class="debug-item">
                         <span class="label">State</span>
                         <span class="value" id="sonos-state">--</span>
                     </div>
@@ -551,6 +555,30 @@
                     <div class="debug-item">
                         <span class="label">Album</span>
                         <span class="value" id="sonos-album">--</span>
+                    </div>
+                </div>
+
+                <div class="debug-card">
+                    <h3>Device Config</h3>
+                    <div class="debug-item">
+                        <span class="label">Device Name</span>
+                        <span class="value" id="cfg-device-name">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Sonos IP</span>
+                        <span class="value" id="cfg-sonos-ip">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">HA URL</span>
+                        <span class="value" id="cfg-ha-url">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">BeoRemote MAC</span>
+                        <span class="value" id="cfg-beoremote-mac">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">BT Name</span>
+                        <span class="value" id="cfg-bt-name">--</span>
                     </div>
                 </div>
 
@@ -780,6 +808,14 @@
                                 this.appendLogLine(data.line);
                             } else if (data.type === 'system_info') {
                                 this.updateSystemInfo(data);
+                            } else if (data.type === 'laser') {
+                                document.getElementById('hw-laser').textContent = data.data?.position ?? '--';
+                            } else if (data.type === 'button') {
+                                document.getElementById('hw-button').textContent = data.data?.button ?? data.button ?? '--';
+                            } else if (data.type === 'backlight') {
+                                const el = document.getElementById('hw-backlight');
+                                el.textContent = data.data?.state ?? (data.on ? 'On' : 'Off');
+                                el.className = data.on ? 'value status-ok' : 'value';
                             }
                         } catch (e) {}
                     };
@@ -1014,6 +1050,24 @@
                     document.getElementById('git-tag').textContent = data.git_tag;
                 }
 
+                // Backlight status
+                if (data.backlight) {
+                    const el = document.getElementById('hw-backlight');
+                    el.textContent = data.backlight;
+                    el.className = data.backlight === 'On' ? 'value status-ok' : 'value';
+                }
+
+                // Config from ENV file
+                if (data.config) {
+                    const cfg = data.config;
+                    if (cfg.DEVICE_NAME) document.getElementById('cfg-device-name').textContent = cfg.DEVICE_NAME;
+                    if (cfg.SONOS_IP) document.getElementById('cfg-sonos-ip').textContent = cfg.SONOS_IP;
+                    if (cfg.HA_URL) document.getElementById('cfg-ha-url').textContent = cfg.HA_URL.replace('http://', '');
+                    if (cfg.BEOREMOTE_MAC) document.getElementById('cfg-beoremote-mac').textContent = cfg.BEOREMOTE_MAC;
+                    if (cfg.BT_DEVICE_NAME) document.getElementById('cfg-bt-name').textContent = cfg.BT_DEVICE_NAME;
+                    if (cfg.SPOTIFY_USER_ID) document.getElementById('spotify-user').textContent = cfg.SPOTIFY_USER_ID;
+                }
+
                 if (data.services) {
                     this.serviceStatus = data.services;
                     for (const [svc, status] of Object.entries(data.services)) {
@@ -1067,6 +1121,17 @@
             updateSonosInfo(data) {
                 if (data.speaker_name) document.getElementById('sonos-speaker').textContent = data.speaker_name;
                 if (data.speaker_ip) document.getElementById('sonos-ip').textContent = data.speaker_ip;
+
+                // Show grouped status
+                const groupedEl = document.getElementById('sonos-grouped');
+                if (data.is_grouped && data.coordinator_name) {
+                    groupedEl.textContent = data.coordinator_name;
+                    groupedEl.className = 'value status-warning';
+                } else {
+                    groupedEl.textContent = 'No (standalone)';
+                    groupedEl.className = 'value';
+                }
+
                 if (data.state) {
                     const el = document.getElementById('sonos-state');
                     el.textContent = data.state;

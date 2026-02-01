@@ -559,6 +559,27 @@ function handleExternalNavigation(uiStore, data) {
         window.uiStore.logWebsocketMessage(`🌐 External navigation to: ${page}`);
     }
 
+    // Handle next/previous cycling through menu items
+    if (page === 'next' || page === 'previous') {
+        // Menu order: SHOWING, SYSTEM, SECURITY, SCENES, MUSIC, PLAYING
+        const menuOrder = ['menu/showing', 'menu/system', 'menu/security', 'menu/scenes', 'menu/music', 'menu/playing'];
+        const currentRoute = uiStore.currentRoute || 'menu/playing';
+        let currentIndex = menuOrder.indexOf(currentRoute);
+        if (currentIndex === -1) currentIndex = 5; // default to playing
+
+        let newIndex;
+        if (page === 'next') {
+            newIndex = (currentIndex + 1) % menuOrder.length;
+        } else {
+            newIndex = (currentIndex - 1 + menuOrder.length) % menuOrder.length;
+        }
+
+        const route = menuOrder[newIndex];
+        console.log(`🌐 [NAVIGATE] ${page}: ${currentRoute} -> ${route}`);
+        uiStore.navigateToView(route);
+        return;
+    }
+
     // Map page names to routes (use actual route paths from ui.js)
     const pageRoutes = {
         'now_playing': 'menu/playing',

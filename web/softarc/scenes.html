@@ -34,7 +34,7 @@
         // Scenes-specific configuration
         document.addEventListener('DOMContentLoaded', () => {
             const scenesConfig = {
-                dataSource: '../json/scenes.json',
+                dataSource: AppConfig.scenesFile || '../json/scenes.json',
                 dataType: 'scenes', // Use a custom type name
                 viewMode: 'hierarchical',
                 parentKey: 'scenes',

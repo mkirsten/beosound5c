@@ -134,6 +134,9 @@ def get_system_info() -> dict:
         except:
             info['hostname'] = '--'
 
+        # Backlight status
+        info['backlight'] = 'On' if is_backlight_on() else 'Off'
+
         # Git info
         try:
             result = subprocess.run(
@@ -157,6 +160,23 @@ def get_system_info() -> dict:
             )
             status = result.stdout.strip()
             info['services'][svc] = 'Running' if status == 'active' else status.capitalize()
+
+        # Config from ENV file
+        config_file = '/etc/beosound5c/config.env'
+        info['config'] = {}
+        try:
+            if os.path.exists(config_file):
+                with open(config_file, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            # Remove quotes from value
+                            value = value.strip().strip('"').strip("'")
+                            info['config'][key] = value
+        except Exception as e:
+            print(f'[CONFIG READ ERROR] {e}')
+
     except Exception as e:
         print(f'[SYSTEM INFO ERROR] {e}')
     return info
@@ -350,6 +370,22 @@ async def handle_webhook(request):
             info = get_system_info()
             info['screen'] = 'on' if is_backlight_on() else 'off'
             return web.json_response({'status': 'ok', **info})
+
+        elif command == 'next_screen':
+            print('[WEBHOOK] Next screen')
+            await broadcast(json.dumps({
+                'type': 'navigate',
+                'data': {'page': 'next'}
+            }))
+            return web.json_response({'status': 'ok', 'action': 'next_screen'})
+
+        elif command == 'prev_screen':
+            print('[WEBHOOK] Previous screen')
+            await broadcast(json.dumps({
+                'type': 'navigate',
+                'data': {'page': 'previous'}
+            }))
+            return web.json_response({'status': 'ok', 'action': 'prev_screen'})
 
         else:
             return web.json_response({'status': 'error', 'message': f'Unknown command: {command}'}, status=400)
