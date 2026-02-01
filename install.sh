@@ -357,6 +357,15 @@ if [ ! -f "$CONFIG_FILE" ]; then
     log_info "Create one at: HA -> Profile -> Long-Lived Access Tokens"
     read -p "Home Assistant token (press Enter to skip): " HA_TOKEN
 
+    # Bluetooth device name (optional)
+    echo ""
+    DEFAULT_BT_NAME="BeoSound 5c"
+    if [ -n "$DEVICE_NAME" ] && [ "$DEVICE_NAME" != "BeoSound5c" ]; then
+        DEFAULT_BT_NAME="BeoSound 5c $DEVICE_NAME"
+    fi
+    read -p "Bluetooth device name [$DEFAULT_BT_NAME]: " BT_DEVICE_NAME
+    BT_DEVICE_NAME="${BT_DEVICE_NAME:-$DEFAULT_BT_NAME}"
+
     # BeoRemote MAC (optional)
     echo ""
     log_info "BeoRemote One Bluetooth MAC is optional"
@@ -407,6 +416,9 @@ HA_TOKEN="$HA_TOKEN"
 # =============================================================================
 # Optional Hardware Configuration
 # =============================================================================
+
+# Bluetooth device name (how this device appears to others)
+BT_DEVICE_NAME="$BT_DEVICE_NAME"
 
 # BeoRemote One Bluetooth MAC address
 BEOREMOTE_MAC="$BEOREMOTE_MAC"

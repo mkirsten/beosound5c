@@ -11,10 +11,16 @@ fi
 # Use environment variables with fallbacks
 MAC="${BEOREMOTE_MAC:-00:00:00:00:00:00}"
 DEVICE_NAME="${DEVICE_NAME:-BeoSound5c}"
+BT_DEVICE_NAME="${BT_DEVICE_NAME:-BeoSound 5c}"
 BS5C_BASE_PATH="${BS5C_BASE_PATH:-/home/kirsten/beosound5c}"
 
 # Home Assistant webhook (use environment variable)
 WEBHOOK="${HA_WEBHOOK_URL:-http://homeassistant.local:8123/api/webhook/beosound5c}"
+
+# Set Bluetooth adapter name
+if command -v bluetoothctl &>/dev/null; then
+    bluetoothctl system-alias "$BT_DEVICE_NAME" 2>/dev/null || true
+fi
 
 # Handles for Bluetooth GATT (hardware-specific, don't change)
 DESC1="0x0025"
