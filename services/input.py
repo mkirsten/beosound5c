@@ -19,11 +19,13 @@ media_server_ws = None
 
 # ——— track current "byte1" state (LED/backlight bits) ———
 state_byte1 = 0x00
-backlight_on = True  # Track backlight state
 last_power_press_time = 0  # For debouncing power button
-POWER_DEBOUNCE_TIME = 2.0  # Seconds to ignore repeated power button presses
+POWER_DEBOUNCE_TIME = 0.5  # Seconds to ignore repeated power button presses
 power_button_state = 0  # 0 = released, 1 = pressed
-screen_control_lock = threading.Lock()  # Lock for screen control operations
+
+def is_backlight_on():
+    """Check backlight state from the hardware state byte."""
+    return (state_byte1 & 0x40) != 0
 
 def bs5_send(data: bytes):
     """Low-level HID write."""
@@ -53,10 +55,8 @@ def set_led(mode: str):
 
 def set_backlight(on: bool):
     """Turn backlight bit on/off."""
-    global state_byte1, backlight_on
-    
-    # Update state
-    backlight_on = on
+    global state_byte1
+
     if on:
         state_byte1 |= 0x40
     else:
@@ -78,10 +78,9 @@ def set_backlight(on: bool):
 
 def toggle_backlight():
     """Toggle backlight state."""
-    global backlight_on
-    # Get the current state and toggle it
-    new_state = not backlight_on
-    print(f"[BACKLIGHT] Toggling from {backlight_on} to {new_state}")
+    current = is_backlight_on()
+    new_state = not current
+    print(f"[BACKLIGHT] Toggling from {current} to {new_state}")
     set_backlight(new_state)
 
 def get_service_logs(service: str, lines: int = 100) -> list:
@@ -315,7 +314,7 @@ async def handle_webhook(request):
         elif command == 'screen_toggle':
             print('[WEBHOOK] Toggling screen')
             toggle_backlight()
-            return web.json_response({'status': 'ok', 'screen': 'on' if backlight_on else 'off'})
+            return web.json_response({'status': 'ok', 'screen': 'on' if is_backlight_on() else 'off'})
 
         elif command == 'show_page':
             page = params.get('page', 'now_playing')
@@ -349,7 +348,7 @@ async def handle_webhook(request):
 
         elif command == 'status':
             info = get_system_info()
-            info['screen'] = 'on' if backlight_on else 'off'
+            info['screen'] = 'on' if is_backlight_on() else 'off'
             return web.json_response({'status': 'ok', **info})
 
         else:
@@ -363,7 +362,7 @@ async def handle_webhook(request):
 
 async def handle_health(request):
     """Health check endpoint."""
-    return web.json_response({'status': 'ok', 'service': 'beo-input', 'screen': 'on' if backlight_on else 'off'})
+    return web.json_response({'status': 'ok', 'service': 'beo-input', 'screen': 'on' if is_backlight_on() else 'off'})
 
 async def handle_led(request):
     """Quick LED control for visual feedback. GET /led?mode=pulse|on|off|blink"""
@@ -471,11 +470,12 @@ async def handle_people(request):
             async with session.get(f'{ha_url}/api/states', headers=headers) as resp:
                 if resp.status == 200:
                     all_states = await resp.json()
-                    # Filter for person.* entities
+                    # Filter for person.* entities, excluding system users
+                    excluded_users = {'person.mqtt', 'person.ha_user', 'person.ha-user'}
                     people = []
                     for entity in all_states:
                         entity_id = entity.get('entity_id', '')
-                        if entity_id.startswith('person.'):
+                        if entity_id.startswith('person.') and entity_id not in excluded_users:
                             attrs = entity.get('attributes', {})
                             entity_picture = attrs.get('entity_picture', '')
                             # Prepend HA URL to picture if relative
@@ -578,7 +578,7 @@ def parse_report(rep: list):
     
     # Handle power button with state machine
     b = rep[3]
-    is_power_pressed = (b == 0x80)  # Check if power button is currently pressed
+    is_power_pressed = (b & 0x80) != 0  # Check if power bit is set
     
     # Only create button events for non-power buttons
     if b in BTN_MAP and b != 0x80:
