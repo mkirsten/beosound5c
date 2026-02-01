@@ -278,6 +278,16 @@ class KeyboardSimulator {
                     this.server.sendButtonEvent('power');
                     handled = true;
                     break;
+
+                case 'k':
+                case 'K':
+                    // Test trigger for camera overlay
+                    if (window.CameraOverlayManager) {
+                        window.CameraOverlayManager.show();
+                        console.log('[DUMMY-HW] Camera overlay triggered via "k" key');
+                    }
+                    handled = true;
+                    break;
             }
             
             if (handled) {

@@ -17,6 +17,12 @@ const AppConfig = {
         media: 'ws://localhost:8766'
     },
 
+    // Camera overlay configuration
+    cameras: [
+        { id: 'door', title: 'Front door', entity: 'camera.doorbell_medium_resolution_channel' },
+        { id: 'gate', title: 'Gate', entity: 'camera.g3_flex_high_resolution_channel_6' }
+    ],
+
     // Debug settings
     debug: {
         enabled: false,

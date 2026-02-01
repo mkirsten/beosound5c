@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Overlay Test</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            background: #111;
+            color: white;
+            font-family: 'Montserrat', sans-serif;
+            padding: 40px;
+        }
+        .test-controls {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-weight: 300;
+            letter-spacing: 2px;
+            margin-bottom: 30px;
+        }
+        .btn {
+            background: #333;
+            border: 1px solid #555;
+            color: white;
+            padding: 15px 30px;
+            margin: 10px 10px 10px 0;
+            cursor: pointer;
+            font-size: 14px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .btn:hover {
+            background: #444;
+            border-color: #666;
+        }
+        .btn.primary {
+            background: #4CAF50;
+            border-color: #4CAF50;
+        }
+        .btn.primary:hover {
+            background: #45a049;
+        }
+        .btn.danger {
+            background: #f44336;
+            border-color: #f44336;
+        }
+        .section {
+            margin: 30px 0;
+            padding: 20px;
+            background: #1a1a1a;
+            border-radius: 8px;
+        }
+        .section h2 {
+            font-weight: 400;
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #888;
+        }
+        .keyboard-hint {
+            color: #666;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+        .keyboard-hint kbd {
+            background: #333;
+            padding: 4px 8px;
+            border-radius: 3px;
+            margin: 0 4px;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            background: #222;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .status-line {
+            margin: 4px 0;
+            color: #888;
+        }
+        .status-line.action {
+            color: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-controls">
+        <h1>Camera Overlay Test</h1>
+
+        <div class="section">
+            <h2>Trigger Overlay</h2>
+            <button class="btn primary" onclick="showOverlay()">Show Camera Overlay</button>
+            <button class="btn danger" onclick="hideOverlay()">Dismiss Overlay</button>
+        </div>
+
+        <div class="section">
+            <h2>Simulate Button Presses (when overlay is active)</h2>
+            <button class="btn" style="background: #4CAF50" onclick="simulateButton('go')">GO - Open</button>
+            <button class="btn" style="background: #FF9800" onclick="simulateButton('left')">« - Hang on!</button>
+            <button class="btn" style="background: #666" onclick="simulateButton('right')">» - Ignore</button>
+
+            <div class="keyboard-hint">
+                Keyboard: <kbd>Enter</kbd> = Open, <kbd>←</kbd> = Hang on!, <kbd>→</kbd> = Ignore, <kbd>Esc</kbd> = dismiss
+            </div>
+        </div>
+
+
+        <div class="section">
+            <h2>Status Log</h2>
+            <div class="status" id="status-log">
+                <div class="status-line">Ready. Click "Show Camera Overlay" to test.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load the app scripts -->
+    <script src="js/config.js"></script>
+    <script src="js/constants.js"></script>
+    <script src="js/camera-overlay.js"></script>
+
+    <script>
+        // Override webhook to just log (no backend needed for testing)
+        CameraOverlayManager.sendWebhook = function(action, camera) {
+            log(`Webhook: action="${action}", camera="${camera?.id || 'unknown'}"`, 'action');
+        };
+
+        // Use real camera proxy (run camera-proxy.py with HA_TOKEN set)
+        // Falls back to placeholder if proxy unavailable
+        CameraOverlayManager.config.cameraStreamUrl = 'http://localhost:8767/camera/snapshot';
+
+        function log(message, type = '') {
+            const statusLog = document.getElementById('status-log');
+            const line = document.createElement('div');
+            line.className = 'status-line' + (type ? ' ' + type : '');
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            statusLog.appendChild(line);
+            statusLog.scrollTop = statusLog.scrollHeight;
+        }
+
+        function showOverlay(params = {}) {
+            log(`Showing overlay` + (params.camera_id ? ` (${params.camera_id})` : ''));
+            CameraOverlayManager.show(params);
+        }
+
+        function hideOverlay() {
+            log('Hiding overlay');
+            CameraOverlayManager.hide();
+        }
+
+        function simulateButton(button) {
+            if (!CameraOverlayManager.isActive) {
+                log(`Button "${button}" pressed but overlay is not active`);
+                return;
+            }
+            log(`Button: ${button}`);
+            CameraOverlayManager.handleAction(button);
+        }
+
+        // Keyboard handling
+        document.addEventListener('keydown', (e) => {
+            if (!CameraOverlayManager.isActive) return;
+
+            let button = null;
+            switch(e.key) {
+                case 'Enter':
+                case ' ':
+                    button = 'go';
+                    break;
+                case 'ArrowLeft':
+                    button = 'left';
+                    break;
+                case 'ArrowRight':
+                    button = 'right';
+                    break;
+                case 'Escape':
+                    hideOverlay();
+                    return;
+            }
+
+            if (button) {
+                e.preventDefault();
+                simulateButton(button);
+            }
+        });
+
+        // Log when overlay auto-times out
+        const originalHide = CameraOverlayManager.hide;
+        CameraOverlayManager.hide = function() {
+            if (this.isActive) {
+                log('Overlay dismissed');
+            }
+            originalHide.call(this);
+        };
+
+        // Log camera switches
+        const originalSwitch = CameraOverlayManager.switchCamera;
+        CameraOverlayManager.switchCamera = function(index) {
+            const cam = this.cameras[index];
+            if (cam && index !== this.currentCameraIndex) {
+                log(`Switching to: ${cam.title}`);
+            }
+            originalSwitch.call(this, index);
+        };
+
+        log('Camera Overlay Test loaded. Click "Show Camera Overlay" to begin.');
+    </script>
+</body>
+</html>

@@ -257,10 +257,10 @@ function processLaserEvents() {
 function processWebSocketEvent(message) {
     const uiStore = window.uiStore;
     if (!uiStore) return;
-    
+
     const type = message.type;
     const data = message.data;
-    
+
     switch (type) {
         case 'laser':
             processLaserEvent(data);
@@ -287,6 +287,11 @@ function processWebSocketEvent(message) {
         case 'navigate':
             // Handle external navigation commands (from HA webhook)
             handleExternalNavigation(uiStore, data);
+            break;
+
+        case 'camera_overlay':
+            // Handle camera overlay commands (from HA webhook)
+            handleCameraOverlayEvent(data);
             break;
 
         default:
@@ -603,10 +608,45 @@ function handleExternalNavigation(uiStore, data) {
     }
 }
 
+// Handle camera overlay events (from HA webhook)
+function handleCameraOverlayEvent(data) {
+    const action = data.action;
+    console.log(`[CAMERA] Overlay event: ${action}`);
+
+    if (window.CameraOverlayManager) {
+        if (action === 'show') {
+            window.CameraOverlayManager.show(data);
+        } else if (action === 'hide' || action === 'dismiss') {
+            window.CameraOverlayManager.hide();
+        }
+    }
+}
+
 // Handle button press events
 function handleButtonEvent(uiStore, data) {
     const currentPage = uiStore.currentRoute || 'unknown';
     console.log(`[BUTTON] ${data.button} on ${currentPage}`);
+
+    // Check if camera overlay is active - intercept GO, LEFT, RIGHT buttons
+    if (window.CameraOverlayManager && window.CameraOverlayManager.isActive) {
+        const button = data.button.toLowerCase();
+        if (['go', 'left', 'right'].includes(button)) {
+            const handled = window.CameraOverlayManager.handleAction(button);
+            if (handled) {
+                console.log(`[BUTTON] Handled by camera overlay: ${button}`);
+                return;
+            }
+        }
+    }
+
+    // On security page, GO button opens camera overlay
+    if (currentPage === 'menu/security' && data.button.toLowerCase() === 'go') {
+        if (window.CameraOverlayManager) {
+            console.log('[BUTTON] Opening camera overlay from security page');
+            window.CameraOverlayManager.show();
+            return;
+        }
+    }
 
     // Forward button events to iframe pages that handle their own navigation
     if (window.IframeMessenger && window.IframeMessenger.routeHasIframe(currentPage)) {

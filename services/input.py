@@ -312,6 +312,93 @@ async def refresh_spotify_playlists(ws):
 
 # ——— HTTP Webhook Server ———
 
+async def handle_camera_stream(request):
+    """Proxy camera stream from Home Assistant to avoid CORS issues."""
+    ha_url = os.getenv('HA_URL', 'http://homeassistant.local:8123')
+    ha_token = os.getenv('HA_TOKEN', '')
+
+    # Get camera entity from query params, default to doorbell
+    entity = request.query.get('entity', 'camera.doorbell_medium_resolution_channel')
+
+    try:
+        async with ClientSession() as session:
+            headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
+
+            # Get camera stream URL from HA
+            camera_url = f'{ha_url}/api/camera_proxy_stream/{entity}'
+            print(f'[CAMERA] Proxying stream from: {camera_url}')
+
+            async with session.get(camera_url, headers=headers) as resp:
+                if resp.status == 200:
+                    # Stream the MJPEG response
+                    response = web.StreamResponse(
+                        status=200,
+                        headers={
+                            'Content-Type': resp.content_type or 'multipart/x-mixed-replace;boundary=frame',
+                            'Access-Control-Allow-Origin': '*',
+                            'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        }
+                    )
+                    await response.prepare(request)
+
+                    async for chunk in resp.content.iter_any():
+                        await response.write(chunk)
+
+                    return response
+                else:
+                    print(f'[CAMERA] HA returned status: {resp.status}')
+                    return web.json_response(
+                        {'error': f'Camera unavailable: HTTP {resp.status}'},
+                        status=resp.status,
+                        headers={'Access-Control-Allow-Origin': '*'}
+                    )
+    except Exception as e:
+        print(f'[CAMERA ERROR] {e}')
+        return web.json_response(
+            {'error': str(e)},
+            status=500,
+            headers={'Access-Control-Allow-Origin': '*'}
+        )
+
+async def handle_camera_snapshot(request):
+    """Get a single snapshot from camera via Home Assistant."""
+    ha_url = os.getenv('HA_URL', 'http://homeassistant.local:8123')
+    ha_token = os.getenv('HA_TOKEN', '')
+
+    # Get camera entity from query params, default to doorbell
+    entity = request.query.get('entity', 'camera.doorbell_medium_resolution_channel')
+
+    try:
+        async with ClientSession() as session:
+            headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
+
+            # Get camera snapshot from HA
+            camera_url = f'{ha_url}/api/camera_proxy/{entity}'
+            print(f'[CAMERA] Getting snapshot from: {camera_url}')
+
+            async with session.get(camera_url, headers=headers) as resp:
+                if resp.status == 200:
+                    content = await resp.read()
+                    return web.Response(
+                        body=content,
+                        content_type=resp.content_type or 'image/jpeg',
+                        headers={'Access-Control-Allow-Origin': '*'}
+                    )
+                else:
+                    print(f'[CAMERA] HA returned status: {resp.status}')
+                    return web.json_response(
+                        {'error': f'Camera unavailable: HTTP {resp.status}'},
+                        status=resp.status,
+                        headers={'Access-Control-Allow-Origin': '*'}
+                    )
+    except Exception as e:
+        print(f'[CAMERA ERROR] {e}')
+        return web.json_response(
+            {'error': str(e)},
+            status=500,
+            headers={'Access-Control-Allow-Origin': '*'}
+        )
+
 async def handle_webhook(request):
     """Handle incoming webhook requests from Home Assistant."""
     try:
@@ -388,6 +475,41 @@ async def handle_webhook(request):
                 'data': {'page': 'previous'}
             }))
             return web.json_response({'status': 'ok', 'action': 'prev_screen'})
+
+        elif command == 'show_camera':
+            # Show camera overlay (e.g., doorbell camera)
+            title = params.get('title', 'Camera')
+            camera_entity = params.get('camera_entity', 'camera.doorbell_medium_resolution_channel')
+            camera_id = params.get('camera_id', 'doorbell')
+            actions = params.get('actions', {})  # Optional custom action labels
+
+            print(f'[WEBHOOK] Showing camera overlay: {title} ({camera_entity})')
+
+            # Turn on screen if off
+            set_backlight(True)
+
+            # Broadcast camera overlay command to all clients
+            await broadcast(json.dumps({
+                'type': 'camera_overlay',
+                'data': {
+                    'action': 'show',
+                    'title': title,
+                    'camera_entity': camera_entity,
+                    'camera_id': camera_id,
+                    'actions': actions
+                }
+            }))
+            return web.json_response({'status': 'ok', 'command': 'show_camera', 'title': title})
+
+        elif command == 'dismiss_camera':
+            print('[WEBHOOK] Dismissing camera overlay')
+            await broadcast(json.dumps({
+                'type': 'camera_overlay',
+                'data': {
+                    'action': 'hide'
+                }
+            }))
+            return web.json_response({'status': 'ok', 'command': 'dismiss_camera'})
 
         else:
             return web.json_response({'status': 'error', 'message': f'Unknown command: {command}'}, status=400)
@@ -756,6 +878,8 @@ async def main():
     app.router.add_options('/people', handle_people)  # CORS preflight
     app.router.add_get('/health', handle_health)
     app.router.add_get('/led', handle_led)
+    app.router.add_get('/camera/stream', handle_camera_stream)
+    app.router.add_get('/camera/snapshot', handle_camera_snapshot)
     runner = web.AppRunner(app)
     await runner.setup()
     http_site = web.TCPSite(runner, '0.0.0.0', 8767)
