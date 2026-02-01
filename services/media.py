@@ -16,10 +16,10 @@ import logging
 import signal
 import sys
 import os
-from threading import Thread
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 import base64
 from io import BytesIO
-import requests
 from urllib.parse import urlparse
 import aiohttp
 
@@ -40,8 +40,10 @@ except ImportError:
 # Configuration
 SONOS_IP = os.getenv('SONOS_IP', '192.168.0.190')
 WEBSOCKET_PORT = 8766
-POLL_INTERVAL = 2.0  # seconds between change checks
+POLL_INTERVAL = 0.5  # seconds between change checks (fast for responsive track changes)
 MAX_ARTWORK_SIZE = 500 * 1024  # 500KB limit for artwork
+ARTWORK_CACHE_SIZE = 100  # number of artworks to cache (~3-5MB RAM)
+PREFETCH_COUNT = 5  # number of upcoming tracks to prefetch
 
 # Global variables for caching and state
 clients = set()
@@ -50,9 +52,44 @@ current_position = None
 current_playback_state = None  # Track playback state for wake detection
 cached_media_data = None
 last_update_time = 0
-cached_artwork_url = None  # Track artwork URL to avoid re-fetching same artwork
-cached_artwork_data = None  # Cache the actual artwork data
 sonos_viewer = None
+
+# Thread pool for CPU-bound image processing
+executor = ThreadPoolExecutor(max_workers=2)
+
+
+class ArtworkCache:
+    """Simple LRU cache for artwork data (URL -> base64)."""
+
+    def __init__(self, max_size=20):
+        self.max_size = max_size
+        self._cache = OrderedDict()
+
+    def get(self, url):
+        """Get cached artwork, moving to end (most recently used)."""
+        if url in self._cache:
+            self._cache.move_to_end(url)
+            return self._cache[url]
+        return None
+
+    def put(self, url, data):
+        """Cache artwork data, evicting oldest if full."""
+        if url in self._cache:
+            self._cache.move_to_end(url)
+        else:
+            if len(self._cache) >= self.max_size:
+                self._cache.popitem(last=False)  # Remove oldest
+            self._cache[url] = data
+
+    def __contains__(self, url):
+        return url in self._cache
+
+    def __len__(self):
+        return len(self._cache)
+
+
+# Global artwork cache
+artwork_cache = ArtworkCache(max_size=ARTWORK_CACHE_SIZE)
 
 # Logging setup
 logging.basicConfig(
@@ -146,29 +183,177 @@ class SonosArtworkViewer:
         
         return artwork_url
     
-    def fetch_artwork(self, url):
-        """Fetch artwork from URL and return as PIL Image."""
+    async def fetch_artwork_async(self, url, session=None):
+        """Fetch artwork from URL asynchronously and return as base64 string.
+
+        Uses cache to avoid re-fetching the same artwork.
+        Image processing runs in thread pool to avoid blocking.
+        """
+        global artwork_cache
+
+        # Check cache first
+        cached = artwork_cache.get(url)
+        if cached is not None:
+            logger.debug(f"Artwork cache hit for {url}")
+            return cached
+
+        logger.debug(f"Artwork cache miss, fetching: {url}")
+
         try:
-            logger.debug(f"Fetching artwork from: {url}")
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            
-            if len(response.content) == 0:
-                logger.warning("Artwork URL returned 0 bytes")
-                return None
-            
-            logger.debug(f"Downloaded {len(response.content)} bytes of artwork data")
-            
-            # Create PIL Image from response content
-            image = Image.open(BytesIO(response.content))
-            return image
-            
-        except requests.exceptions.RequestException as e:
+            # Create session if not provided
+            close_session = False
+            if session is None:
+                session = aiohttp.ClientSession()
+                close_session = True
+
+            try:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    response.raise_for_status()
+                    image_bytes = await response.read()
+
+                    if len(image_bytes) == 0:
+                        logger.warning("Artwork URL returned 0 bytes")
+                        return None
+
+                    logger.debug(f"Downloaded {len(image_bytes)} bytes of artwork data")
+
+                    # Process image in thread pool to avoid blocking event loop
+                    loop = asyncio.get_event_loop()
+                    result = await loop.run_in_executor(
+                        executor, self._process_image, image_bytes
+                    )
+
+                    if result:
+                        artwork_cache.put(url, result)
+                        logger.info(f"Cached artwork for {url} ({len(artwork_cache)} items in cache)")
+
+                    return result
+
+            finally:
+                if close_session:
+                    await session.close()
+
+        except aiohttp.ClientError as e:
             logger.warning(f"Error fetching artwork: {e}")
             return None
         except Exception as e:
             logger.warning(f"Error processing artwork: {e}")
             return None
+
+    def _process_image(self, image_bytes):
+        """Process image bytes into base64 string (CPU-bound, runs in thread pool)."""
+        try:
+            image = Image.open(BytesIO(image_bytes))
+
+            # Convert to RGB if necessary
+            if image.mode in ('RGBA', 'LA', 'P'):
+                image = image.convert('RGB')
+
+            # Encode to JPEG
+            img_io = BytesIO()
+            image.save(img_io, 'JPEG', quality=85)
+
+            # Reduce quality if too large
+            if img_io.tell() > MAX_ARTWORK_SIZE:
+                img_io = BytesIO()
+                image.save(img_io, 'JPEG', quality=60)
+
+            img_io.seek(0)
+            base64_data = base64.b64encode(img_io.getvalue()).decode('utf-8')
+
+            return {
+                'base64': base64_data,
+                'size': image.size
+            }
+
+        except Exception as e:
+            logger.warning(f"Error processing image: {e}")
+            return None
+
+    def get_queue_artwork_urls(self, count=3):
+        """Get artwork URLs for upcoming tracks in the queue.
+
+        Returns list of (position, artwork_url) tuples for the next `count` tracks.
+        """
+        try:
+            coordinator = self.get_coordinator()
+            if not coordinator:
+                return []
+
+            # Get current queue position
+            track_info = coordinator.get_current_track_info()
+            if not track_info:
+                return []
+
+            current_pos_str = track_info.get('playlist_position', '0')
+            try:
+                current_pos = int(current_pos_str)
+            except (ValueError, TypeError):
+                return []
+
+            # Get queue starting from next track
+            # soco's get_queue returns items starting at start_index (0-based)
+            start_index = current_pos  # current_pos is 1-based, so this gets next track
+            queue = coordinator.get_queue(start=start_index, max_items=count)
+
+            artwork_urls = []
+            for i, item in enumerate(queue):
+                album_art = getattr(item, 'album_art_uri', None)
+                if album_art:
+                    # Make URL absolute if needed
+                    if album_art.startswith('/'):
+                        album_art = f"http://{coordinator.ip_address}:1400{album_art}"
+                    artwork_urls.append((start_index + i + 1, album_art))
+
+            return artwork_urls
+
+        except Exception as e:
+            logger.debug(f"Error getting queue artwork URLs: {e}")
+            return []
+
+    async def prefetch_upcoming_artwork(self, count=3):
+        """Prefetch artwork for upcoming tracks in background.
+
+        This runs after a track change to warm the cache for smoother transitions.
+        """
+        urls = self.get_queue_artwork_urls(count=count)
+        if not urls:
+            logger.debug("No upcoming tracks to prefetch")
+            return
+
+        logger.info(f"Prefetching artwork for {len(urls)} upcoming tracks")
+
+        # Create a shared session for all prefetch requests
+        async with aiohttp.ClientSession() as session:
+            tasks = []
+            for position, url in urls:
+                # Skip if already cached
+                if url in artwork_cache:
+                    logger.debug(f"Track {position} artwork already cached")
+                    continue
+                tasks.append(self._prefetch_single(session, position, url))
+
+            if tasks:
+                # Run prefetch tasks concurrently but don't wait too long
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*tasks, return_exceptions=True),
+                        timeout=15.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("Prefetch timed out, some tracks may not be cached")
+
+    async def _prefetch_single(self, session, position, url):
+        """Prefetch a single artwork URL."""
+        try:
+            result = await self.fetch_artwork_async(url, session=session)
+            if result:
+                logger.debug(f"Prefetched artwork for track {position}")
+            else:
+                logger.debug(f"No artwork for track {position}")
+        except Exception as e:
+            logger.debug(f"Failed to prefetch track {position}: {e}")
+
 
 class MediaServer:
     def __init__(self):
@@ -299,12 +484,18 @@ class MediaServer:
                             await self.broadcast_media_update(media_data, reason)
 
                         current_track_id = track_id
+
+                        # Prefetch upcoming tracks in background (don't await)
+                        if track_changed:
+                            asyncio.create_task(self.sonos_viewer.prefetch_upcoming_artwork(count=PREFETCH_COUNT))
                     else:
                         # Still update cached data silently for future requests
                         if track_changed:
                             current_track_id = track_id
                             # Update cached data without broadcasting
                             await self.fetch_media_data()
+                            # Prefetch upcoming tracks in background
+                            asyncio.create_task(self.sonos_viewer.prefetch_upcoming_artwork(count=PREFETCH_COUNT))
 
                     current_position = position
 
@@ -317,46 +508,26 @@ class MediaServer:
     async def fetch_media_data(self):
         """Fetch current media data including artwork."""
         global cached_media_data, last_update_time
-        
+
         try:
             # Get track info (automatically uses coordinator)
             track_info = self.sonos_viewer.get_current_track_info()
             if not track_info:
                 logger.debug("No track info available")
                 return None
-                
-            # Get artwork
+
+            # Get artwork asynchronously (uses cache and non-blocking fetch)
             artwork_url = self.sonos_viewer.get_artwork_url()
             artwork_base64 = None
             artwork_size = None
-            
+
             if artwork_url:
                 try:
-                    image = self.sonos_viewer.fetch_artwork(artwork_url)
-                    if image:
-                        # Convert to base64
-                        img_io = BytesIO()
-                        
-                        # Convert to RGB if necessary
-                        if image.mode in ('RGBA', 'LA', 'P'):
-                            rgb_image = image.convert('RGB')
-                            image = rgb_image
-                            
-                        # Resize if too large
-                        if img_io.tell() == 0:  # Haven't saved yet
-                            image.save(img_io, 'JPEG', quality=85)
-                            
-                        # Check size and reduce quality if needed
-                        if img_io.tell() > MAX_ARTWORK_SIZE:
-                            img_io = BytesIO()
-                            image.save(img_io, 'JPEG', quality=60)
-                            
-                        img_io.seek(0)
-                        artwork_base64 = base64.b64encode(img_io.getvalue()).decode('utf-8')
-                        artwork_size = image.size
-                        
-                        logger.info(f"Fetched artwork: {artwork_size}, {len(artwork_base64)} chars")
-                        
+                    artwork_result = await self.sonos_viewer.fetch_artwork_async(artwork_url)
+                    if artwork_result:
+                        artwork_base64 = artwork_result['base64']
+                        artwork_size = artwork_result['size']
+                        logger.info(f"Artwork ready: {artwork_size}, {len(artwork_base64)} chars")
                 except Exception as e:
                     logger.warning(f"Failed to fetch artwork: {e}")
             
