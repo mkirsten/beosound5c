@@ -8,8 +8,8 @@ if [[ -f "$CONFIG_FILE" ]]; then
     source "$CONFIG_FILE"
 fi
 
-# Use environment variable with fallback
-MAC="${BEOREMOTE_MAC:-48:D0:CF:BD:CE:35}"
+# Use environment variable (no default - must be configured)
+MAC="${BEOREMOTE_MAC:?Set BEOREMOTE_MAC in /etc/beosound5c/config.env}"
 
 # Handles for Bluetooth GATT (hardware-specific, don't change)
 DESC1="0x0025"
