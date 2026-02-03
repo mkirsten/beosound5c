@@ -766,7 +766,7 @@
                 this.lastNavTime = 0;
                 this.navDebounceMs = 80;
 
-                // Check for demo mode
+                // Check for emulator mode
                 this.checkDemoMode();
                 this.init();
             }
@@ -777,12 +777,12 @@
                 if (urlParams.get('demo') === 'true') {
                     this.isDemoMode = true;
                 }
-                // Check parent window for demo mode
-                if (window.parent !== window && window.parent.DemoModeManager?.isActive) {
+                // Check parent window for emulator mode
+                if (window.parent !== window && window.parent.EmulatorModeManager?.isActive) {
                     this.isDemoMode = true;
                 }
-                // Check top-level DemoModeManager
-                if (window.top?.DemoModeManager?.isActive) {
+                // Check top-level EmulatorModeManager
+                if (window.top?.EmulatorModeManager?.isActive) {
                     this.isDemoMode = true;
                 }
 
@@ -794,7 +794,7 @@
 
             loadMockData() {
                 // Mock system info
-                const mockSystemInfo = window.top?.DemoModeManager?.getSystemInfo?.() || {
+                const mockSystemInfo = window.top?.EmulatorModeManager?.getSystemInfo?.() || {
                     hostname: 'beosound5c-demo',
                     ip_address: '192.168.1.100',
                     uptime: '3 days, 14:22',
@@ -923,7 +923,7 @@
             }
 
             connectInputWebSocket() {
-                // Skip WebSocket connection in demo mode
+                // Skip WebSocket connection in emulator mode
                 if (this.isDemoMode) {
                     console.log('[SYSTEM] Demo mode - skipping Input WebSocket connection');
                     return;
@@ -1224,7 +1224,7 @@
             }
 
             connectMediaWebSocket() {
-                // Skip WebSocket connection in demo mode
+                // Skip WebSocket connection in emulator mode
                 if (this.isDemoMode) {
                     console.log('[SYSTEM] Demo mode - skipping Media WebSocket connection');
                     return;
@@ -1348,7 +1348,7 @@
             }
 
             async fetchPeople() {
-                // Use mock data in demo mode
+                // Use mock data in emulator mode
                 if (this.isDemoMode) {
                     this.loadMockPeople();
                     return;

@@ -31,12 +31,12 @@ const AppConfig = {
 
     // Demo mode settings (for running without real hardware/services)
     demo: {
-        enabled: false,      // Set true to force demo mode, or use ?demo=true URL param
-        autoDetect: true     // Automatically enable demo mode when services fail
+        enabled: false,      // Set true to force emulator mode, or use ?emulator=true URL param
+        autoDetect: true     // Automatically enable emulator mode when services fail
     }
 };
 
-// Early demo mode detection (before other scripts load)
+// Early emulator mode detection (before other scripts load)
 (function() {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('demo') === 'true') {

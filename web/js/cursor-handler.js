@@ -474,12 +474,12 @@ function initWebSocket() {
 
 // Separate function for media server connection
 function initMediaWebSocket() {
-    // Skip in demo mode - DemoModeManager handles mock media
+    // Skip in demo mode - EmulatorModeManager handles mock media
     if (AppConfig.demo?.enabled) {
         console.log('[MEDIA] Demo mode - skipping media server connection');
         // Activate demo mode if not already active
-        if (window.DemoModeManager && !window.DemoModeManager.isActive) {
-            setTimeout(() => window.DemoModeManager.activate('static demo'), 500);
+        if (window.EmulatorModeManager && !window.EmulatorModeManager.isActive) {
+            setTimeout(() => window.EmulatorModeManager.activate('static emulator'), 500);
         }
         return;
     }
@@ -502,8 +502,8 @@ function initMediaWebSocket() {
         mediaWs.onerror = () => {
             mediaWebSocketConnecting = false;
             // Auto-activate demo mode on media server failure if autoDetect enabled
-            if (window.AppConfig?.demo?.autoDetect && window.DemoModeManager && !window.DemoModeManager.isActive) {
-                window.DemoModeManager.activate('media server unavailable');
+            if (window.AppConfig?.demo?.autoDetect && window.EmulatorModeManager && !window.EmulatorModeManager.isActive) {
+                window.EmulatorModeManager.activate('media server unavailable');
             }
         };
         

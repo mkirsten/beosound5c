@@ -15,7 +15,7 @@ import urllib.error
 from datetime import datetime
 
 # Spotify user ID to fetch playlists from
-SPOTIFY_USER_ID = os.getenv('SPOTIFY_USER_ID', 'mkirsten')
+SPOTIFY_USER_ID = os.getenv('SPOTIFY_USER_ID', '')
 
 # Paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,8 +25,9 @@ OUTPUT_FILE = os.path.join(PROJECT_ROOT, 'web', 'json', 'playlists_with_tracks.j
 LOG_FILE = os.path.join(SCRIPT_DIR, 'fetch.log')
 
 # Spotify API credentials (client credentials flow - no user auth needed)
-CLIENT_ID = '6420bddd82d046adb24b3009960c5d81'
-CLIENT_SECRET = '0cbb9390b1c045878ec3a57d8bb32b76'
+# Get your credentials at https://developer.spotify.com/dashboard
+CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID', '')
+CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET', '')
 
 def log(msg):
     """Log with timestamp."""

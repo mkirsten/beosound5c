@@ -152,9 +152,9 @@ const CameraOverlayManager = {
         const img = container.querySelector('.camera-feed');
         const loading = container.querySelector('.camera-loading');
 
-        // Check if demo mode is active
-        if (window.DemoModeManager?.isActive) {
-            const mockUrl = window.DemoModeManager.getMockCameraUrl(cam.title);
+        // Check if emulator mode is active
+        if (window.EmulatorModeManager?.isActive) {
+            const mockUrl = window.EmulatorModeManager.getMockCameraUrl(cam.title);
             img.src = mockUrl;
             loading.style.display = 'none';
             img.style.display = 'block';
@@ -177,10 +177,10 @@ const CameraOverlayManager = {
             img.style.display = 'block';
         };
         newImg.onerror = () => {
-            // Auto-activate demo mode on camera failure if autoDetect enabled
-            if (window.AppConfig?.demo?.autoDetect && window.DemoModeManager && !window.DemoModeManager.isActive) {
-                window.DemoModeManager.activate('camera unavailable');
-                const mockUrl = window.DemoModeManager.getMockCameraUrl(cam.title);
+            // Auto-activate emulator mode on camera failure if autoDetect enabled
+            if (window.AppConfig?.demo?.autoDetect && window.EmulatorModeManager && !window.EmulatorModeManager.isActive) {
+                window.EmulatorModeManager.activate('camera unavailable');
+                const mockUrl = window.EmulatorModeManager.getMockCameraUrl(cam.title);
                 img.src = mockUrl;
                 loading.style.display = 'none';
                 img.style.display = 'block';
