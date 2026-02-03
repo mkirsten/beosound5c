@@ -1,3 +1,14 @@
+/**
+ * Arc geometry utilities for BeoSound 5c
+ *
+ * Derived from Beolyd5 by Lars Baunwall
+ * https://github.com/larsbaunwall/Beolyd5
+ * Licensed under Apache License 2.0
+ *
+ * Functions adapted: polarToCartesian, drawArc, translateToRange, getArcPoint
+ * Constants adapted: cx (1147), cy (387)
+ */
+
 const arcs = {
     // Use centralized constants with fallbacks
     get cx() { return window.Constants?.arc?.centerX || 1147; },

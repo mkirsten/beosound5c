@@ -102,11 +102,8 @@ class ArcList {
         }
         
         // Load data
-        console.log('🔍 [INIT] About to load data from:', this.config.dataSource);
         await this.loadData();
-        console.log('🔍 [INIT] Loaded', this.items.length, 'items from', this.config.dataSource);
-        console.log('🔍 [INIT] Items preview:', this.items.slice(0, 3).map(item => item.name));
-        
+
         // Restore saved position and view mode
         this.restoreState();
         
@@ -345,20 +342,12 @@ class ArcList {
         
         // Listen for events from parent window (when in iframe)
         window.addEventListener('message', (event) => {
-            console.log(`🔍 [IFRAME] DEBUG: Message received from parent:`, event.data);
-            console.log(`🔍 [IFRAME] DEBUG: Event origin:`, event.origin);
-            
             if (event.data && event.data.type === 'button') {
-                console.log(`✅ [IFRAME] Button event from parent: ${event.data.button}`);
                 this.handleButtonFromParent(event.data.button);
             } else if (event.data && event.data.type === 'nav') {
-                console.log(`✅ [IFRAME] Nav event from parent:`, event.data.data);
                 this.handleNavFromParent(event.data.data);
             } else if (event.data && event.data.type === 'keyboard') {
-                console.log(`✅ [IFRAME] Keyboard event from parent: ${event.data.key}`);
                 this.handleKeyboardFromParent(event.data);
-            } else {
-                console.log(`❌ [IFRAME] Unknown message type or malformed message:`, event.data);
             }
         });
     }
@@ -368,47 +357,36 @@ class ArcList {
      * Updates target scroll position and resets snap timer
      */
     handleKeyPress(e) {
-        console.log(`🎹 [IFRAME] Key press received: ${e.key} (code: ${e.code})`);
-        
         const now = Date.now();
         this.lastScrollTime = now; // Record when user last interacted
-        
+
         if (e.key === 'ArrowUp') {
-            console.log(`🎹 [IFRAME] ArrowUp: ${this.targetIndex} -> ${Math.max(0, this.targetIndex - this.SCROLL_STEP)}`);
             // Move up in the list (decrease index) - use base scroll step for keyboard
             this.targetIndex = Math.max(0, this.targetIndex - this.SCROLL_STEP);
             this.setupSnapTimer(); // Reset auto-snap timer
         } else if (e.key === 'ArrowDown') {
-            console.log(`🎹 [IFRAME] ArrowDown: ${this.targetIndex} -> ${Math.min(this.items.length - 1, this.targetIndex + this.SCROLL_STEP)}`);
             // Move down in the list (increase index) - use base scroll step for keyboard
             this.targetIndex = Math.min(this.items.length - 1, this.targetIndex + this.SCROLL_STEP);
             this.setupSnapTimer(); // Reset auto-snap timer
         } else if (e.key === 'ArrowLeft') {
             // Always send webhook for left button press
-            console.log('🎹 [IFRAME] Left arrow pressed - sending webhook');
             this.sendButtonWebhook('left');
-            
+
             // Also handle hierarchical navigation if applicable
             if (this.config.viewMode === 'hierarchical' && this.viewMode === 'parent') {
-                console.log('🎹 [IFRAME] Also entering child view (hierarchical mode)');
                 this.enterChildView();
             }
         } else if (e.key === 'ArrowRight') {
-            // Always send webhook for right button press  
-            console.log('🎹 [IFRAME] Right arrow pressed - sending webhook');
+            // Always send webhook for right button press
             this.sendButtonWebhook('right');
-            
+
             // Also handle hierarchical navigation if applicable
             if (this.config.viewMode === 'hierarchical' && this.viewMode === 'child') {
-                console.log('🎹 [IFRAME] Also exiting to parent (hierarchical mode)');
                 this.exitChildView();
             }
         } else if (e.key === 'Enter') {
             // Trigger "go" action (same as WebSocket "go" button)
-            console.log('🎹 [IFRAME] Enter pressed - sending webhook');
             this.sendGoWebhook();
-        } else {
-            console.log(`🎹 [IFRAME] Unhandled key: ${e.key}`);
         }
     }
     
@@ -416,35 +394,24 @@ class ArcList {
      * Handle button events forwarded from parent window (when in iframe)
      */
     handleButtonFromParent(button) {
-        console.log(`🔍 [IFRAME] DEBUG: Processing button from parent:`, button, 'current view mode:', this.viewMode);
-        console.log(`🔍 [IFRAME] DEBUG: config.viewMode:`, this.config.viewMode);
-        console.log(`🔍 [IFRAME] DEBUG: this.viewMode:`, this.viewMode);
-        
         if (button === 'left') {
             // Always send webhook for left button press
-            console.log('✅ [IFRAME] Parent button: Left pressed - sending webhook');
             this.sendButtonWebhook('left');
-            
+
             // Also handle hierarchical navigation if applicable
             if (this.config.viewMode === 'hierarchical' && this.viewMode === 'parent') {
-                console.log('✅ [IFRAME] Parent button: Also entering child view (hierarchical mode)');
                 this.enterChildView();
-            } else {
-                console.log(`❌ [IFRAME] Conditions not met for enterChildView - viewMode: ${this.viewMode}, config.viewMode: ${this.config.viewMode}`);
             }
         } else if (button === 'right') {
             // Always send webhook for right button press
-            console.log('Parent button: Right pressed - sending webhook');
             this.sendButtonWebhook('right');
-            
+
             // Also handle hierarchical navigation if applicable
             if (this.config.viewMode === 'hierarchical' && this.viewMode === 'child') {
-                console.log('Parent button: Also exiting to parent (hierarchical mode)');
                 this.exitChildView();
             }
         } else if (button === 'go') {
             // Trigger "go" action (same as keyboard Enter)
-            console.log('Parent button: Go pressed - sending webhook');
             this.sendGoWebhook();
         }
     }
@@ -453,8 +420,6 @@ class ArcList {
      * Handle keyboard events forwarded from parent window (when in iframe)
      */
     handleKeyboardFromParent(keyboardData) {
-        console.log('Processing keyboard from parent:', keyboardData.key);
-        
         // Create a synthetic keyboard event object that matches what handleKeyPress expects
         const syntheticEvent = {
             key: keyboardData.key,
@@ -477,22 +442,19 @@ class ArcList {
     handleNavFromParent(data) {
         const direction = data.direction; // 'clock' or 'counter'
         const speed = data.speed || 1; // Speed parameter from server
-        
-        console.log('Processing nav from parent:', direction, 'speed:', speed);
-        
+
         // Calculate scroll step based on speed (same logic as WebSocket handling)
         const speedMultiplier = Math.min(speed / 10, 5); // Cap at 5x speed
         const scrollStep = this.SCROLL_STEP * speedMultiplier;
-        
+
         // Check boundaries before scrolling
         const atTop = this.targetIndex <= 0;
         const atBottom = this.targetIndex >= this.items.length - 1;
         const scrollingUp = direction === 'counter';
         const scrollingDown = direction === 'clock';
-        
+
         // Don't scroll if at boundaries
         if ((atTop && scrollingUp) || (atBottom && scrollingDown)) {
-            console.log('At boundary - not scrolling');
             return;
         }
         
@@ -540,7 +502,6 @@ class ArcList {
      * This runs continuously and smoothly moves items to their target positions
      */
     startAnimation() {
-        console.log('🔍 [ANIMATION] Starting animation loop with', this.items.length, 'items');
         
         // Track last rendered position to avoid unnecessary renders
         let lastRenderedIndex = this.currentIndex;
@@ -664,7 +625,6 @@ class ArcList {
         
         // Handle image loading
         img.onload = () => {
-            console.log('✅ Image loaded successfully for:', item.name);
             img.removeAttribute('data-loading');
         };
         
@@ -770,11 +730,9 @@ class ArcList {
      */
     render() {
         // Skip logging to reduce noise
-        // console.log('🔍 [RENDER] render() called, isAnimating:', this.isAnimating, 'viewMode:', this.viewMode);
         
         // Don't render if we're in the middle of an animation
         if (this.isAnimating) {
-            // console.log('🔍 [RENDER] Skipping render due to animation');
             return;
         }
         
@@ -792,7 +750,6 @@ class ArcList {
         }
         
         // Clear the container completely to prevent element reuse issues
-        // console.log('🔍 [RENDER] Clearing container, current children:', this.container.children.length);
         // Don't use innerHTML = '' as it's too aggressive, remove children selectively
         const children = Array.from(this.container.children);
         children.forEach(child => {
@@ -803,13 +760,11 @@ class ArcList {
         });
         
         const visibleItems = this.getVisibleItems();
-        // console.log('🔍 [RENDER] Got visibleItems:', visibleItems.length);
         
         // Create fresh DOM elements for each visible item
         visibleItems.forEach((item, index) => {
             // Skip creating this item if it's the one being animated as breadcrumb
             if (this.renderWithSkip && item.id === this.renderWithSkip) {
-                console.log('🔍 [RENDER] Skipping item creation for breadcrumb animation:', item.id);
                 return;
             }
             
@@ -875,7 +830,6 @@ class ArcList {
             }
             
             // Add item to the main container
-            // console.log('🔍 [RENDER] Adding item to container:', item.name);
             this.container.appendChild(itemElement);
         });
         
@@ -887,7 +841,6 @@ class ArcList {
      * Render child items while preserving the animated parent item
      */
     renderChildItems() {
-        // console.log('🔍 [RENDER-CHILD] renderChildItems called');
         
         // Remove existing child items but preserve breadcrumb
         const existingChildItems = document.querySelectorAll('.arc-item[data-child-item="true"]');
@@ -897,7 +850,6 @@ class ArcList {
         // Just ensure our tracks have full opacity
         
         const visibleItems = this.getVisibleItems();
-        // console.log('🔍 [RENDER-CHILD] Got visibleItems for children:', visibleItems.length);
         
         visibleItems.forEach((item, index) => {
             // Create main container for this child item
@@ -1185,15 +1137,11 @@ class ArcList {
      * Animate parent item transforming to breadcrumb
      */
     async animateParentToChildTransition(selectedElement) {
-        console.log('🔍 [BREADCRUMB] animateParentToChildTransition called with element:', selectedElement);
         
         if (!selectedElement) {
-            console.log('❌ [BREADCRUMB] No selected element provided');
             return;
         }
         
-        console.log('🔍 [BREADCRUMB] Current element classes before:', selectedElement.className);
-        console.log('🔍 [BREADCRUMB] Current element transform before:', selectedElement.style.transform);
         
         // Store the current transform to transition from
         const currentTransform = selectedElement.style.transform || 'translate(100px, 0px) scale(1)';
@@ -1215,11 +1163,8 @@ class ArcList {
         // Force a reflow to ensure the transition starts from the current position
         selectedElement.offsetHeight;
         
-        console.log('✅ [BREADCRUMB] Added breadcrumb classes for smooth transition');
-        console.log('🔍 [BREADCRUMB] Element classes after:', selectedElement.className);
         
         // Debug: Check element visibility and positioning
-        console.log('🔍 [BREADCRUMB] Element visibility check:');
         console.log('  - offsetWidth:', selectedElement.offsetWidth);
         console.log('  - offsetHeight:', selectedElement.offsetHeight);
         console.log('  - offsetLeft:', selectedElement.offsetLeft);
@@ -1234,11 +1179,9 @@ class ArcList {
         await this.delay(400);
         
         // Check again after animation
-        console.log('🔍 [BREADCRUMB] Element visibility after animation:');
         console.log('  - getBoundingClientRect:', selectedElement.getBoundingClientRect());
         console.log('  - Is element still in DOM:', document.contains(selectedElement));
         
-        console.log('✅ [BREADCRUMB] Breadcrumb animation completed');
         return selectedElement;
     }
     
@@ -1247,11 +1190,9 @@ class ArcList {
      */
     async staggerListAnimation(items, direction = 'in') {
         if (!items || items.length === 0) {
-            console.log('🔍 [STAGGER] No items to animate');
             return;
         }
         
-        console.log('🔍 [STAGGER] Starting stagger animation for', items.length, 'items');
         
         const staggerDelay = 50;
         const promises = [];
@@ -1259,7 +1200,6 @@ class ArcList {
         items.forEach((item, index) => {
             const promise = new Promise(resolve => {
                 setTimeout(() => {
-                    console.log('🔍 [STAGGER] Animating item', index, item);
                     if (direction === 'in') {
                         // For child items, just make them visible (they're already positioned by render())
                         item.style.setProperty('opacity', '1', 'important');
@@ -1280,7 +1220,6 @@ class ArcList {
         
         await Promise.all(promises);
         await this.delay(400); // Wait for all animations to complete
-        console.log('🔍 [STAGGER] Stagger animation completed');
     }
     
     /**
@@ -1289,7 +1228,6 @@ class ArcList {
     async animateChildToParentTransition(breadcrumbElement) {
         if (!breadcrumbElement) return;
         
-        console.log('🔍 [DIRECT-BACK] Starting breadcrumb slide back animation');
         
         // Get the actual current screen position
         const rect = breadcrumbElement.getBoundingClientRect();
@@ -1299,17 +1237,14 @@ class ArcList {
         const currentX = rect.left + rect.width/2 - (containerRect.left + containerRect.width/2);
         const currentY = rect.top + rect.height/2 - (containerRect.top + containerRect.height/2);
         
-        console.log('🔍 [DIRECT-BACK] Current screen position:', { x: currentX, y: currentY });
         
         // Use consistent absolute center position for return
         const CENTER_ABSOLUTE_X = 100; // Always return to same absolute center position
         const returnX = CENTER_ABSOLUTE_X;
         const returnY = 0; // Always return with Y=0 for horizontal movement
         
-        console.log('🔍 [DIRECT-BACK] Returning to consistent absolute center position:', { x: returnX, y: returnY });
         
         // Phase 1: Completely fade out tracks
-        console.log('🔍 [DIRECT-BACK] Phase 1: Completely fading out tracks');
         const trackItems = document.querySelectorAll('.arc-item[data-child-item="true"]');
         trackItems.forEach((item, index) => {
             item.style.transition = `opacity 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94)`;
@@ -1320,12 +1255,10 @@ class ArcList {
         await this.delay(400); // Wait longer to ensure tracks are completely gone
         
         // Phase 1.5: Remove all track items from DOM to prevent any overlap
-        console.log('🔍 [DIRECT-BACK] Phase 1.5: Removing tracks from DOM');
         const trackItemsToRemove = document.querySelectorAll('.arc-item[data-child-item="true"]');
         trackItemsToRemove.forEach(item => item.remove());
         
         // Phase 2: Move breadcrumb back to original position
-        console.log('🔍 [DIRECT-BACK] Phase 2: Moving breadcrumb back to original position');
         
         // Set up element for direct animation
         breadcrumbElement.style.position = 'absolute';
@@ -1351,14 +1284,12 @@ class ArcList {
         breadcrumbElement.style.opacity = '1'; // Full opacity when returning
         breadcrumbElement.style.filter = 'blur(0px)';
         
-        console.log('✅ [DIRECT-BACK] Applied direct horizontal movement back to consistent absolute center position:', 
             `translate(${currentX}px, 0px) → translate(${returnX}px, ${returnY}px)`);
         
         // Wait for breadcrumb slide-back animation to complete
         await this.delay(400);
         
         // Phase 3: Fade in other playlists (only after breadcrumb is in position and tracks are gone)
-        console.log('🔍 [DIRECT-BACK] Phase 3: Fading in other playlists');
         const otherPlaylists = document.querySelectorAll('.arc-item:not(.breadcrumb)');
         otherPlaylists.forEach((item, index) => {
             // Remove any classes that might affect opacity
@@ -1386,7 +1317,6 @@ class ArcList {
         // Clear stored position (no longer needed since we use consistent absolute positions)
         this.originalBreadcrumbPosition = null;
         
-        console.log('✅ [DIRECT-BACK] Breadcrumb slide back animation completed');
     }
     
     /**
@@ -1429,14 +1359,12 @@ class ArcList {
         if (this.snapTimer) {
             clearTimeout(this.snapTimer);
             this.snapTimer = null;
-            console.log('🔍 [BREADCRUMB] Cleared snap timer to prevent position snapping');
         }
         
         // Pause animation loop during breadcrumb transitions
         if (this.animationFrame) {
             cancelAnimationFrame(this.animationFrame);
             this.animationFrame = null;
-            console.log('🔍 [BREADCRUMB] Paused animation loop during transition');
         }
         
         this.isAnimating = true;
@@ -1488,7 +1416,6 @@ class ArcList {
             this.isAnimating = false;
             // Resume animation loop after transition
             this.startAnimation();
-            console.log('🔍 [BREADCRUMB] Resumed animation loop after transition');
         }
     }
     
@@ -1513,15 +1440,12 @@ class ArcList {
     }
     
     async performEnhancedChildTransition(selectedElement) {
-        console.log('🔍 [DIRECT] performEnhancedChildTransition starting with element:', selectedElement);
         
         try {
             // Phase 1: Activate hierarchy background
-            console.log('🔍 [DIRECT] Phase 1: Activating hierarchy background');
             await this.animateHierarchyTransition('background', 'enter');
             
             // Phase 2: DIRECT animation - move element from current position to left
-            console.log('🔍 [DIRECT] Phase 2: Direct animation from current position to left');
             
             if (selectedElement) {
                 // Get the actual current screen position
@@ -1539,8 +1463,6 @@ class ArcList {
                 const BREADCRUMB_ABSOLUTE_X = -320; // Always move to same absolute left position
                 const CENTER_ABSOLUTE_X = 100; // Always return to same absolute center position
                 
-                console.log('🔍 [DIRECT] Current screen position:', { x: currentX, y: currentY });
-                console.log('🔍 [DIRECT] Will move to consistent absolute position:', BREADCRUMB_ABSOLUTE_X);
                 
                 // Set up element for direct animation
                 selectedElement.style.position = 'absolute';
@@ -1563,7 +1485,6 @@ class ArcList {
                 selectedElement.offsetHeight;
                 
                 // Phase 3: Hide other playlists (but keep them in DOM)
-                console.log('🔍 [HIDE-SHOW] Phase 3: Hiding playlists with parent-hidden class');
                 const otherPlaylists = document.querySelectorAll('.arc-item:not(.breadcrumb)');
                 otherPlaylists.forEach(item => {
                     // Add a class to mark them as hidden parents
@@ -1582,7 +1503,6 @@ class ArcList {
                 // Mark it so we can identify it later
                 selectedElement.dataset.animatedParent = 'true';
                 
-                console.log('✅ [DIRECT] Applied direct horizontal movement to consistent absolute position:', 
                     `translate(${currentX}px, 0px) → translate(${BREADCRUMB_ABSOLUTE_X}px, 0px)`);
                 
                 // Wait for both breadcrumb animation and playlist hiding to complete
@@ -1603,7 +1523,6 @@ class ArcList {
             }
             
             // Phase 3.5: Keep playlists in DOM but fully hidden
-            console.log('🔍 [HIDE-SHOW] Phase 3.5: Keeping playlists in DOM but hidden');
             // DON'T remove items - they're already hidden with parent-hidden class
             // This allows instant visibility when returning to parent view
             
@@ -1621,7 +1540,6 @@ class ArcList {
             this.isAnimating = wasAnimating;
             
             // Phase 4: Fade in tracks (only after playlists are completely hidden)
-            console.log('🔍 [DIRECT] Phase 4: Fading in tracks');
             await this.delay(100); // Small delay to ensure tracks are rendered and playlists are hidden
             const trackItems = document.querySelectorAll('.arc-item[data-child-item="true"]');
             trackItems.forEach((item, index) => {
@@ -1635,7 +1553,6 @@ class ArcList {
                 }, 50);
             });
             
-            console.log('✅ [DIRECT] Direct child view transition completed');
         } catch (error) {
             console.error('❌ [DIRECT] Error during direct child transition:', error);
             // Fallback to basic child loading if animation fails
@@ -1671,7 +1588,6 @@ class ArcList {
         breadcrumb.style.zIndex = '10';
         breadcrumb.style.pointerEvents = 'auto';
         
-        console.log('✅ [BREADCRUMB] Created breadcrumb element with consistent absolute positioning: translate(' + BREADCRUMB_ABSOLUTE_X + 'px, 0px) scale(1)');
         
         // Add content
         const nameEl = document.createElement('div');
@@ -1688,7 +1604,6 @@ class ArcList {
         
         container.appendChild(breadcrumb);
         
-        console.log('✅ Created breadcrumb element for:', this.selectedParent ? this.selectedParent.name : 'Unknown');
     }
     
     /**
@@ -1696,14 +1611,12 @@ class ArcList {
      */
     ensureParentItemsVisible() {
         if (this.viewMode === 'parent' && this.parentData && this.parentData.length > 0) {
-            console.log('🔍 [FALLBACK] Ensuring parent items are visible');
             this.items = this.parentData.map((parent, index) => ({
                 id: parent.id,
                 name: parent.name || `Parent ${index + 1}`,
                 image: parent.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
             }));
             this.render();
-            console.log('🔍 [FALLBACK] Parent items rendered:', this.items.length);
         }
     }
 
@@ -1768,14 +1681,12 @@ class ArcList {
         if (this.snapTimer) {
             clearTimeout(this.snapTimer);
             this.snapTimer = null;
-            console.log('🔍 [BREADCRUMB] Cleared snap timer to prevent position snapping');
         }
         
         // Pause animation loop during breadcrumb transitions
         if (this.animationFrame) {
             cancelAnimationFrame(this.animationFrame);
             this.animationFrame = null;
-            console.log('🔍 [BREADCRUMB] Paused animation loop during transition');
         }
         
         this.isAnimating = true;
@@ -1801,13 +1712,11 @@ class ArcList {
             this.startAnimation();
             // Restore snap timer functionality
             this.setupSnapTimer();
-            console.log('🔍 [BREADCRUMB] Resumed animation loop and snap timer after transition');
         }
     }
     
     async performEnhancedParentTransition(breadcrumbElement) {
         try {
-            console.log('🔍 [HIDE-SHOW-TRANSITION] Using hide/show approach for instant visibility');
             
             // Mark container as transitioning
             this.container.classList.add('transitioning-to-parent');
@@ -1817,7 +1726,6 @@ class ArcList {
             
             if (hiddenParentItems.length > 0) {
                 // We have hidden parents - just show them instantly!
-                console.log('🔍 [HIDE-SHOW] Found', hiddenParentItems.length, 'hidden parent items');
                 
                 // Restore view mode
                 this.viewMode = 'parent';
@@ -1851,7 +1759,6 @@ class ArcList {
                 childItems.forEach(item => item.remove());
             } else {
                 // Fallback to old approach if no hidden parents found
-                console.log('🔍 [HIDE-SHOW] No hidden parents, using fallback approach');
                 
                 // Restore parent data
                 this.viewMode = 'parent';
@@ -2021,14 +1928,11 @@ class ArcList {
                 // We have missing items, need to render them
                 this.render();
             } else {
-                console.log('🔍 [PARALLEL-TRANSITION] All items are visible, no additional render needed');
             }
             
             // Force selected state update on existing items
             this.updateSelectedState();
-            console.log('🔍 [PARALLEL-TRANSITION] Updated selected state on existing items');
             
-            console.log('🔍 [PARALLEL-TRANSITION] Completed transition to parent view');
         } catch (error) {
             console.error('Error during enhanced parent transition:', error);
             await this.performFallbackParentTransition();

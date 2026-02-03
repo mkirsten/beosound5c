@@ -36,7 +36,6 @@ const CameraOverlayManager = {
 
     init() {
         this.createOverlayElement();
-        console.log('[CAMERA] Overlay manager initialized');
     },
 
     createOverlayElement() {
@@ -153,6 +152,15 @@ const CameraOverlayManager = {
         const img = container.querySelector('.camera-feed');
         const loading = container.querySelector('.camera-loading');
 
+        // Check if demo mode is active
+        if (window.DemoModeManager?.isActive) {
+            const mockUrl = window.DemoModeManager.getMockCameraUrl(cam.title);
+            img.src = mockUrl;
+            loading.style.display = 'none';
+            img.style.display = 'block';
+            return;
+        }
+
         // Build snapshot URL
         let snapshotUrl = this.config.cameraSnapshotUrl;
         if (cam.entity) {
@@ -169,6 +177,15 @@ const CameraOverlayManager = {
             img.style.display = 'block';
         };
         newImg.onerror = () => {
+            // Auto-activate demo mode on camera failure if autoDetect enabled
+            if (window.AppConfig?.demo?.autoDetect && window.DemoModeManager && !window.DemoModeManager.isActive) {
+                window.DemoModeManager.activate('camera unavailable');
+                const mockUrl = window.DemoModeManager.getMockCameraUrl(cam.title);
+                img.src = mockUrl;
+                loading.style.display = 'none';
+                img.style.display = 'block';
+                return;
+            }
             loading.textContent = 'Unavailable';
             img.style.display = 'none';
         };

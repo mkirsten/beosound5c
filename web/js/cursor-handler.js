@@ -407,6 +407,13 @@ function initWebSocket() {
         console.error('[WS] Dummy hardware manager not available');
     }
     
+    // Skip real hardware connection in demo mode (cleaner for static hosting)
+    if (AppConfig.demo?.enabled) {
+        console.log('[WS] Demo mode - skipping real hardware connection');
+        initMediaWebSocket();
+        return;
+    }
+
     // Try to connect to real hardware server (silent attempt)
     try {
         const ws = new WebSocket(AppConfig.websocket.input);
@@ -467,16 +474,26 @@ function initWebSocket() {
 
 // Separate function for media server connection
 function initMediaWebSocket() {
+    // Skip in demo mode - DemoModeManager handles mock media
+    if (AppConfig.demo?.enabled) {
+        console.log('[MEDIA] Demo mode - skipping media server connection');
+        // Activate demo mode if not already active
+        if (window.DemoModeManager && !window.DemoModeManager.isActive) {
+            setTimeout(() => window.DemoModeManager.activate('static demo'), 500);
+        }
+        return;
+    }
+
     if (window.mediaWebSocket && window.mediaWebSocket.readyState === WebSocket.OPEN) {
         return;
     }
-    
+
     if (mediaWebSocketConnecting) {
         return;
     }
-    
+
     mediaWebSocketConnecting = true;
-    
+
     try {
         const mediaWs = new WebSocket(AppConfig.websocket.media);
         window.mediaWebSocket = mediaWs;
@@ -484,7 +501,10 @@ function initMediaWebSocket() {
         // Prevent browser from logging WebSocket errors
         mediaWs.onerror = () => {
             mediaWebSocketConnecting = false;
-            // Silent failure - media server is optional
+            // Auto-activate demo mode on media server failure if autoDetect enabled
+            if (window.AppConfig?.demo?.autoDetect && window.DemoModeManager && !window.DemoModeManager.isActive) {
+                window.DemoModeManager.activate('media server unavailable');
+            }
         };
         
         mediaWs.onopen = () => {

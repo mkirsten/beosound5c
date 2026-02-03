@@ -1,6 +1,10 @@
 # Beosound 5c Recreated
 
-## 🚀 Fresh Installation (from vanilla Raspberry Pi 5)
+## Project Status
+
+This is an active personal project to recreate the Bang & Olufsen BeoSound 5 experience using modern web technologies and a Raspberry Pi 5. The project is functional for daily use but continues to evolve with new features and improvements.
+
+## Fresh Installation (from vanilla Raspberry Pi 5)
 
 For a complete installation on a fresh Raspberry Pi 5:
 
@@ -122,8 +126,7 @@ You can test it out without any BS5 hardware through emulation of the key hardwa
 ```
 ├── web/                    # Web interface and UI components
 ├── services/               # Core system services (Python/Shell)
-├── tools/                  # Utility tools and helper scripts
-└── wip/                    # Work in progress / experimental code
+└── tools/                  # Utility tools and helper scripts
 ```
 
 ### 🌐 Web Interface (`web/`)
@@ -235,15 +238,7 @@ Systemd service definitions and management scripts:
 - **`ap_scan.sh`** - Access point scanning for WiFi
 - **`monitor.sh`** - System monitoring script to detect e.g., power throttling
 
-### 🧪 Work in Progress (`wip/`)
-
-Experimental and development code:
-- **`cameratest.html`** - Camera integration testing
-- **Splash screens** - Boot/loading screen assets for later implementation
-- **`spotify/`** - Alternative Spotify integration experiments
-- **`old-web/`** - Previous web interface iterations
-
-## 🔄 Service Communication Flow
+## Service Communication Flow
 
 ```
 Hardware Input over USB → input.py (port 8765) → WebSocket clients
@@ -369,3 +364,12 @@ homeassistant:
 ```
 
 ---
+
+## 🙏 Acknowledgments
+
+Arc geometry calculations and UI positioning constants in `web/js/arcs.js` and `web/js/constants.js` are derived from [Beolyd5](https://github.com/larsbaunwall/Beolyd5) by Lars Baunwall, licensed under Apache License 2.0.
+
+Specifically, the following were adapted:
+- `polarToCartesian()`, `drawArc()`, `translateToRange()`, `getArcPoint()` functions
+- Arc center coordinates (1147, 387), radius (1000), and angle ranges (158°-202°)
+- Menu item positioning logic

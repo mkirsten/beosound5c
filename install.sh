@@ -28,6 +28,24 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 log_section() { echo -e "\n${CYAN}=== $* ===${NC}\n"; }
 
+# Display banner
+show_banner() {
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}       ${GREEN}____             ____                      _${NC}       ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}       ${GREEN}| __ )  ___  ___|  __| ___  _   _ _ __   __| |${NC}      ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}       ${GREEN}|  _ \\ / _ \\/ _ \\|__  |/ _ \\| | | | '_ \\ / _\` |${NC}      ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}       ${GREEN}| |_) |  __/ (_) |__) | (_) | |_| | | | | (_| |${NC}      ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}       ${GREEN}|____/ \\___|\\___/|____/\\___/ \\__,_|_| |_|\\__,_|${NC}      ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}                            ${YELLOW}5 c${NC}                            ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}                  ${BLUE}Installation & Setup${NC}                     ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -58,6 +76,9 @@ INSTALL_DIR="/home/$INSTALL_USER/beosound5c"
 CONFIG_DIR="/etc/beosound5c"
 CONFIG_FILE="$CONFIG_DIR/config.env"
 PLYMOUTH_THEME_DIR="/usr/share/plymouth/themes/beosound5c"
+
+# Show welcome banner
+show_banner
 
 # =============================================================================
 # Pre-flight Checks
@@ -313,6 +334,145 @@ else
 fi
 
 # =============================================================================
+# Network Discovery Functions
+# =============================================================================
+
+# Scan for Sonos devices on the network
+scan_sonos_devices() {
+    log_info "Scanning for Sonos devices on the network..."
+    local sonos_devices=()
+    local timeout=2
+
+    # Method 1: Try avahi/mDNS discovery (most reliable)
+    if command -v avahi-browse &>/dev/null; then
+        while IFS= read -r line; do
+            # Parse avahi-browse output for Sonos devices
+            if [[ "$line" =~ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+                local ip="${BASH_REMATCH[1]}"
+                # Verify it's actually a Sonos device by checking port 1400
+                if timeout $timeout bash -c "echo >/dev/tcp/$ip/1400" 2>/dev/null; then
+                    # Try to get device name from Sonos API
+                    local name=$(curl -s --connect-timeout $timeout "http://$ip:1400/xml/device_description.xml" 2>/dev/null | grep -oP '(?<=<roomName>)[^<]+' | head -1)
+                    if [ -n "$name" ]; then
+                        sonos_devices+=("$ip|$name")
+                    else
+                        sonos_devices+=("$ip|Sonos Device")
+                    fi
+                fi
+            fi
+        done < <(avahi-browse -rtp _sonos._tcp 2>/dev/null | grep "=" | head -10)
+    fi
+
+    # Method 2: Fallback - scan common ports if avahi didn't find anything
+    if [ ${#sonos_devices[@]} -eq 0 ]; then
+        # Get local network range
+        local network=$(ip route | grep -oP 'src \K[0-9.]+' | head -1 | sed 's/\.[0-9]*$/./')
+        if [ -n "$network" ]; then
+            log_info "Scanning network ${network}0/24 for Sonos devices (port 1400)..."
+            for i in $(seq 1 254); do
+                local ip="${network}${i}"
+                if timeout $timeout bash -c "echo >/dev/tcp/$ip/1400" 2>/dev/null; then
+                    local name=$(curl -s --connect-timeout $timeout "http://$ip:1400/xml/device_description.xml" 2>/dev/null | grep -oP '(?<=<roomName>)[^<]+' | head -1)
+                    if [ -n "$name" ]; then
+                        sonos_devices+=("$ip|$name")
+                    fi
+                fi
+            done &
+            # Run scan in background with timeout
+            local scan_pid=$!
+            sleep 10
+            kill $scan_pid 2>/dev/null
+            wait $scan_pid 2>/dev/null
+        fi
+    fi
+
+    # Return results
+    if [ ${#sonos_devices[@]} -gt 0 ]; then
+        printf '%s\n' "${sonos_devices[@]}"
+    fi
+}
+
+# Detect Home Assistant on the network
+detect_home_assistant() {
+    log_info "Looking for Home Assistant..."
+    local ha_urls=()
+    local timeout=3
+
+    # Method 1: Try homeassistant.local first (most common)
+    if curl -s --connect-timeout $timeout -o /dev/null -w "%{http_code}" "http://homeassistant.local:8123/api/" 2>/dev/null | grep -qE "^(200|401|403)$"; then
+        ha_urls+=("http://homeassistant.local:8123")
+        log_success "Found Home Assistant at homeassistant.local:8123"
+    fi
+
+    # Method 2: Try common hostnames
+    for hostname in "home-assistant.local" "hass.local" "ha.local"; do
+        if [ ${#ha_urls[@]} -eq 0 ]; then
+            if curl -s --connect-timeout $timeout -o /dev/null -w "%{http_code}" "http://${hostname}:8123/api/" 2>/dev/null | grep -qE "^(200|401|403)$"; then
+                ha_urls+=("http://${hostname}:8123")
+                log_success "Found Home Assistant at ${hostname}:8123"
+            fi
+        fi
+    done
+
+    # Method 3: Scan local network for port 8123
+    if [ ${#ha_urls[@]} -eq 0 ]; then
+        local network=$(ip route | grep -oP 'src \K[0-9.]+' | head -1 | sed 's/\.[0-9]*$/./')
+        if [ -n "$network" ]; then
+            log_info "Scanning network ${network}0/24 for Home Assistant (port 8123)..."
+            for i in $(seq 1 254); do
+                local ip="${network}${i}"
+                if timeout $timeout bash -c "echo >/dev/tcp/$ip/8123" 2>/dev/null; then
+                    # Verify it's actually Home Assistant
+                    if curl -s --connect-timeout $timeout "http://$ip:8123/api/" 2>/dev/null | grep -q "API running"; then
+                        ha_urls+=("http://$ip:8123")
+                        log_success "Found Home Assistant at $ip:8123"
+                        break
+                    fi
+                fi
+            done
+        fi
+    fi
+
+    # Return results
+    if [ ${#ha_urls[@]} -gt 0 ]; then
+        printf '%s\n' "${ha_urls[@]}"
+    fi
+}
+
+# Display menu and get user selection
+select_from_list() {
+    local prompt="$1"
+    shift
+    local options=("$@")
+    local count=${#options[@]}
+
+    if [ $count -eq 0 ]; then
+        return 1
+    fi
+
+    echo ""
+    echo "$prompt"
+    for i in "${!options[@]}"; do
+        echo "  $((i+1))) ${options[$i]}"
+    done
+    echo "  $((count+1))) Enter manually"
+    echo ""
+
+    while true; do
+        read -p "Select option [1-$((count+1))]: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le $((count+1)) ]; then
+            if [ "$choice" -eq $((count+1)) ]; then
+                return 1  # User wants manual entry
+            else
+                echo "${options[$((choice-1))]}"
+                return 0
+            fi
+        fi
+        echo "Invalid selection. Please enter a number between 1 and $((count+1))."
+    done
+}
+
+# =============================================================================
 # Interactive Configuration
 # =============================================================================
 log_section "Configuration"
@@ -336,50 +496,333 @@ if [ ! -f "$CONFIG_FILE" ]; then
     log_info "Let's configure your BeoSound 5c installation..."
     echo ""
 
+    # -------------------------------------------------------------------------
     # Device name
+    # -------------------------------------------------------------------------
     read -p "Device name/location (e.g., Living Room, Kitchen): " DEVICE_NAME
     DEVICE_NAME="${DEVICE_NAME:-BeoSound5c}"
 
-    # Sonos IP
-    read -p "Sonos speaker IP address (e.g., 192.168.1.100): " SONOS_IP
-    SONOS_IP="${SONOS_IP:-192.168.1.100}"
+    # -------------------------------------------------------------------------
+    # Sonos IP - with network discovery
+    # -------------------------------------------------------------------------
+    echo ""
+    log_section "Sonos Configuration"
 
-    # Home Assistant URL
-    read -p "Home Assistant URL (e.g., http://homeassistant.local:8123): " HA_URL
+    # Scan for Sonos devices
+    mapfile -t sonos_results < <(scan_sonos_devices)
+
+    if [ ${#sonos_results[@]} -gt 0 ]; then
+        # Format results for display
+        sonos_display=()
+        sonos_ips=()
+        for result in "${sonos_results[@]}"; do
+            ip=$(echo "$result" | cut -d'|' -f1)
+            name=$(echo "$result" | cut -d'|' -f2)
+            sonos_display+=("$name ($ip)")
+            sonos_ips+=("$ip")
+        done
+
+        log_success "Found ${#sonos_results[@]} Sonos device(s)!"
+
+        if selection=$(select_from_list "Select Sonos speaker to control:" "${sonos_display[@]}"); then
+            # Extract IP from selection
+            SONOS_IP=$(echo "$selection" | grep -oP '\(([0-9.]+)\)' | tr -d '()')
+        else
+            read -p "Enter Sonos speaker IP address: " SONOS_IP
+        fi
+    else
+        log_warn "No Sonos devices found on the network"
+        log_info "Make sure your Sonos speaker is powered on and connected to the same network"
+        read -p "Enter Sonos speaker IP address: " SONOS_IP
+    fi
+    SONOS_IP="${SONOS_IP:-192.168.1.100}"
+    log_success "Sonos IP: $SONOS_IP"
+
+    # -------------------------------------------------------------------------
+    # Home Assistant URL - with network discovery
+    # -------------------------------------------------------------------------
+    echo ""
+    log_section "Home Assistant Configuration"
+
+    # Detect Home Assistant
+    mapfile -t ha_results < <(detect_home_assistant)
+
+    if [ ${#ha_results[@]} -gt 0 ]; then
+        if [ ${#ha_results[@]} -eq 1 ]; then
+            HA_URL="${ha_results[0]}"
+            log_success "Using detected Home Assistant: $HA_URL"
+        else
+            if selection=$(select_from_list "Select Home Assistant instance:" "${ha_results[@]}"); then
+                HA_URL="$selection"
+            else
+                read -p "Enter Home Assistant URL (e.g., http://homeassistant.local:8123): " HA_URL
+            fi
+        fi
+    else
+        log_warn "Home Assistant not found automatically"
+        read -p "Enter Home Assistant URL (e.g., http://homeassistant.local:8123): " HA_URL
+    fi
     HA_URL="${HA_URL:-http://homeassistant.local:8123}"
+    log_success "Home Assistant URL: $HA_URL"
 
     # Home Assistant webhook URL
     DEFAULT_WEBHOOK="${HA_URL}/api/webhook/beosound5c"
     read -p "Home Assistant webhook URL [$DEFAULT_WEBHOOK]: " HA_WEBHOOK_URL
     HA_WEBHOOK_URL="${HA_WEBHOOK_URL:-$DEFAULT_WEBHOOK}"
 
-    # Home Assistant token (optional)
+    # -------------------------------------------------------------------------
+    # Home Assistant Token - with detailed instructions
+    # -------------------------------------------------------------------------
     echo ""
-    log_info "Home Assistant Long-Lived Access Token is optional but recommended"
-    log_info "Create one at: HA -> Profile -> Long-Lived Access Tokens"
-    read -p "Home Assistant token (press Enter to skip): " HA_TOKEN
+    log_info "Home Assistant Long-Lived Access Token"
+    echo ""
+    echo "A token is recommended for features like Apple TV status and camera feeds."
+    echo ""
+    echo "To create a token:"
+    echo "  1. Open Home Assistant in your browser: ${HA_URL}"
+    echo "  2. Click your profile icon (bottom-left corner)"
+    echo "  3. Scroll down to 'Long-Lived Access Tokens'"
+    echo "  4. Click 'Create Token'"
+    echo "  5. Name it 'BeoSound 5c' and click 'OK'"
+    echo "  6. Copy the token (you won't be able to see it again!)"
+    echo ""
+    echo "Direct link: ${HA_URL}/profile/security"
+    echo ""
+    read -p "Paste your Home Assistant token (or press Enter to skip): " HA_TOKEN
 
-    # Bluetooth device name (optional)
-    echo ""
-    DEFAULT_BT_NAME="BeoSound 5c"
-    if [ -n "$DEVICE_NAME" ] && [ "$DEVICE_NAME" != "BeoSound5c" ]; then
-        DEFAULT_BT_NAME="BeoSound 5c $DEVICE_NAME"
+    if [ -z "$HA_TOKEN" ]; then
+        log_warn "No token provided - some features will be unavailable"
+        log_info "You can add a token later by editing: $CONFIG_FILE"
+    else
+        log_success "Token configured"
     fi
-    read -p "Bluetooth device name [$DEFAULT_BT_NAME]: " BT_DEVICE_NAME
-    BT_DEVICE_NAME="${BT_DEVICE_NAME:-$DEFAULT_BT_NAME}"
 
-    # BeoRemote MAC (optional)
+    # -------------------------------------------------------------------------
+    # Bluetooth Remote Setup
+    # -------------------------------------------------------------------------
     echo ""
-    log_info "BeoRemote One Bluetooth MAC is optional"
-    log_info "Find with: bluetoothctl -> scan on -> look for 'BeoRemote One'"
-    read -p "BeoRemote One MAC address (press Enter to skip): " BEOREMOTE_MAC
-    BEOREMOTE_MAC="${BEOREMOTE_MAC:-00:00:00:00:00:00}"
+    log_section "Bluetooth Remote (Optional)"
+    echo ""
+    echo "The BeoRemote One works out of the box in IR mode (point at the device)."
+    echo "For Bluetooth mode (works from anywhere), you need to pair the remote."
+    echo ""
+    read -p "Do you want to set up a BeoRemote One via Bluetooth? (y/N): " SETUP_BLUETOOTH
 
-    # Spotify user ID (optional)
+    BEOREMOTE_MAC="00:00:00:00:00:00"
+    BT_DEVICE_NAME=""
+    BLUETOOTH_PAIRED=false
+
+    if [[ "$SETUP_BLUETOOTH" =~ ^[Yy]$ ]]; then
+        # -------------------------------------------------------------------------
+        # Device name shown on BeoRemote One
+        # -------------------------------------------------------------------------
+        echo ""
+        log_info "Device Name on BeoRemote One"
+        echo ""
+        echo "Choose how this BeoSound 5c will appear on the remote's display."
+        echo "Examples: BeoVision Frame, Sonos, Spotify, HomeAssistant, Great Room"
+        echo ""
+
+        DEFAULT_BT_NAME="BeoSound 5c"
+        if [ -n "$DEVICE_NAME" ] && [ "$DEVICE_NAME" != "BeoSound5c" ]; then
+            DEFAULT_BT_NAME="$DEVICE_NAME"
+        fi
+        read -p "Device name on remote [$DEFAULT_BT_NAME]: " BT_DEVICE_NAME
+        BT_DEVICE_NAME="${BT_DEVICE_NAME:-$DEFAULT_BT_NAME}"
+
+        # -------------------------------------------------------------------------
+        # Pairing Instructions
+        # -------------------------------------------------------------------------
+        while true; do
+            echo ""
+            log_section "BeoRemote One Pairing"
+            echo ""
+            echo -e "${YELLOW}Please prepare your BeoRemote One for pairing:${NC}"
+            echo ""
+            echo "  If this is a NEW remote (never paired):"
+            echo "    → It will automatically be in pairing mode when powered on"
+            echo ""
+            echo "  If the remote was previously paired:"
+            echo "    1. Press the LIST button"
+            echo "    2. Use UP/DOWN to select SETTINGS, press the center button"
+            echo "    3. Select PAIRING, press the center button"
+            echo "    4. Select PAIR, press the center button"
+            echo ""
+            echo "  The remote display should show 'Open for pairing'"
+            echo ""
+            read -p "Press Enter when the remote is ready for pairing (or 's' to skip): " PAIRING_READY
+
+            if [[ "$PAIRING_READY" =~ ^[Ss]$ ]]; then
+                log_info "Skipping Bluetooth pairing"
+                break
+            fi
+
+            # -------------------------------------------------------------------------
+            # Bluetooth Scanning and Pairing
+            # -------------------------------------------------------------------------
+            echo ""
+            log_info "Starting Bluetooth scan..."
+            echo ""
+
+            # Ensure Bluetooth is powered on
+            bluetoothctl power on &>/dev/null
+            sleep 1
+
+            # Start scanning in background and look for BEORC
+            echo -n "  Scanning for BeoRemote One "
+
+            # Start scan
+            bluetoothctl --timeout 2 scan on &>/dev/null &
+
+            SCAN_ATTEMPTS=0
+            MAX_SCAN_ATTEMPTS=15
+            FOUND_MAC=""
+
+            while [ $SCAN_ATTEMPTS -lt $MAX_SCAN_ATTEMPTS ]; do
+                echo -n "."
+                sleep 2
+
+                # Look for BEORC device
+                FOUND_MAC=$(bluetoothctl devices | grep -i "BEORC" | awk '{print $2}' | head -1)
+
+                if [ -n "$FOUND_MAC" ]; then
+                    echo ""
+                    log_success "Found BeoRemote One: $FOUND_MAC"
+                    break
+                fi
+
+                ((SCAN_ATTEMPTS++))
+            done
+
+            # Stop scanning
+            bluetoothctl scan off &>/dev/null
+
+            if [ -z "$FOUND_MAC" ]; then
+                echo ""
+                log_warn "BeoRemote One not found"
+                echo ""
+                echo "  [r] Retry scanning"
+                echo "  [s] Skip Bluetooth setup"
+                echo ""
+                read -p "Choose an option: " RETRY_OPTION
+
+                if [[ "$RETRY_OPTION" =~ ^[Ss]$ ]]; then
+                    log_info "Skipping Bluetooth pairing"
+                    break
+                fi
+                continue
+            fi
+
+            # -------------------------------------------------------------------------
+            # Pair and Trust
+            # -------------------------------------------------------------------------
+            echo ""
+            log_info "Pairing with BeoRemote One..."
+            echo -n "  Pairing "
+
+            # Attempt to pair
+            PAIR_OUTPUT=$(bluetoothctl pair "$FOUND_MAC" 2>&1) &
+            PAIR_PID=$!
+
+            for i in {1..10}; do
+                echo -n "."
+                sleep 1
+            done
+            echo ""
+
+            # Check if pairing was successful
+            if bluetoothctl info "$FOUND_MAC" 2>/dev/null | grep -q "Paired: yes"; then
+                log_success "Paired successfully!"
+
+                # Trust the device
+                echo -n "  Trusting device "
+                bluetoothctl trust "$FOUND_MAC" &>/dev/null
+                for i in {1..3}; do
+                    echo -n "."
+                    sleep 1
+                done
+                echo ""
+                log_success "Device trusted"
+
+                # Try to connect
+                echo -n "  Connecting "
+                bluetoothctl connect "$FOUND_MAC" &>/dev/null &
+                for i in {1..5}; do
+                    echo -n "."
+                    sleep 1
+                done
+                echo ""
+
+                if bluetoothctl info "$FOUND_MAC" 2>/dev/null | grep -q "Connected: yes"; then
+                    log_success "Connected!"
+                else
+                    log_info "Connection will be established when remote is used"
+                fi
+
+                BEOREMOTE_MAC="$FOUND_MAC"
+
+                # -------------------------------------------------------------------------
+                # Verify with user
+                # -------------------------------------------------------------------------
+                echo ""
+                echo -e "${GREEN}Pairing appears successful!${NC}"
+                echo ""
+                echo "Please check your BeoRemote One display."
+                echo "It should show '$BT_DEVICE_NAME' as a paired device."
+                echo ""
+                read -p "Does the remote show the pairing was successful? (Y/n): " PAIRING_CONFIRMED
+
+                if [[ ! "$PAIRING_CONFIRMED" =~ ^[Nn]$ ]]; then
+                    log_success "BeoRemote One paired successfully!"
+                    BLUETOOTH_PAIRED=true
+                    break
+                else
+                    echo ""
+                    echo "  [r] Retry pairing"
+                    echo "  [s] Skip Bluetooth setup"
+                    echo ""
+                    read -p "Choose an option: " RETRY_OPTION
+
+                    if [[ "$RETRY_OPTION" =~ ^[Ss]$ ]]; then
+                        log_info "Skipping Bluetooth pairing"
+                        BEOREMOTE_MAC="00:00:00:00:00:00"
+                        break
+                    fi
+                    # Remove failed pairing
+                    bluetoothctl remove "$FOUND_MAC" &>/dev/null
+                    continue
+                fi
+            else
+                log_warn "Pairing failed"
+                echo ""
+                echo "  [r] Retry pairing"
+                echo "  [s] Skip Bluetooth setup"
+                echo ""
+                read -p "Choose an option: " RETRY_OPTION
+
+                if [[ "$RETRY_OPTION" =~ ^[Ss]$ ]]; then
+                    log_info "Skipping Bluetooth pairing"
+                    break
+                fi
+                continue
+            fi
+        done
+    else
+        log_info "Skipping Bluetooth remote setup"
+        log_info "You can pair a remote later using: sudo $INSTALL_DIR/tools/bt/pair-remote.sh"
+        BT_DEVICE_NAME="BeoSound 5c"
+    fi
+
+    # -------------------------------------------------------------------------
+    # Spotify (optional)
+    # -------------------------------------------------------------------------
     echo ""
     read -p "Spotify user ID for playlists (press Enter to skip): " SPOTIFY_USER_ID
 
+    # -------------------------------------------------------------------------
     # Write configuration file
+    # -------------------------------------------------------------------------
+    echo ""
     log_info "Writing configuration to $CONFIG_FILE..."
     cat > "$CONFIG_FILE" << EOF
 # BeoSound 5c Configuration
@@ -416,7 +859,7 @@ HA_WEBHOOK_URL="$HA_WEBHOOK_URL"
 HA_TOKEN="$HA_TOKEN"
 
 # =============================================================================
-# Optional Hardware Configuration
+# Bluetooth Configuration
 # =============================================================================
 
 # Bluetooth device name (how this device appears to others)
@@ -424,6 +867,10 @@ BT_DEVICE_NAME="$BT_DEVICE_NAME"
 
 # BeoRemote One Bluetooth MAC address
 BEOREMOTE_MAC="$BEOREMOTE_MAC"
+
+# =============================================================================
+# Spotify Configuration
+# =============================================================================
 
 # Spotify user ID for playlist fetching
 SPOTIFY_USER_ID="$SPOTIFY_USER_ID"
@@ -548,30 +995,89 @@ else
 fi
 
 # =============================================================================
-# Summary
+# Configuration Summary
 # =============================================================================
-log_section "Installation Complete"
 
-if [ $FAILED_CHECKS -eq 0 ]; then
-    log_success "All checks passed!"
-else
-    log_warn "$FAILED_CHECKS check(s) failed - review above"
+# Load configuration to display summary
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
 fi
 
 echo ""
-echo "Configuration file: $CONFIG_FILE"
-echo "Installation directory: $INSTALL_DIR"
-echo "Plymouth theme: $PLYMOUTH_THEME_DIR"
 echo ""
-echo "Next steps:"
-echo "  1. Review configuration: sudo nano $CONFIG_FILE"
-echo "  2. Reboot to apply all changes: sudo reboot"
-echo "  3. After reboot, check services: systemctl status beo-*"
-echo ""
-echo "Useful commands:"
-echo "  View logs:          journalctl -u beo-ui -f"
-echo "  Restart services:   sudo systemctl restart beo-*"
-echo "  Service status:     $INSTALL_DIR/services/system/status-services.sh"
+echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}          ${GREEN}BeoSound 5c - Installation Complete${NC}            ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}╠══════════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${YELLOW}Configuration Summary${NC}                                    ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  Device Name:      ${GREEN}${DEVICE_NAME:-Not set}${NC}"
+echo -e "${CYAN}║${NC}  Sonos IP:         ${GREEN}${SONOS_IP:-Not set}${NC}"
+echo -e "${CYAN}║${NC}  Home Assistant:   ${GREEN}${HA_URL:-Not set}${NC}"
+if [ -n "$HA_TOKEN" ] && [ "$HA_TOKEN" != "" ]; then
+echo -e "${CYAN}║${NC}  HA Token:         ${GREEN}Configured${NC}"
+else
+echo -e "${CYAN}║${NC}  HA Token:         ${YELLOW}Not configured${NC}"
+fi
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${YELLOW}Bluetooth Remote${NC}                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+if [ "$BEOREMOTE_MAC" != "00:00:00:00:00:00" ] && [ -n "$BEOREMOTE_MAC" ]; then
+echo -e "${CYAN}║${NC}  Status:           ${GREEN}Paired${NC}"
+echo -e "${CYAN}║${NC}  Remote MAC:       ${GREEN}${BEOREMOTE_MAC}${NC}"
+echo -e "${CYAN}║${NC}  Device Name:      ${GREEN}${BT_DEVICE_NAME:-BeoSound 5c}${NC}"
+else
+echo -e "${CYAN}║${NC}  Status:           ${BLUE}Not configured (IR mode works)${NC}"
+fi
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+if [ -n "$SPOTIFY_USER_ID" ]; then
+echo -e "${CYAN}║${NC}  ${YELLOW}Spotify${NC}                                                  ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  User ID:          ${GREEN}${SPOTIFY_USER_ID}${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+fi
+echo -e "${CYAN}╠══════════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${YELLOW}File Locations${NC}                                            ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  Config:  ${GREEN}${CONFIG_FILE}${NC}"
+echo -e "${CYAN}║${NC}  Install: ${GREEN}${INSTALL_DIR}${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}╠══════════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+if [ $FAILED_CHECKS -eq 0 ]; then
+echo -e "${CYAN}║${NC}  ${GREEN}✓ All verification checks passed${NC}                         ${CYAN}║${NC}"
+else
+echo -e "${CYAN}║${NC}  ${YELLOW}⚠ ${FAILED_CHECKS} verification check(s) need attention${NC}              ${CYAN}║${NC}"
+fi
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}╠══════════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${YELLOW}Next Steps${NC}                                                ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  1. Reboot to apply all changes:                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     ${GREEN}sudo reboot${NC}                                             ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  2. After reboot, verify services are running:            ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     ${GREEN}systemctl status beo-*${NC}                                  ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  3. View live logs:                                       ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     ${GREEN}journalctl -u beo-ui -f${NC}                                 ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}╠══════════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${YELLOW}To modify settings later:${NC}                                ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     ${GREEN}sudo nano ${CONFIG_FILE}${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${YELLOW}Useful commands:${NC}                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     ${GREEN}sudo systemctl restart beo-*${NC}      Restart services     ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     ${GREEN}./services/system/status-services.sh${NC}  Check status     ${CYAN}║${NC}"
+if [ "$BEOREMOTE_MAC" = "00:00:00:00:00:00" ] || [ -z "$BEOREMOTE_MAC" ]; then
+echo -e "${CYAN}║${NC}     ${GREEN}sudo ./tools/bt/pair-remote.sh${NC}    Pair BT remote       ${CYAN}║${NC}"
+fi
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
 if [ $FAILED_CHECKS -gt 0 ]; then

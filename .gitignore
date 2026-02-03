@@ -24,5 +24,8 @@ fetch.log
 *.swp
 *.swo
 
+# Project instructions (keep locally, exclude from public repo)
+CLAUDE.md
+
 # Environment-specific
 /etc/beosound5c/

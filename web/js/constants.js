@@ -3,6 +3,11 @@
  *
  * This file consolidates all magic numbers and configuration values
  * that were previously scattered across multiple files.
+ *
+ * Arc geometry constants (radius, centerX, centerY, menuAngleMin, menuAngleMax)
+ * are derived from Beolyd5 by Lars Baunwall:
+ * https://github.com/larsbaunwall/Beolyd5
+ * Licensed under Apache License 2.0
  */
 
 const Constants = {

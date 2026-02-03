@@ -146,11 +146,6 @@ class PC2Device:
     EP_OUT = 0x01  # For sending data to device
     EP_IN = 0x81   # For receiving data from device (LIBUSB_ENDPOINT_IN | 1)
 
-    # Address mask types
-    ADDRESS_MASK_AUDIO_MASTER = 1
-    ADDRESS_MASK_BEOPORT = 2
-    ADDRESS_MASK_ALL = 3
-
     def __init__(self):
         self.dev = None
         self.running = False
@@ -201,20 +196,10 @@ class PC2Device:
         # Send the message
         self.dev.write(self.EP_OUT, telegram, 0)
 
-    def set_address_filter(self, address_mask):
-        """Set the address filter based on the mask type"""
-        if address_mask == self.ADDRESS_MASK_AUDIO_MASTER:
-            print("Setting address filter to audio master mode")
-            self.send_message([0xf6, 0x10, 0xc1, 0x80, 0x83, 0x05, 0x00, 0x00])
-        elif address_mask == self.ADDRESS_MASK_BEOPORT:
-            print("Setting address filter to Beoport PC2 mode")
-            self.send_message([0xf6, 0x00, 0x82, 0x80, 0x83])
-        elif address_mask == self.ADDRESS_MASK_ALL:
-            print("Setting address filter to capture all data")
-            # self.send_message([0xF6, 0xC0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
-            self.send_message([0xF6, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
-        else:
-            print("Error: Invalid address mask")
+    def set_address_filter(self):
+        """Set the address filter to capture all data"""
+        print("Setting address filter to capture all data")
+        self.send_message([0xF6, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
 
     def start_sniffing(self):
         """Start sniffing USB messages and sending them via webhook/websocket"""
@@ -678,9 +663,9 @@ if __name__ == "__main__":
         print("\n=== Starting device initialization ===")
         pc2.init()
 
-        # Set address filter to desired mode
+        # Set address filter
         print("\n=== Setting address filter ===")
-        pc2.set_address_filter(PC2Device.ADDRESS_MASK_ALL)
+        pc2.set_address_filter()
 
         # Keep the program running to allow for communication
         print("\n=== Device initialized. Sniffing USB messages... ===")

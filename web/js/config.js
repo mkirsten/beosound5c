@@ -27,8 +27,23 @@ const AppConfig = {
     debug: {
         enabled: false,
         logLevel: 'warn'  // 'debug', 'info', 'warn', 'error'
+    },
+
+    // Demo mode settings (for running without real hardware/services)
+    demo: {
+        enabled: false,      // Set true to force demo mode, or use ?demo=true URL param
+        autoDetect: true     // Automatically enable demo mode when services fail
     }
 };
+
+// Early demo mode detection (before other scripts load)
+(function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('demo') === 'true') {
+        AppConfig.demo.enabled = true;
+        console.log('[CONFIG] Demo mode enabled via URL parameter');
+    }
+})();
 
 // Simple debug logger that respects config settings
 const Debug = {
