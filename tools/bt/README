@@ -1,0 +1,17 @@
+# Pair before running the script
+
+bluetoothctl
+
+scan on
+default-agent
+agent on
+
+# Find the Beoremote One, with MAC address $MAC
+
+pair $MAC
+trust $MAC
+
+# Exit
+
+scan off
+exit

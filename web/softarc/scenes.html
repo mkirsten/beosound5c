@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scenes - Beosound 5c</title>
+    
+    <!-- Favicons -->
+    <link rel="icon" type="image/x-icon" href="../assets/favicons/favicon.ico">
+    <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicons/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicons/favicon-32x32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="../assets/favicons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="../assets/favicons/android-chrome-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="../assets/favicons/android-chrome-512x512.png">
+    <link rel="manifest" href="../assets/favicons/site.webmanifest">
+    <meta name="theme-color" content="#000000">
+    
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <div class="counter">
+            <span id="current-item">1</span> / <span id="total-items">8</span>
+        </div>
+        <div class="hierarchy-depth-1" id="hierarchy-background"></div>
+        <div class="arc-container" id="arc-container"></div>
+    </div>
+
+    <!-- Configuration (loaded from parent) -->
+    <script src="../js/config.js"></script>
+    <!-- Main JavaScript file that handles all functionality -->
+    <script src="script.js"></script>
+    <script>
+        // Scenes-specific configuration
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                console.log('Scenes: Starting initialization...');
+                console.log('AppConfig:', typeof AppConfig !== 'undefined' ? 'loaded' : 'MISSING');
+
+                const dataSource = (typeof AppConfig !== 'undefined' && AppConfig.scenesFile)
+                    ? AppConfig.scenesFile
+                    : '../json/scenes.json';
+                console.log('Scenes: dataSource =', dataSource);
+
+                // Test fetch
+                const testFetch = await fetch(dataSource);
+                const testData = await testFetch.json();
+                console.log('Scenes: Loaded', testData.length, 'items');
+
+                const scenesConfig = {
+                    dataSource: dataSource,
+                    dataType: 'scenes',
+                    viewMode: 'hierarchical',
+                    parentKey: 'scenes',
+                    parentNameKey: 'name',
+                    storagePrefix: 'scenes_arclist',
+                    title: 'Scenes',
+                    context: 'scenes',
+                    itemMapper: (data) => {
+                        return data.map(scene => ({
+                            id: scene.id,
+                            name: scene.name,
+                            image: scene.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjNkI3MjgwIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7wn46tPC90ZXh0Pgo8L3N2Zz4K',
+                            scenes: scene.scenes
+                        }));
+                    },
+                    childNameMapper: (scene) => ({
+                        id: scene.id,
+                        name: scene.name,
+                        image: scene.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjNkI3MjgwIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7wn46tPC90ZXh0Pgo8L3N2Zz4K'
+                    }),
+                    webhookUrl: typeof AppConfig !== 'undefined' ? AppConfig.webhookUrl : null
+                };
+
+                console.log('Scenes: Creating ArcList...');
+                new ArcList(scenesConfig);
+                console.log('Scenes: ArcList created');
+            } catch (error) {
+                console.error('Scenes initialization error:', error);
+                document.body.innerHTML = '<div style="color:red;padding:20px;">Error: ' + error.message + '</div>';
+            }
+        });
+    </script>
+</body>
+</html> 

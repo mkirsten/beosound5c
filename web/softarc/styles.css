@@ -1,0 +1,385 @@
+* Reset all default browser styles and set box-sizing */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* Main body styling - black background, white text, no scroll */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: black;
+    color: white;
+    overflow: hidden; /* Prevents scrolling - we handle navigation with keys */
+    height: 100vh;
+}
+
+/* Main app container - full screen, centered content */
+#app {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Top-left instructions text */
+.instructions {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    color: white; /* Full bright white */
+    font-size: 0.875rem;
+    z-index: 100; /* Above everything else */
+}
+
+/* Top-right counter display */
+.counter {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    color: white; /* Full bright white */
+    font-size: 0.875rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    z-index: 100; /* Above everything else */
+}
+
+/* Container for all arc list items */
+.arc-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Individual item in the arc list */
+.arc-item {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 1rem; /* Space between name and image */
+    transition: all 75ms ease-out; /* Smooth animations for all changes */
+    pointer-events: none; /* Items are not clickable */
+    width: 280px; /* Fixed width to ensure consistent image positioning */
+    justify-content: space-between; /* Push image to the right */
+}
+
+/* Text label for ALL items - base styles */
+.item-name {
+    text-align: right; /* Align text to the right side */
+    flex: 1; /* Take up available space */
+    min-width: 0; /* Allow text to shrink */
+    padding-right: 0; /* Remove padding since gap handles spacing */
+    word-wrap: break-word;
+    transition: all 75ms ease-out;
+    /* Base font size and color for ALL items */
+    font-size: 0.875rem !important;
+    color: white; /* Always full bright white */
+    font-weight: normal;
+    /* Allow multiple lines but limit height */
+    display: -webkit-box;
+    -webkit-line-clamp: 2; /* Limit to 2 lines */
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    white-space: pre-line; /* Preserve line breaks */
+    line-height: 1.2; /* Tighter line spacing for multiline text */
+}
+
+/* Selected items - both playlists and tracks */
+.item-name.selected {
+    color: white !important;
+    font-size: 1.125rem !important;
+    font-weight: bold;
+}
+
+/* Unselected items - both playlists and tracks */
+.item-name.unselected {
+    color: white !important; /* Always full bright white */
+    font-size: 0.875rem !important;
+    font-weight: normal;
+}
+
+/* Container for the item image with border effects */
+.item-image-container {
+    position: relative;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    transition: all 75ms ease-out;
+}
+
+/* Remove blue glowing border from selected items */
+/* .item-image-container.selected {
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.7);
+} */
+
+/* The actual image element */
+.item-image {
+    width: 8rem; /* 128px */
+    height: 8rem; /* 128px */
+    object-fit: cover; /* Crop image to fit square without distortion */
+    border-radius: 0.75rem;
+    display: block;
+    flex-shrink: 0; /* Prevent image from shrinking */
+    /* Ensure images are visible */
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Overlay that appears on top of selected images */
+.item-overlay {
+    position: absolute;
+    inset: 0; /* Covers entire image */
+    background: linear-gradient(to top, rgba(59, 130, 246, 0.2), transparent);
+    border-radius: 0.75rem;
+    opacity: 0; /* Hidden by default */
+    transition: opacity 75ms ease-out;
+}
+
+/* Show overlay on selected items */
+.item-overlay.selected {
+    opacity: 1;
+}
+
+/* Background decorative arc guide */
+.arc-guide {
+    position: absolute;
+    inset: 0; /* Covers entire screen */
+    pointer-events: none; /* Doesn't interfere with interactions */
+    opacity: 0.1; /* Very subtle */
+    z-index: 1; /* Behind items but above background */
+}
+
+/* Loading state for images while they're downloading */
+.item-image[data-loading="true"] {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Performance optimization - tells browser what properties will change */
+.arc-item {
+    will-change: transform, opacity, filter;
+}
+
+/* Accessibility - focus outline for keyboard navigation */
+.arc-item:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* ===== ENHANCED HIERARCHY NAVIGATION STYLES ===== */
+
+/* Breadcrumb item styling - parent item when in child view */
+.arc-item.breadcrumb {
+    /* Remove transform to let JavaScript handle positioning smoothly */
+    opacity: 1; /* Full opacity */
+    transition: all 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94); /* Smooth ease-out */
+    z-index: 10; /* Above normal items */
+    pointer-events: auto; /* Make breadcrumb clickable */
+    position: absolute; /* Ensure positioning works correctly */
+    top: 50%; /* Center vertically */
+}
+
+/* Breadcrumb item name styling - only override opacity */
+.arc-item.breadcrumb .item-name {
+    color: white !important; /* Full bright white */
+    /* Font size inherits from base .item-name rules */
+}
+
+/* Breadcrumb item image styling */
+.arc-item.breadcrumb .item-image {
+    width: 8rem; /* Keep similar size to selected item (128px) */
+    height: 8rem;
+}
+
+/* Breadcrumb item image container */
+.arc-item.breadcrumb .item-image-container {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); /* Subtle shadow */
+}
+
+/* Breadcrumb hover effect */
+.arc-item.breadcrumb:hover {
+    opacity: 1; /* Already at full opacity */
+    /* Hover positioning is now handled by JavaScript for consistency */
+}
+
+/* Force full bright text for all arc items regardless of state */
+.arc-item .item-name {
+    color: white !important;
+    opacity: 1 !important;
+}
+
+/* Force full opacity for child items (tracks) */
+.arc-item[data-child-item="true"] {
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    position: absolute !important; /* Ensure proper positioning */
+    z-index: 10 !important; /* Above hidden parents */
+}
+
+.arc-item[data-child-item="true"] .item-name {
+    color: white !important;
+    opacity: 1 !important;
+}
+
+/* Child view items styling */
+.arc-item.child-mode {
+    opacity: 0; /* Start hidden */
+    transform: translateX(100px); /* Start more to the right to avoid breadcrumb */
+    transition: all 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Child view items when fully visible */
+.arc-item.child-mode.visible {
+    opacity: 1 !important; /* Force full opacity */
+    transform: translateX(0); /* Slide to normal position */
+}
+
+/* Remove all track-specific font size overrides - they inherit from base .item-name rules */
+
+/* Child view item images - slightly smaller */
+.arc-item.child-mode .item-image {
+    width: 7rem; /* Smaller than parent items (112px vs 128px) */
+    height: 7rem;
+    flex-shrink: 0; /* Ensure tracks also don't shrink */
+}
+
+/* Background hierarchy depth indicator */
+.hierarchy-depth-1 {
+    background: linear-gradient(
+        to right,
+        rgba(0, 0, 0, 0.8) 0%,
+        rgba(0, 0, 0, 0.6) 30%,
+        rgba(0, 0, 0, 0.4) 70%,
+        rgba(0, 0, 0, 0.2) 100%
+    );
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 400ms ease-out;
+    z-index: 1;
+    pointer-events: none;
+}
+
+/* Show hierarchy background when in child view */
+.hierarchy-depth-1.active {
+    opacity: 1;
+}
+
+/* Stagger animation delays for child items */
+.arc-item.child-mode.stagger-1 { transition-delay: 50ms; }
+.arc-item.child-mode.stagger-2 { transition-delay: 100ms; }
+.arc-item.child-mode.stagger-3 { transition-delay: 150ms; }
+.arc-item.child-mode.stagger-4 { transition-delay: 200ms; }
+.arc-item.child-mode.stagger-5 { transition-delay: 250ms; }
+.arc-item.child-mode.stagger-6 { transition-delay: 300ms; }
+.arc-item.child-mode.stagger-7 { transition-delay: 350ms; }
+.arc-item.child-mode.stagger-8 { transition-delay: 400ms; }
+.arc-item.child-mode.stagger-9 { transition-delay: 450ms; }
+
+/* Parent items fade out animation when entering child view */
+.arc-item.parent-fade-out {
+    opacity: 0;
+    transform: translateX(-30px); /* Slide slightly left */
+    transition: all 200ms ease-out;
+}
+
+/* Parent items fade in animation when returning from child view */
+.arc-item.parent-fade-in {
+    opacity: 0;
+    transform: translateX(30px); /* Start slightly right */
+    transition: all 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Parent items when fully visible after fade in */
+.arc-item.parent-fade-in.visible {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* Stagger animation delays for parent items returning */
+.arc-item.parent-fade-in.stagger-1 { transition-delay: 50ms; }
+.arc-item.parent-fade-in.stagger-2 { transition-delay: 100ms; }
+.arc-item.parent-fade-in.stagger-3 { transition-delay: 150ms; }
+.arc-item.parent-fade-in.stagger-4 { transition-delay: 200ms; }
+.arc-item.parent-fade-in.stagger-5 { transition-delay: 250ms; }
+.arc-item.parent-fade-in.stagger-6 { transition-delay: 300ms; }
+.arc-item.parent-fade-in.stagger-7 { transition-delay: 350ms; }
+.arc-item.parent-fade-in.stagger-8 { transition-delay: 400ms; }
+.arc-item.parent-fade-in.stagger-9 { transition-delay: 450ms; }
+
+/* Smooth transitions for all hierarchy changes */
+.arc-item.hierarchy-transition {
+    transition: all 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Override default transition timing for hierarchy navigation */
+.arc-item.breadcrumb,
+.arc-item.child-mode,
+.arc-item.parent-fade-out,
+.arc-item.parent-fade-in {
+    transition-property: transform, opacity, filter;
+    transition-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ===== PARALLEL TRANSITION ANIMATIONS ===== */
+
+/* Container state during transitions */
+.arc-container.transitioning-to-parent {
+    pointer-events: none; /* Prevent interaction during transition */
+}
+
+/* Track items exiting (fade out and slide left) */
+.arc-item.track-exit {
+    opacity: 0 !important;
+    transform: translateX(-100px) scale(0.9) !important;
+    transition: all 300ms cubic-bezier(0.4, 0.0, 0.2, 1) !important;
+}
+
+/* Playlist items entering (fade in and slide from right) */
+.arc-item.playlist-enter {
+    opacity: 1; /* Changed from 0 to 1 - items are immediately visible */
+    transform: translateX(200px); /* Start further right for more dramatic slide */
+    transition: all 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Playlist items fully visible */
+.arc-item.playlist-enter.visible {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* Breadcrumb sliding to its position among playlists */
+.arc-item.breadcrumb-slide-right {
+    transition: all 300ms cubic-bezier(0.4, 0.0, 0.2, 1) !important;
+    z-index: 5; /* Above tracks but below other UI elements */
+}
+
+/* Stagger delays removed - all items appear immediately */
+.arc-item.playlist-enter.delay-1 { transition-delay: 0ms; }
+.arc-item.playlist-enter.delay-2 { transition-delay: 0ms; }
+.arc-item.playlist-enter.delay-3 { transition-delay: 0ms; }
+.arc-item.playlist-enter.delay-4 { transition-delay: 0ms; }
+.arc-item.playlist-enter.delay-5 { transition-delay: 0ms; }
+.arc-item.playlist-enter.delay-6 { transition-delay: 0ms; }
+.arc-item.playlist-enter.delay-7 { transition-delay: 0ms; }
+.arc-item.playlist-enter.delay-8 { transition-delay: 0ms; }
+.arc-item.playlist-enter.delay-9 { transition-delay: 0ms; }
+
+/* Ensure smooth GPU-accelerated animations */
+.arc-item.track-exit,
+.arc-item.playlist-enter,
+.arc-item.breadcrumb-slide-right {
+    will-change: transform, opacity;
+    backface-visibility: hidden;
+    perspective: 1000px;
+}
+
+/* Hidden parent items - keep in DOM but invisible */
+.arc-item.parent-hidden {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    z-index: -1 !important; /* Behind everything else */
+    position: absolute !important; /* Keep them out of flow */
+}

@@ -1,0 +1,15 @@
+# Core Sonos integration
+soco>=0.30.0
+pillow>=10.0.0
+requests>=2.31.0
+
+# WebSocket communication
+websockets>=12.0
+websocket-client>=1.6.0
+
+# Async HTTP (for masterlink.py)
+aiohttp>=3.9.0
+
+# USB HID communication
+pyusb>=1.2.1
+hidapi>=0.14.0

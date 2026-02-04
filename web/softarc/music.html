@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music - Beosound 5c</title>
+    
+    <!-- Favicons -->
+    <link rel="icon" type="image/x-icon" href="../assets/favicons/favicon.ico">
+    <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicons/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicons/favicon-32x32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="../assets/favicons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="../assets/favicons/android-chrome-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="../assets/favicons/android-chrome-512x512.png">
+    <link rel="manifest" href="../assets/favicons/site.webmanifest">
+    <meta name="theme-color" content="#000000">
+    
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <div class="counter">
+            <span id="current-item">1</span> / <span id="total-items">100</span>
+        </div>
+        <div class="hierarchy-depth-1" id="hierarchy-background"></div>
+        <div class="arc-container" id="arc-container"></div>
+    </div>
+
+    <!-- Configuration (loaded from parent) -->
+    <script src="../js/config.js"></script>
+    <!-- Main JavaScript file that handles all functionality -->
+    <script src="script.js"></script>
+    <script>
+        // Music-specific configuration
+        document.addEventListener('DOMContentLoaded', () => {
+            const musicConfig = {
+                dataSource: '../json/playlists_with_tracks.json',
+                dataType: 'parent_child',
+                viewMode: 'hierarchical',
+                parentKey: 'tracks',
+                parentNameKey: 'name',
+                storagePrefix: 'music_arclist',
+                title: 'Music',
+                context: 'music',
+                webhookUrl: AppConfig.webhookUrl,
+                childNameMapper: (track, index, allTracks) => {
+                    // Check if all tracks in the playlist have the same artist
+                    const allSameArtist = allTracks && allTracks.every(t => t.artist === allTracks[0].artist);
+                    
+                    let displayName;
+                    if (allSameArtist) {
+                        // If all tracks are by the same artist, just show the track name
+                        displayName = track.name;
+                    } else {
+                        // Otherwise show title on first line, artist on second line in brackets
+                        displayName = `${track.name}\n(${track.artist})`;
+                    }
+                    
+                    return {
+                        id: track.id,
+                        name: displayName,
+                        image: track.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
+                    };
+                }
+            };
+            
+            const arcList = new ArcList(musicConfig);
+            // Store globally for testing
+            window.arcListInstance = arcList;
+        });
+    </script>
+</body>
+</html> 

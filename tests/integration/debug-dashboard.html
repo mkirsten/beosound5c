@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeoSound 5c Debug Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto auto;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .dashboard-panel {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .panel-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-bottom: 1px solid #dee2e6;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .panel-content {
+            padding: 20px;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        
+        .status-connected { background: #4CAF50; }
+        .status-disconnected { background: #f44336; }
+        .status-warning { background: #ff9800; }
+        
+        .service-list {
+            display: grid;
+            gap: 10px;
+        }
+        
+        .service-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        .service-name {
+            font-weight: bold;
+        }
+        
+        .service-status {
+            display: flex;
+            align-items: center;
+        }
+        
+        .log-container {
+            height: 300px;
+            overflow-y: auto;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+        
+        .log-entry {
+            margin-bottom: 2px;
+            word-wrap: break-word;
+        }
+        
+        .log-timestamp {
+            color: #808080;
+        }
+        
+        .log-level-info { color: #569cd6; }
+        .log-level-warn { color: #dcdcaa; }
+        .log-level-error { color: #f44747; }
+        .log-level-success { color: #4ec9b0; }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+        }
+        
+        .metric-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+            border: 1px solid #dee2e6;
+        }
+        
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        
+        .metric-label {
+            color: #666;
+            margin-top: 5px;
+            font-size: 11px;
+        }
+        
+        .metric-change {
+            font-size: 10px;
+            margin-top: 2px;
+        }
+        
+        .metric-up { color: #4CAF50; }
+        .metric-down { color: #f44336; }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background-color 0.2s;
+        }
+        
+        .btn-primary { background: #2196F3; color: white; }
+        .btn-primary:hover { background: #1976D2; }
+        
+        .btn-success { background: #4CAF50; color: white; }
+        .btn-success:hover { background: #45a049; }
+        
+        .btn-warning { background: #ff9800; color: white; }
+        .btn-warning:hover { background: #f57c00; }
+        
+        .btn-danger { background: #f44336; color: white; }
+        .btn-danger:hover { background: #d32f2f; }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 20px;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .toggle-slider {
+            background-color: #2196F3;
+        }
+        
+        input:checked + .toggle-slider:before {
+            transform: translateX(20px);
+        }
+        
+        .webhook-visualizer {
+            height: 200px;
+            position: relative;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .webhook-flow {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px;
+        }
+        
+        .flow-node {
+            background: #2196F3;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 4px;
+            font-size: 12px;
+            position: relative;
+        }
+        
+        .flow-arrow {
+            width: 50px;
+            height: 2px;
+            background: #ddd;
+            position: relative;
+        }
+        
+        .flow-arrow.active {
+            background: #4CAF50;
+            animation: pulse 1s infinite;
+        }
+        
+        .flow-arrow::after {
+            content: '';
+            position: absolute;
+            right: -5px;
+            top: -3px;
+            width: 0;
+            height: 0;
+            border-left: 8px solid #ddd;
+            border-top: 4px solid transparent;
+            border-bottom: 4px solid transparent;
+        }
+        
+        .flow-arrow.active::after {
+            border-left-color: #4CAF50;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .event-timeline {
+            height: 150px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(to right, #f8f9fa 0%, #f8f9fa 50%, #ffffff 50%, #ffffff 100%);
+            background-size: 20px 20px;
+        }
+        
+        .timeline-event {
+            position: absolute;
+            width: 4px;
+            height: 20px;
+            border-radius: 2px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        
+        .event-laser { background: #2196F3; }
+        .event-button { background: #4CAF50; }
+        .event-nav { background: #ff9800; }
+        .event-volume { background: #9c27b0; }
+        
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        /* Sonos Player Styles */
+        .sonos-player {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+        }
+
+        .sonos-artwork-container {
+            position: relative;
+            width: 120px;
+            height: 120px;
+            flex-shrink: 0;
+            background: #1e1e1e;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .sonos-artwork {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+        }
+
+        .sonos-artwork.loaded {
+            display: block;
+        }
+
+        .sonos-no-artwork {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 11px;
+        }
+
+        .sonos-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .sonos-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sonos-artist {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sonos-album {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sonos-progress {
+            font-size: 12px;
+            color: #666;
+            font-family: monospace;
+            margin-bottom: 8px;
+        }
+
+        .sonos-controls {
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+        }
+
+        .sonos-state {
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .sonos-state.playing {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .sonos-state.paused {
+            background: #ff9800;
+            color: white;
+        }
+
+        .sonos-state.stopped {
+            background: #666;
+            color: white;
+        }
+
+        .sonos-volume {
+            color: #666;
+        }
+
+        .event-media { background: #e91e63; }
+
+        /* Info Grid Styles */
+        .info-grid {
+            font-size: 13px;
+        }
+
+        .info-section h4 {
+            font-size: 14px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid #f5f5f5;
+        }
+
+        .info-label {
+            color: #666;
+        }
+
+        .info-value {
+            font-family: monospace;
+            color: #333;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 BeoSound 5c Debug Dashboard</h1>
+            <p>Real-time monitoring and debugging of all BeoSound 5c services, events, and integrations.</p>
+        </div>
+        
+        <div class="dashboard-grid">
+            <!-- Spotify & System Info Panel -->
+            <div class="dashboard-panel">
+                <div class="panel-header">
+                    Spotify & System Info
+                </div>
+                <div class="panel-content">
+                    <div class="info-grid">
+                        <div class="info-section">
+                            <h4 style="margin: 0 0 10px 0; color: #1DB954;">Spotify</h4>
+                            <div class="info-item">
+                                <span class="info-label">User:</span>
+                                <span class="info-value" id="spotify-user">—</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Playlists:</span>
+                                <span class="info-value" id="spotify-playlists">—</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Digit Playlists:</span>
+                                <span class="info-value" id="spotify-digit-playlists">—</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Last Fetch:</span>
+                                <span class="info-value" id="spotify-last-fetch">—</span>
+                            </div>
+                        </div>
+                        <div class="info-section" style="margin-top: 15px;">
+                            <h4 style="margin: 0 0 10px 0; color: #2196F3;">Network</h4>
+                            <div class="info-item">
+                                <span class="info-label">Device IP:</span>
+                                <span class="info-value" id="device-ip">—</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">HA Host:</span>
+                                <span class="info-value" id="ha-host">homeassistant.local</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Webhook:</span>
+                                <span class="info-value" id="webhook-url">/api/webhook/beosound5c</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="controls" style="margin-top: 15px;">
+                        <button class="btn btn-success" onclick="refreshSpotifyPlaylists()">Refresh Playlists</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sonos Now Playing Panel -->
+            <div class="dashboard-panel">
+                <div class="panel-header">
+                    Sonos Now Playing
+                    <span class="service-status">
+                        <span class="status-indicator status-disconnected" id="sonos-status"></span>
+                        <span id="sonos-speaker">—</span>
+                    </span>
+                </div>
+                <div class="panel-content">
+                    <div class="sonos-player">
+                        <div class="sonos-artwork-container">
+                            <img id="sonos-artwork" src="" alt="Album Art" class="sonos-artwork">
+                            <div class="sonos-no-artwork" id="sonos-no-artwork">No Artwork</div>
+                        </div>
+                        <div class="sonos-info">
+                            <div class="sonos-title" id="sonos-title">—</div>
+                            <div class="sonos-artist" id="sonos-artist">—</div>
+                            <div class="sonos-album" id="sonos-album">—</div>
+                            <div class="sonos-progress">
+                                <span id="sonos-position">0:00</span> / <span id="sonos-duration">0:00</span>
+                            </div>
+                            <div class="sonos-controls">
+                                <span class="sonos-state" id="sonos-state">STOPPED</span>
+                                <span class="sonos-volume">Vol: <span id="sonos-volume">0</span>%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Service Status Panel -->
+            <div class="dashboard-panel">
+                <div class="panel-header">
+                    System Services
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="auto-refresh-services" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="panel-content">
+                    <div class="service-list" id="service-list">
+                        <div class="service-item">
+                            <span class="service-name">beo-http</span>
+                            <span class="service-status">
+                                <span class="status-indicator status-connected"></span>
+                                Port 8000
+                            </span>
+                        </div>
+                        <div class="service-item">
+                            <span class="service-name">beo-input</span>
+                            <span class="service-status">
+                                <span class="status-indicator status-connected"></span>
+                                Port 8765
+                            </span>
+                        </div>
+                        <div class="service-item">
+                            <span class="service-name">beo-media</span>
+                            <span class="service-status">
+                                <span class="status-indicator status-connected"></span>
+                                Port 8766
+                            </span>
+                        </div>
+                        <div class="service-item">
+                            <span class="service-name">beo-masterlink</span>
+                            <span class="service-status">
+                                <span class="status-indicator status-warning"></span>
+                                Checking...
+                            </span>
+                        </div>
+                        <div class="service-item">
+                            <span class="service-name">beo-bluetooth</span>
+                            <span class="service-status">
+                                <span class="status-indicator status-disconnected"></span>
+                                Inactive
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Webhook Flow Visualizer -->
+            <div class="dashboard-panel">
+                <div class="panel-header">Webhook Flow</div>
+                <div class="panel-content">
+                    <div class="webhook-visualizer">
+                        <div class="webhook-flow">
+                            <div class="flow-node" id="masterlink-node">MasterLink</div>
+                            <div class="flow-arrow" id="flow-arrow-1"></div>
+                            <div class="flow-node" id="webhook-node">Webhook</div>
+                            <div class="flow-arrow" id="flow-arrow-2"></div>
+                            <div class="flow-node" id="ha-node">Home Assistant</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <div class="controls">
+                            <button class="btn btn-primary" onclick="testWebhook()">Test Webhook</button>
+                            <button class="btn btn-warning" onclick="simulateFailure()">Simulate Failure</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Real-time Metrics -->
+            <div class="dashboard-panel">
+                <div class="panel-header">Performance Metrics</div>
+                <div class="panel-content">
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-value" id="event-rate">0</div>
+                            <div class="metric-label">Events/sec</div>
+                            <div class="metric-change" id="event-rate-change"></div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="websocket-latency">0ms</div>
+                            <div class="metric-label">WS Latency</div>
+                            <div class="metric-change" id="latency-change"></div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="webhook-success">100%</div>
+                            <div class="metric-label">Webhook Success</div>
+                            <div class="metric-change" id="webhook-change"></div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="active-connections">0</div>
+                            <div class="metric-label">Connections</div>
+                            <div class="metric-change" id="connections-change"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Event Timeline -->
+            <div class="dashboard-panel full-width">
+                <div class="panel-header">Event Timeline</div>
+                <div class="panel-content">
+                    <div class="event-timeline" id="event-timeline"></div>
+                    <div style="margin-top: 10px; font-size: 11px; color: #666;">
+                        <span style="color: #2196F3;">● Laser</span>
+                        <span style="color: #4CAF50; margin-left: 15px;">● Button</span>
+                        <span style="color: #ff9800; margin-left: 15px;">● Navigation</span>
+                        <span style="color: #9c27b0; margin-left: 15px;">● Volume</span>
+                        <span style="color: #e91e63; margin-left: 15px;">● Media</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- System Log -->
+            <div class="dashboard-panel full-width">
+                <div class="panel-header">
+                    System Log
+                    <div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="auto-scroll-log" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <button class="btn btn-danger" style="margin-left: 10px;" onclick="clearLog()">Clear</button>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <div class="log-container" id="log-container">
+                        <div class="log-entry">
+                            <span class="log-timestamp">[--:--:--]</span>
+                            <span class="log-level-info">[INFO]</span>
+                            Debug dashboard initialized
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let websockets = {
+            input: null,
+            media: null
+        };
+        
+        let metrics = {
+            eventRate: 0,
+            websocketLatency: 0,
+            webhookSuccess: 100,
+            activeConnections: 0
+        };
+        
+        let eventCounts = {
+            total: 0,
+            perSecond: 0,
+            lastSecond: Date.now()
+        };
+        
+        let timelineEvents = [];
+        let maxTimelineEvents = 50;
+        
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeWebSockets();
+            startMetricsUpdater();
+            setupEventListeners();
+            loadSpotifyInfo();
+            loadNetworkInfo();
+            logMessage('Debug dashboard started', 'info');
+        });
+
+        function loadSpotifyInfo() {
+            // Load playlists info
+            fetch('/json/playlists_with_tracks.json')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('spotify-playlists').textContent = data.length;
+                    logMessage(`Loaded ${data.length} Spotify playlists`, 'info');
+                })
+                .catch(err => {
+                    document.getElementById('spotify-playlists').textContent = 'Error';
+                    logMessage('Failed to load playlists: ' + err.message, 'error');
+                });
+
+            // Load digit playlists info
+            fetch('/json/digit_playlists.json')
+                .then(response => response.json())
+                .then(data => {
+                    const count = Object.keys(data).length;
+                    document.getElementById('spotify-digit-playlists').textContent = count + ' mapped';
+                })
+                .catch(err => {
+                    document.getElementById('spotify-digit-playlists').textContent = 'Error';
+                });
+
+            // Check last fetch time from log (approximate based on file modification)
+            fetch('/json/playlists_with_tracks.json', { method: 'HEAD' })
+                .then(response => {
+                    const lastModified = response.headers.get('Last-Modified');
+                    if (lastModified) {
+                        const date = new Date(lastModified);
+                        document.getElementById('spotify-last-fetch').textContent = date.toLocaleString();
+                    } else {
+                        document.getElementById('spotify-last-fetch').textContent = 'Unknown';
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('spotify-last-fetch').textContent = 'Unknown';
+                });
+        }
+
+        function loadNetworkInfo() {
+            // Get device IP from current location
+            const currentHost = window.location.hostname;
+            document.getElementById('device-ip').textContent = currentHost || 'localhost';
+        }
+
+        function refreshSpotifyPlaylists() {
+            logMessage('Refreshing Spotify playlists...', 'info');
+            document.getElementById('spotify-playlists').textContent = 'Refreshing...';
+
+            // This would need a backend endpoint to trigger the fetch script
+            // For now, just reload the data after a delay
+            setTimeout(() => {
+                loadSpotifyInfo();
+                logMessage('Playlist data reloaded', 'success');
+            }, 1000);
+        }
+        
+        function initializeWebSockets() {
+            // Connect to input WebSocket
+            connectWebSocket('input', 'ws://localhost:8765/ws', handleInputEvent);
+            
+            // Connect to media WebSocket  
+            connectWebSocket('media', 'ws://localhost:8766', handleMediaEvent);
+            
+            // Check service status
+            checkServiceStatus();
+        }
+        
+        function connectWebSocket(name, url, messageHandler) {
+            try {
+                const ws = new WebSocket(url);
+                
+                ws.onopen = function() {
+                    logMessage(`Connected to ${name} WebSocket (${url})`, 'success');
+                    updateServiceStatus(name, 'connected');
+                    metrics.activeConnections++;
+                };
+                
+                ws.onmessage = function(event) {
+                    const startTime = Date.now();
+                    messageHandler(event);
+                    const latency = Date.now() - startTime;
+                    updateLatencyMetric(latency);
+                };
+                
+                ws.onerror = function() {
+                    logMessage(`${name} WebSocket connection failed`, 'error');
+                    updateServiceStatus(name, 'disconnected');
+                };
+                
+                ws.onclose = function() {
+                    logMessage(`${name} WebSocket disconnected`, 'warn');
+                    updateServiceStatus(name, 'disconnected');
+                    metrics.activeConnections = Math.max(0, metrics.activeConnections - 1);
+                    
+                    // Attempt reconnection
+                    setTimeout(() => {
+                        logMessage(`Attempting to reconnect ${name} WebSocket...`, 'info');
+                        connectWebSocket(name, url, messageHandler);
+                    }, 5000);
+                };
+                
+                websockets[name] = ws;
+                
+            } catch (error) {
+                logMessage(`Failed to connect to ${name} WebSocket: ${error.message}`, 'error');
+                updateServiceStatus(name, 'disconnected');
+            }
+        }
+        
+        function handleInputEvent(event) {
+            try {
+                const data = JSON.parse(event.data);
+                logMessage(`INPUT: ${data.type} - ${JSON.stringify(data.data)}`, 'info');
+                
+                // Add to timeline
+                addTimelineEvent(data.type, 'input');
+                
+                // Update event rate
+                updateEventRate();
+                
+            } catch (error) {
+                logMessage(`Failed to parse input event: ${error.message}`, 'error');
+            }
+        }
+        
+        function handleMediaEvent(event) {
+            try {
+                const msg = JSON.parse(event.data);
+                const data = msg.data || msg;
+
+                logMessage(`MEDIA: ${msg.type || 'update'} - ${data.title || 'No title'} by ${data.artist || 'Unknown'}`, 'info');
+
+                // Update Sonos panel
+                updateSonosPanel(data);
+
+                // Add to timeline
+                addTimelineEvent('media', 'media');
+
+                // Update event rate
+                updateEventRate();
+
+            } catch (error) {
+                logMessage(`Failed to parse media event: ${error.message}`, 'error');
+            }
+        }
+
+        function updateSonosPanel(data) {
+            // Update text fields
+            document.getElementById('sonos-title').textContent = data.title || '—';
+            document.getElementById('sonos-artist').textContent = data.artist || '—';
+            document.getElementById('sonos-album').textContent = data.album || '—';
+            document.getElementById('sonos-position').textContent = data.position || '0:00';
+            document.getElementById('sonos-duration').textContent = data.duration || '0:00';
+            document.getElementById('sonos-volume').textContent = data.volume || '0';
+            document.getElementById('sonos-speaker').textContent = data.speaker_name || '—';
+
+            // Update state indicator
+            const stateEl = document.getElementById('sonos-state');
+            const state = (data.state || 'stopped').toLowerCase();
+            stateEl.textContent = state.toUpperCase();
+            stateEl.className = 'sonos-state ' + state;
+
+            // Update connection status
+            const statusEl = document.getElementById('sonos-status');
+            statusEl.className = 'status-indicator status-connected';
+
+            // Update artwork
+            const artworkEl = document.getElementById('sonos-artwork');
+            const noArtworkEl = document.getElementById('sonos-no-artwork');
+
+            if (data.artwork) {
+                artworkEl.src = data.artwork;
+                artworkEl.classList.add('loaded');
+                noArtworkEl.style.display = 'none';
+            } else {
+                artworkEl.classList.remove('loaded');
+                noArtworkEl.style.display = 'flex';
+            }
+        }
+        
+        function addTimelineEvent(type, source) {
+            const now = Date.now();
+            const event = {
+                type: type,
+                source: source,
+                timestamp: now,
+                position: (now % 60000) / 60000 * 100 // Position based on current minute
+            };
+            
+            timelineEvents.push(event);
+            
+            // Keep only recent events
+            if (timelineEvents.length > maxTimelineEvents) {
+                timelineEvents.shift();
+            }
+            
+            updateTimelineDisplay();
+        }
+        
+        function updateTimelineDisplay() {
+            const timeline = document.getElementById('event-timeline');
+            
+            // Clear existing events
+            const existingEvents = timeline.querySelectorAll('.timeline-event');
+            existingEvents.forEach(event => event.remove());
+            
+            // Add new events
+            timelineEvents.forEach(event => {
+                const element = document.createElement('div');
+                element.className = `timeline-event event-${event.type}`;
+                element.style.left = event.position + '%';
+                element.title = `${event.type} (${event.source}) at ${new Date(event.timestamp).toLocaleTimeString()}`;
+                timeline.appendChild(element);
+            });
+        }
+        
+        function updateEventRate() {
+            eventCounts.total++;
+            const now = Date.now();
+            
+            if (now - eventCounts.lastSecond >= 1000) {
+                metrics.eventRate = eventCounts.perSecond;
+                eventCounts.perSecond = 0;
+                eventCounts.lastSecond = now;
+            } else {
+                eventCounts.perSecond++;
+            }
+        }
+        
+        function updateLatencyMetric(latency) {
+            // Simple moving average
+            metrics.websocketLatency = Math.round((metrics.websocketLatency * 0.8) + (latency * 0.2));
+        }
+        
+        function updateServiceStatus(serviceName, status) {
+            const serviceList = document.getElementById('service-list');
+            const serviceItems = serviceList.querySelectorAll('.service-item');
+            
+            serviceItems.forEach(item => {
+                const nameElement = item.querySelector('.service-name');
+                if (nameElement.textContent.includes(serviceName)) {
+                    const indicator = item.querySelector('.status-indicator');
+                    indicator.className = `status-indicator status-${status}`;
+                }
+            });
+        }
+        
+        function checkServiceStatus() {
+            // This would normally check actual service status
+            // For demo purposes, we'll simulate status checks
+            const services = ['beo-http', 'beo-input', 'beo-media', 'beo-masterlink', 'beo-bluetooth'];
+            
+            services.forEach(service => {
+                // Simulate status check
+                setTimeout(() => {
+                    const status = Math.random() > 0.3 ? 'connected' : 'disconnected';
+                    updateServiceStatus(service, status);
+                }, Math.random() * 2000);
+            });
+        }
+        
+        function startMetricsUpdater() {
+            setInterval(() => {
+                // Update metric displays
+                document.getElementById('event-rate').textContent = metrics.eventRate;
+                document.getElementById('websocket-latency').textContent = metrics.websocketLatency + 'ms';
+                document.getElementById('webhook-success').textContent = metrics.webhookSuccess + '%';
+                document.getElementById('active-connections').textContent = metrics.activeConnections;
+                
+                // Update service status if auto-refresh is enabled
+                if (document.getElementById('auto-refresh-services').checked) {
+                    // Simulate periodic service checks
+                    if (Math.random() > 0.95) {
+                        checkServiceStatus();
+                    }
+                }
+                
+            }, 1000);
+        }
+        
+        function setupEventListeners() {
+            // Auto-scroll log toggle
+            const autoScrollToggle = document.getElementById('auto-scroll-log');
+            autoScrollToggle.addEventListener('change', function() {
+                if (this.checked) {
+                    scrollLogToBottom();
+                }
+            });
+        }
+        
+        function logMessage(message, level = 'info') {
+            const logContainer = document.getElementById('log-container');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.innerHTML = `
+                <span class="log-timestamp">[${timestamp}]</span>
+                <span class="log-level-${level}">[${level.toUpperCase()}]</span>
+                ${message}
+            `;
+            
+            logContainer.appendChild(logEntry);
+            
+            // Auto-scroll if enabled
+            if (document.getElementById('auto-scroll-log').checked) {
+                scrollLogToBottom();
+            }
+            
+            // Limit log entries
+            const maxLogEntries = 1000;
+            const logEntries = logContainer.querySelectorAll('.log-entry');
+            if (logEntries.length > maxLogEntries) {
+                logEntries[0].remove();
+            }
+        }
+        
+        function scrollLogToBottom() {
+            const logContainer = document.getElementById('log-container');
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        function clearLog() {
+            const logContainer = document.getElementById('log-container');
+            logContainer.innerHTML = '';
+            logMessage('Log cleared', 'info');
+        }
+        
+        function testWebhook() {
+            logMessage('Testing webhook connection...', 'info');
+            
+            // Simulate webhook test
+            const flowArrows = document.querySelectorAll('.flow-arrow');
+            let index = 0;
+            
+            const animateFlow = () => {
+                if (index < flowArrows.length) {
+                    flowArrows[index].classList.add('active');
+                    setTimeout(() => {
+                        flowArrows[index].classList.remove('active');
+                        index++;
+                        animateFlow();
+                    }, 500);
+                } else {
+                    logMessage('Webhook test completed successfully', 'success');
+                    metrics.webhookSuccess = Math.min(100, metrics.webhookSuccess + 1);
+                }
+            };
+            
+            animateFlow();
+        }
+        
+        function simulateFailure() {
+            logMessage('Simulating webhook failure...', 'warn');
+            
+            setTimeout(() => {
+                logMessage('Webhook failed: Connection timeout', 'error');
+                metrics.webhookSuccess = Math.max(0, metrics.webhookSuccess - 5);
+            }, 1000);
+        }
+        
+        // Simulate some events for demonstration
+        function simulateEvents() {
+            const eventTypes = ['laser', 'button', 'nav', 'volume'];
+            
+            setInterval(() => {
+                if (Math.random() > 0.7) {
+                    const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
+                    addTimelineEvent(eventType, 'simulation');
+                    updateEventRate();
+                }
+            }, 1000);
+        }
+        
+        // Start event simulation for demo
+        setTimeout(simulateEvents, 2000);
+    </script>
+</body>
+</html>

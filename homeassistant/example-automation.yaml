@@ -1,0 +1,292 @@
+# BeoSound 5c - Home Assistant Integration Example
+# ================================================
+#
+# This file shows how to integrate BeoSound 5c with Home Assistant.
+# Copy and adapt these examples to your own automations.yaml and configuration.yaml.
+#
+# IMPORTANT: Replace placeholder values:
+#   - <YOUR_MEDIA_PLAYER> with your Sonos/media player entity_id
+#   - <YOUR_TV_ENTITY> with your TV entity_id
+#   - <YOUR_BS5C_IP> with your BeoSound 5c IP or hostname
+#
+# =============================================================================
+# WEBHOOK PAYLOAD FORMAT
+# =============================================================================
+#
+# All button events are sent as JSON to the beosound5c webhook:
+#
+# {
+#   "device_name": "Living Room",     # Configured in /etc/beosound5c/config.env
+#   "source": "bluetooth|ir",         # Which remote triggered this event
+#   "device_type": "Video|Audio|Light",  # Current mode of the remote
+#   "action": "up|down|go|...",       # Button pressed (see list below)
+#   "playlist_uri": "spotify:..."     # Only for digit buttons with playlist mapping
+# }
+#
+# Available actions:
+#   Navigation: up, down, left, right, go, stop, off
+#   Volume: volup, voldown, mute
+#   Colors: red, green, yellow, blue
+#   Other: info, tv, play_playlist
+#   Digits: 0-9 (when no playlist mapped)
+#
+# =============================================================================
+# WEBHOOK AUTOMATION - Main entry point for BeoSound 5c events
+# =============================================================================
+#
+# This automation receives all button presses from BeoSound 5c and routes them
+# to the appropriate handler based on device_type (Video, Audio, Light, etc.)
+
+- alias: "BeoSound5C Webhook Control"
+  id: beosound5c_webhook_control
+  description: "Central handler for all BeoSound 5c button events"
+  trigger:
+    - platform: webhook
+      webhook_id: beosound5c
+      local_only: true
+  action:
+    - choose:
+        # Video mode - TV controls
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.json.device_type == 'Video' }}"
+          sequence:
+            - service: script.beosound_video
+              data:
+                action: "{{ trigger.json.action }}"
+                device_name: "{{ trigger.json.device_name }}"
+                source: "{{ trigger.json.source | default('unknown') }}"
+
+        # Audio mode - Music controls
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.json.device_type == 'Audio' }}"
+          sequence:
+            - service: script.beosound_audio
+              data:
+                action: "{{ trigger.json.action }}"
+                device_name: "{{ trigger.json.device_name }}"
+                source: "{{ trigger.json.source | default('unknown') }}"
+                playlist_uri: "{{ trigger.json.playlist_uri | default('') }}"
+
+        # Light mode - Lighting controls
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.json.device_type == 'Light' }}"
+          sequence:
+            - service: script.beosound_light
+              data:
+                action: "{{ trigger.json.action }}"
+                source: "{{ trigger.json.source | default('unknown') }}"
+
+# =============================================================================
+# SCRIPTS - Action handlers
+# =============================================================================
+
+# Add these to your scripts.yaml or configuration.yaml under script:
+
+# script:
+#   beosound_video:
+#     alias: "BeoSound Video Handler"
+#     mode: queued
+#     fields:
+#       action:
+#         description: "Button action (up, down, left, right, go, tv, etc.)"
+#       device_name:
+#         description: "Source device name"
+#     sequence:
+#       - choose:
+#           - conditions: "{{ action == 'tv' }}"
+#             sequence:
+#               - service: media_player.turn_on
+#                 target:
+#                   entity_id: <YOUR_TV_ENTITY>
+#           - conditions: "{{ action == 'up' }}"
+#             sequence:
+#               - service: remote.send_command
+#                 target:
+#                   entity_id: <YOUR_TV_REMOTE>
+#                 data:
+#                   command: up
+#           # Add more button handlers as needed...
+#
+#   beosound_audio:
+#     alias: "BeoSound Audio Handler"
+#     mode: queued
+#     fields:
+#       action:
+#         description: "Button action"
+#       playlist_uri:
+#         description: "Spotify playlist URI (for digit buttons)"
+#     sequence:
+#       - choose:
+#           - conditions: "{{ action == 'play_playlist' and playlist_uri != '' }}"
+#             sequence:
+#               - service: media_player.play_media
+#                 target:
+#                   entity_id: <YOUR_MEDIA_PLAYER>
+#                 data:
+#                   media_content_type: playlist
+#                   media_content_id: "{{ playlist_uri }}"
+#           - conditions: "{{ action == 'go' }}"
+#             sequence:
+#               - service: media_player.media_play_pause
+#                 target:
+#                   entity_id: <YOUR_MEDIA_PLAYER>
+#           - conditions: "{{ action == 'up' }}"
+#             sequence:
+#               - service: media_player.media_next_track
+#                 target:
+#                   entity_id: <YOUR_MEDIA_PLAYER>
+#           - conditions: "{{ action == 'down' }}"
+#             sequence:
+#               - service: media_player.media_previous_track
+#                 target:
+#                   entity_id: <YOUR_MEDIA_PLAYER>
+#           - conditions: "{{ action == 'volup' }}"
+#             sequence:
+#               - service: media_player.volume_up
+#                 target:
+#                   entity_id: <YOUR_MEDIA_PLAYER>
+#           - conditions: "{{ action == 'voldown' }}"
+#             sequence:
+#               - service: media_player.volume_down
+#                 target:
+#                   entity_id: <YOUR_MEDIA_PLAYER>
+#           # Color buttons - example: toggle scene or light
+#           - conditions: "{{ action == 'red' }}"
+#             sequence:
+#               - service: scene.turn_on
+#                 target:
+#                   entity_id: scene.movie_mode
+#           - conditions: "{{ action == 'green' }}"
+#             sequence:
+#               - service: light.toggle
+#                 target:
+#                   entity_id: light.living_room
+#           - conditions: "{{ action == 'yellow' }}"
+#             sequence:
+#               - service: scene.turn_on
+#                 target:
+#                   entity_id: scene.relax
+#           - conditions: "{{ action == 'blue' }}"
+#             sequence:
+#               - service: scene.turn_on
+#                 target:
+#                   entity_id: scene.bright
+#
+#   beosound_light:
+#     alias: "BeoSound Light Handler"
+#     mode: queued
+#     fields:
+#       action:
+#         description: "Button action"
+#     sequence:
+#       - choose:
+#           - conditions: "{{ action == 'up' }}"
+#             sequence:
+#               - service: light.turn_on
+#                 target:
+#                   entity_id: light.living_room
+#                 data:
+#                   brightness_step_pct: 10
+#           - conditions: "{{ action == 'down' }}"
+#             sequence:
+#               - service: light.turn_on
+#                 target:
+#                   entity_id: light.living_room
+#                 data:
+#                   brightness_step_pct: -10
+#           - conditions: "{{ action == 'go' }}"
+#             sequence:
+#               - service: light.toggle
+#                 target:
+#                   entity_id: light.living_room
+
+# =============================================================================
+# REST COMMANDS - Control BeoSound 5c from Home Assistant
+# =============================================================================
+#
+# Add to configuration.yaml. These commands let HA control the BS5c display.
+#
+# BS5c Webhook API (port 8767) supports:
+#   - {"command": "screen_on"}
+#   - {"command": "screen_off"}
+#   - {"command": "screen_toggle"}
+#   - {"command": "show_page", "params": {"page": "now_playing"}}
+#   - {"command": "wake", "params": {"page": "now_playing"}}  (screen_on + show_page)
+#   - {"command": "restart", "params": {"target": "all"}}
+#   - {"command": "status"}
+#
+# Available pages: now_playing, music, scenes, settings, system, home
+
+# rest_command:
+#   bs5c_screen_on:
+#     url: "http://{{ states('input_text.bs5c_ip') }}:8767/webhook"
+#     method: POST
+#     content_type: "application/json"
+#     payload: '{"command": "screen_on"}'
+#
+#   bs5c_screen_off:
+#     url: "http://{{ states('input_text.bs5c_ip') }}:8767/webhook"
+#     method: POST
+#     content_type: "application/json"
+#     payload: '{"command": "screen_off"}'
+#
+#   bs5c_wake:
+#     url: "http://{{ states('input_text.bs5c_ip') }}:8767/webhook"
+#     method: POST
+#     content_type: "application/json"
+#     payload: '{"command": "wake", "params": {"page": "{{ page | default(''now_playing'') }}"}}'
+#
+#   bs5c_show_page:
+#     url: "http://{{ states('input_text.bs5c_ip') }}:8767/webhook"
+#     method: POST
+#     content_type: "application/json"
+#     payload: '{"command": "show_page", "params": {"page": "{{ page }}"}}'
+#
+#   bs5c_restart:
+#     url: "http://{{ states('input_text.bs5c_ip') }}:8767/webhook"
+#     method: POST
+#     content_type: "application/json"
+#     payload: '{"command": "restart", "params": {"target": "{{ target | default(''all'') }}"}}'
+
+# =============================================================================
+# INPUT TEXT HELPER - Store BS5c IP address (easier to change than editing yaml)
+# =============================================================================
+#
+# Add to configuration.yaml, or create via HA UI: Settings → Devices → Helpers
+
+# input_text:
+#   bs5c_ip:
+#     name: "BeoSound 5c IP Address"
+#     initial: "beosound5c.local"
+
+# =============================================================================
+# EXAMPLE AUTOMATIONS
+# =============================================================================
+
+# Wake BeoSound 5c when music starts playing
+- alias: "BS5c - Wake on Music Play"
+  id: bs5c_wake_on_music
+  trigger:
+    - platform: state
+      entity_id: <YOUR_MEDIA_PLAYER>
+      to: "playing"
+      from:
+        - "paused"
+        - "idle"
+        - "off"
+  action:
+    - service: rest_command.bs5c_wake
+      data:
+        page: "now_playing"
+
+# Turn off screen late at night
+- alias: "BS5c - Screen Off at Night"
+  id: bs5c_screen_off_night
+  trigger:
+    - platform: time
+      at: "03:00:00"
+  action:
+    - service: rest_command.bs5c_screen_off

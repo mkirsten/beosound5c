@@ -1,0 +1,81 @@
+[
+  {
+    "id": "display",
+    "name": "Display",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='80' font-family='Arial'%3E🖥️%3C/text%3E%3C/svg%3E",
+    "settings": [
+      {
+        "id": "brightness_high",
+        "name": "Brightness High",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E☀️%3C/text%3E%3C/svg%3E"
+      },
+      {
+        "id": "brightness_medium",
+        "name": "Brightness Medium",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E🌤️%3C/text%3E%3C/svg%3E"
+      },
+      {
+        "id": "brightness_low",
+        "name": "Brightness Low",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E🌙%3C/text%3E%3C/svg%3E"
+      }
+    ]
+  },
+  {
+    "id": "audio",
+    "name": "Audio",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='80' font-family='Arial'%3E🔊%3C/text%3E%3C/svg%3E",
+    "settings": [
+      {
+        "id": "volume_up",
+        "name": "Volume Up",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E🔊%3C/text%3E%3C/svg%3E"
+      },
+      {
+        "id": "volume_down",
+        "name": "Volume Down",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E🔉%3C/text%3E%3C/svg%3E"
+      },
+      {
+        "id": "mute",
+        "name": "Mute",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E🔇%3C/text%3E%3C/svg%3E"
+      }
+    ]
+  },
+  {
+    "id": "network",
+    "name": "Network",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='80' font-family='Arial'%3E📶%3C/text%3E%3C/svg%3E",
+    "settings": null
+  },
+  {
+    "id": "system",
+    "name": "System",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='80' font-family='Arial'%3E⚙️%3C/text%3E%3C/svg%3E",
+    "settings": [
+      {
+        "id": "restart",
+        "name": "Restart",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E🔄%3C/text%3E%3C/svg%3E"
+      },
+      {
+        "id": "shutdown",
+        "name": "Shutdown",
+        "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='64' font-family='Arial'%3E⏻%3C/text%3E%3C/svg%3E"
+      }
+    ]
+  },
+  {
+    "id": "about",
+    "name": "About",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='80' font-family='Arial'%3Eℹ️%3C/text%3E%3C/svg%3E",
+    "settings": null
+  },
+  {
+    "id": "backup",
+    "name": "Backup",
+    "image": "data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='64' y='80' text-anchor='middle' fill='%23ffffff' font-size='80' font-family='Arial'%3E💾%3C/text%3E%3C/svg%3E",
+    "settings": null
+  }
+] 

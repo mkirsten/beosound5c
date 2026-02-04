@@ -1,0 +1,404 @@
+:root {
+  font-family: 'Montserrat', sans-serif;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: black;
+}
+
+.container {
+  overflow: hidden;
+  width: 100%;
+  height: 100vh;
+  position: relative;
+}
+
+#viewport {
+  background-color: black;
+  width: 100%;
+  height: 100%;
+  cursor: none;
+}
+
+.list-item {
+  z-index: 1000;
+  font-weight: 100;
+  font-size: 14px;
+  color: white;
+  display: flex;
+  justify-content: right;
+  align-items: center;
+  transition: font-weight 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.list-item.selectedItem {
+  font-weight: bold;
+}
+
+#pointerDot, #pointerLine {
+  transition: all 100ms ease;
+}
+
+/* SVG filters */
+#blurPointFilter {
+  filter: blur(2px);
+}
+
+#exposureFilter {
+  filter: brightness(2);
+}
+
+#blurPointerFilter {
+  filter: blur(6px);
+}
+
+
+#mainMenu.slide-out #mainArc,
+#mainMenu.slide-out #menuItems {
+  transform: translateX(-100%);
+}
+
+/* Remove the animation from the main container */
+#mainMenu {
+  transition: none;
+  transform: none;
+}
+
+/* Ensure volume arc stays in place */
+#volumeArc {
+  transition: none;
+  transform: none !important;
+}
+
+/* Ensure content area stays in place */
+#contentArea {
+  transition: opacity 0.25s ease-in-out;
+  position: absolute;
+  top: 20px;
+  left: 180px;
+  z-index: 1;
+  width: 820px;
+  height: 700px;
+}
+
+.list-item:hover {
+  font-weight: bold;
+  color: rgba(102,153,255,1);
+}
+
+.arc-content-flow {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  scroll-behavior: smooth;
+}
+
+.flow-items {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.flow-item {
+  position: absolute;
+  color: rgb(255, 255, 255);
+  font-size: 14px;
+  width: 200px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  transition: all 0.2s ease-out;
+  cursor: pointer;
+}
+
+.flow-item:hover {
+  color: rgba(102,153,255,1);
+}
+
+/* Now Playing View Styles */
+#now-playing {
+  background: black;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  transition: opacity 0.3s ease-in-out;
+}
+
+#artwork-container {
+  transition: all 0.3s ease-in-out;
+  border-radius: 10px;
+}
+
+#artwork-container:hover {
+  transform: scale(1.02);
+  box-shadow: 0 15px 30px rgba(0,0,0,0.5);
+}
+
+#now-playing-artwork {
+  border-radius: 8px;
+  transition: opacity 0.6s ease-in-out;
+}
+
+#media-info {
+  background: rgba(0,0,0,0.2);
+  border-radius: 8px;
+  padding: 15px;
+  margin-top: 20px;
+  transition: all 0.3s ease-in-out;
+}
+
+.slide-up-enter {
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+.slide-up-leave {
+  opacity: 0;
+  transform: translateY(-30px);
+}
+
+/* Security View Styles */
+#security-container {
+  background: black;
+  overflow: hidden;
+  transition: opacity 0.3s ease-in-out;
+}
+
+#security-iframe {
+  opacity: 0;
+  transition: opacity 0.8s ease-in-out;
+}
+
+#security-iframe.loaded {
+  opacity: 1;
+}
+
+/* Ensure security iframe is fully interactive */
+#security-iframe {
+  pointer-events: auto !important;
+  z-index: 1000 !important;
+}
+
+#security-container {
+  pointer-events: none !important;
+}
+
+/* Add styles for scrollable content */
+.scrollable-content {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+  height: 100%;
+  width: 100%;
+}
+
+/* Optional scrollbar styling for modern browsers */
+.scrollable-content::-webkit-scrollbar,
+.arc-content-flow::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollable-content::-webkit-scrollbar-track,
+.arc-content-flow::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.scrollable-content::-webkit-scrollbar-thumb,
+.arc-content-flow::-webkit-scrollbar-thumb {
+  background: rgba(102, 153, 255, 0.6);
+  border-radius: 3px;
+}
+
+/* Splash screen overlay */
+#splash-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: black;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  transition: opacity 0.8s ease-out;
+  pointer-events: none;
+}
+
+#splash-overlay.fade-out {
+  opacity: 0;
+}
+
+#splash-overlay.hidden {
+  display: none;
+}
+
+#splash-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* Camera Overlay Styles */
+#camera-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1024px;
+  height: 768px;
+  background: rgba(0, 0, 0, 0.95);
+  z-index: 99998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease-out, visibility 0.3s ease-out;
+  pointer-events: none;
+}
+
+#camera-overlay.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.camera-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.camera-header {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.camera-live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.camera-live-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #e53935;
+  box-shadow: 0 0 10px #e53935, 0 0 20px rgba(229, 57, 53, 0.5);
+  animation: pulse-live 1.5s ease-in-out infinite;
+}
+
+.camera-live-text {
+  color: #e53935;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 3px;
+}
+
+@keyframes pulse-live {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 10px #e53935, 0 0 20px rgba(229, 57, 53, 0.5);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.85);
+    box-shadow: 0 0 5px #e53935, 0 0 10px rgba(229, 57, 53, 0.3);
+  }
+}
+
+.camera-feeds-dual {
+  display: flex;
+  flex-direction: row;
+  gap: 24px;
+  flex-wrap: nowrap;
+}
+
+.camera-feed-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.camera-feed-label {
+  color: white;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+.camera-feed-container {
+  position: relative;
+  width: 440px;
+  height: 330px;
+  background: #0a0a0a;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.camera-feed {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+}
+
+.camera-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+
+/* Navigation hint - matches system.html nav-hint style */
+.camera-nav-hint {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  margin-top: 20px;
+  font-size: 12px;
+  color: #444;
+}
+
+.camera-nav-hint > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.camera-key {
+  background: #1a1a1a;
+  padding: 4px 10px;
+  border-radius: 3px;
+  color: #666;
+  font-weight: 600;
+  font-size: 13px;
+  min-width: 28px;
+  text-align: center;
+}

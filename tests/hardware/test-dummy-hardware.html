@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeoSound 5c Dummy Hardware Validation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .test-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .test-panel {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .panel-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-bottom: 1px solid #dee2e6;
+            font-weight: bold;
+        }
+        
+        .panel-content {
+            padding: 20px;
+        }
+        
+        .input-section {
+            margin-bottom: 20px;
+        }
+        
+        .input-section h4 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        
+        .input-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 10px;
+        }
+        
+        .input-btn {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            text-align: center;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        
+        .input-btn:hover {
+            border-color: #2196F3;
+            background: #f0f8ff;
+        }
+        
+        .input-btn.active {
+            border-color: #2196F3;
+            background: #2196F3;
+            color: white;
+        }
+        
+        .laser-control {
+            margin: 15px 0;
+        }
+        
+        .laser-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #ddd;
+            outline: none;
+            margin: 10px 0;
+        }
+        
+        .event-log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 10px;
+        }
+        
+        .event-entry {
+            padding: 2px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .event-entry:last-child {
+            border-bottom: none;
+        }
+        
+        .event-time {
+            color: #666;
+            width: 80px;
+            display: inline-block;
+        }
+        
+        .event-source {
+            width: 60px;
+            display: inline-block;
+            font-weight: bold;
+        }
+        
+        .event-source.real {
+            color: #4CAF50;
+        }
+        
+        .event-source.dummy {
+            color: #2196F3;
+        }
+        
+        .event-data {
+            color: #333;
+        }
+        
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        
+        .comparison-table th,
+        .comparison-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+            font-size: 12px;
+        }
+        
+        .comparison-table th {
+            background: #f8f9fa;
+            font-weight: bold;
+        }
+        
+        .match {
+            background: #e8f5e8;
+        }
+        
+        .mismatch {
+            background: #ffebee;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+            margin: 15px 0;
+        }
+        
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+            border: 1px solid #dee2e6;
+        }
+        
+        .stat-number {
+            font-size: 20px;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        
+        .stat-label {
+            color: #666;
+            margin-top: 5px;
+            font-size: 11px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background-color 0.2s;
+        }
+        
+        .btn-primary { background: #2196F3; color: white; }
+        .btn-primary:hover { background: #1976D2; }
+        
+        .btn-success { background: #4CAF50; color: white; }
+        .btn-success:hover { background: #45a049; }
+        
+        .btn-warning { background: #ff9800; color: white; }
+        .btn-warning:hover { background: #f57c00; }
+        
+        .btn-danger { background: #f44336; color: white; }
+        .btn-danger:hover { background: #d32f2f; }
+        
+        .instructions {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .instructions h4 {
+            margin-top: 0;
+            color: #1565c0;
+        }
+        
+        .key-map {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        .key-mapping {
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎮 BeoSound 5c Dummy Hardware Validation</h1>
+            <p>Compare dummy hardware simulation against real hardware behavior. Test mouse/keyboard emulation accuracy and timing.</p>
+        </div>
+        
+        <div class="instructions">
+            <h4>How to Use This Test:</h4>
+            <div class="key-map">
+                <div class="key-mapping">
+                    <strong>Mouse/Trackpad:</strong> Scroll up/down → Laser pointer movement
+                </div>
+                <div class="key-mapping">
+                    <strong>Arrow Keys:</strong> ↑/↓ → Navigation wheel, ←/→ → Left/Right buttons
+                </div>
+                <div class="key-mapping">
+                    <strong>Enter/Space:</strong> Go button
+                </div>
+                <div class="key-mapping">
+                    <strong>+/- or PgUp/PgDn:</strong> Volume up/down
+                </div>
+                <div class="key-mapping">
+                    <strong>Escape:</strong> Power button
+                </div>
+            </div>
+        </div>
+        
+        <div class="test-grid">
+            <div class="test-panel">
+                <div class="panel-header">Simulated Hardware Controls</div>
+                <div class="panel-content">
+                    <div class="input-section">
+                        <h4>Laser Pointer Simulation</h4>
+                        <div class="laser-control">
+                            <label>Position: <span id="laser-position">93</span></label>
+                            <input type="range" id="laser-slider" class="laser-slider" min="3" max="123" value="93" step="1">
+                        </div>
+                    </div>
+                    
+                    <div class="input-section">
+                        <h4>Navigation Wheel</h4>
+                        <div class="input-grid">
+                            <div class="input-btn" onmousedown="sendNavEvent('counter', 20)" onmouseup="stopNavEvent()">↑ Counter</div>
+                            <div class="input-btn" onmousedown="sendNavEvent('clock', 20)" onmouseup="stopNavEvent()">↓ Clock</div>
+                        </div>
+                    </div>
+                    
+                    <div class="input-section">
+                        <h4>Buttons</h4>
+                        <div class="input-grid">
+                            <div class="input-btn" onclick="sendButtonEvent('left')">← Left</div>
+                            <div class="input-btn" onclick="sendButtonEvent('right')">→ Right</div>
+                            <div class="input-btn" onclick="sendButtonEvent('go')">⏎ Go</div>
+                            <div class="input-btn" onclick="sendButtonEvent('power')">⏻ Power</div>
+                        </div>
+                    </div>
+                    
+                    <div class="input-section">
+                        <h4>Volume</h4>
+                        <div class="input-grid">
+                            <div class="input-btn" onmousedown="sendVolumeEvent('clock', 20)" onmouseup="stopVolumeEvent()">+ Up</div>
+                            <div class="input-btn" onmousedown="sendVolumeEvent('counter', 20)" onmouseup="stopVolumeEvent()">- Down</div>
+                        </div>
+                    </div>
+                    
+                    <div class="controls">
+                        <button class="btn btn-success" onclick="startDummyHardware()">Start Dummy Hardware</button>
+                        <button class="btn btn-warning" onclick="stopDummyHardware()">Stop Dummy Hardware</button>
+                        <button class="btn btn-primary" onclick="runAccuracyTest()">Run Accuracy Test</button>
+                        <button class="btn btn-danger" onclick="clearLogs()">Clear Logs</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="test-panel">
+                <div class="panel-header">Event Comparison</div>
+                <div class="panel-content">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-number" id="real-events">0</div>
+                            <div class="stat-label">Real Events</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number" id="dummy-events">0</div>
+                            <div class="stat-label">Dummy Events</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number" id="matches">0</div>
+                            <div class="stat-label">Matches</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number" id="accuracy">100%</div>
+                            <div class="stat-label">Accuracy</div>
+                        </div>
+                    </div>
+                    
+                    <h4>Event Log</h4>
+                    <div class="event-log" id="event-log">
+                        <div class="event-entry">
+                            <span class="event-time">--:--:--</span>
+                            <span class="event-source">----</span>
+                            <span class="event-data">Waiting for events...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="test-panel">
+            <div class="panel-header">Detailed Event Comparison</div>
+            <div class="panel-content">
+                <table class="comparison-table" id="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Event Type</th>
+                            <th>Real Hardware</th>
+                            <th>Dummy Hardware</th>
+                            <th>Match</th>
+                            <th>Timing Diff (ms)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="comparison-tbody">
+                        <tr>
+                            <td colspan="6" style="text-align: center; color: #666;">No events to compare yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let realWebSocket = null;
+        let dummyHardware = null;
+        let events = {
+            real: [],
+            dummy: []
+        };
+        let stats = {
+            realEvents: 0,
+            dummyEvents: 0,
+            matches: 0
+        };
+        
+        // Initialize the test interface
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeControls();
+            connectToRealHardware();
+            loadDummyHardware();
+        });
+        
+        function initializeControls() {
+            // Laser slider control
+            const slider = document.getElementById('laser-slider');
+            const display = document.getElementById('laser-position');
+            
+            slider.addEventListener('input', function() {
+                const position = parseInt(this.value);
+                display.textContent = position;
+                sendLaserEvent(position);
+            });
+            
+            // Keyboard event listeners for hardware emulation testing
+            document.addEventListener('keydown', function(event) {
+                logKeyboardEvent(event);
+            });
+            
+            // Mouse wheel event listeners for laser simulation testing
+            document.addEventListener('wheel', function(event) {
+                if (event.target.closest('.laser-control')) {
+                    return; // Let slider handle its own events
+                }
+                logMouseWheelEvent(event);
+            });
+        }
+        
+        function connectToRealHardware() {
+            try {
+                realWebSocket = new WebSocket('ws://localhost:8765/ws');
+                
+                realWebSocket.onopen = function() {
+                    logEvent('real', 'connection', 'Connected to real hardware server');
+                };
+                
+                realWebSocket.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        logEvent('real', data.type, data.data);
+                        events.real.push({
+                            timestamp: Date.now(),
+                            type: data.type,
+                            data: data.data
+                        });
+                        stats.realEvents++;
+                        updateStats();
+                        compareEvents();
+                    } catch (error) {
+                        logEvent('real', 'error', `Failed to parse message: ${error.message}`);
+                    }
+                };
+                
+                realWebSocket.onerror = function() {
+                    logEvent('real', 'error', 'WebSocket connection failed');
+                };
+                
+                realWebSocket.onclose = function() {
+                    logEvent('real', 'connection', 'Disconnected from real hardware server');
+                };
+                
+            } catch (error) {
+                logEvent('real', 'error', `Failed to connect: ${error.message}`);
+            }
+        }
+        
+        function loadDummyHardware() {
+            // Load dummy hardware from the main web interface
+            const script = document.createElement('script');
+            script.src = '../../web/js/dummy-hardware.js';
+            script.onload = function() {
+                logEvent('dummy', 'system', 'Dummy hardware module loaded');
+            };
+            script.onerror = function() {
+                logEvent('dummy', 'error', 'Failed to load dummy hardware module');
+            };
+            document.head.appendChild(script);
+        }
+        
+        function startDummyHardware() {
+            if (window.dummyHardwareManager) {
+                dummyHardware = window.dummyHardwareManager.start();
+                
+                // Intercept dummy hardware messages for comparison
+                const originalBroadcast = dummyHardware.broadcast;
+                dummyHardware.broadcast = function(message) {
+                    logEvent('dummy', message.type, message.data);
+                    events.dummy.push({
+                        timestamp: Date.now(),
+                        type: message.type,
+                        data: message.data
+                    });
+                    stats.dummyEvents++;
+                    updateStats();
+                    compareEvents();
+                    
+                    // Call original broadcast
+                    return originalBroadcast.call(this, message);
+                };
+                
+                logEvent('dummy', 'system', 'Dummy hardware started');
+            } else {
+                logEvent('dummy', 'error', 'Dummy hardware manager not available');
+            }
+        }
+        
+        function stopDummyHardware() {
+            if (window.dummyHardwareManager) {
+                window.dummyHardwareManager.stop();
+                dummyHardware = null;
+                logEvent('dummy', 'system', 'Dummy hardware stopped');
+            }
+        }
+        
+        function sendLaserEvent(position) {
+            if (dummyHardware) {
+                dummyHardware.sendLaserEvent(position);
+            }
+        }
+        
+        function sendNavEvent(direction, speed) {
+            if (dummyHardware) {
+                dummyHardware.sendNavEvent(direction, speed);
+            }
+        }
+        
+        function stopNavEvent() {
+            // In a real implementation, this would stop the continuous navigation
+            // For now, just log the stop event
+            logEvent('dummy', 'nav', { action: 'stop' });
+        }
+        
+        function sendVolumeEvent(direction, speed) {
+            if (dummyHardware) {
+                dummyHardware.sendVolumeEvent(direction, speed);
+            }
+        }
+        
+        function stopVolumeEvent() {
+            // In a real implementation, this would stop the continuous volume change
+            logEvent('dummy', 'volume', { action: 'stop' });
+        }
+        
+        function sendButtonEvent(button) {
+            if (dummyHardware) {
+                dummyHardware.sendButtonEvent(button);
+            }
+        }
+        
+        function logEvent(source, type, data) {
+            const log = document.getElementById('event-log');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            const entry = document.createElement('div');
+            entry.className = 'event-entry';
+            entry.innerHTML = `
+                <span class="event-time">${timestamp}</span>
+                <span class="event-source ${source}">${source.toUpperCase()}</span>
+                <span class="event-data">${type}: ${JSON.stringify(data)}</span>
+            `;
+            
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        function logKeyboardEvent(event) {
+            const mapping = {
+                'ArrowUp': 'nav counter',
+                'ArrowDown': 'nav clock',
+                'ArrowLeft': 'button left',
+                'ArrowRight': 'button right',
+                'Enter': 'button go',
+                ' ': 'button go',
+                'PageUp': 'volume up',
+                'PageDown': 'volume down',
+                '+': 'volume up',
+                '-': 'volume down',
+                'Escape': 'button power'
+            };
+            
+            const mapped = mapping[event.key];
+            if (mapped) {
+                logEvent('keyboard', 'key', `${event.key} → ${mapped}`);
+            }
+        }
+        
+        function logMouseWheelEvent(event) {
+            const direction = event.deltaY > 0 ? 'down' : 'up';
+            logEvent('mouse', 'wheel', `${direction} (delta: ${event.deltaY})`);
+        }
+        
+        function compareEvents() {
+            // Compare recent events for timing and accuracy
+            const recentReal = events.real.slice(-10);
+            const recentDummy = events.dummy.slice(-10);
+            
+            // Simple comparison logic - in practice, this would be more sophisticated
+            const matches = findMatches(recentReal, recentDummy);
+            stats.matches = matches;
+            
+            updateComparisonTable(recentReal, recentDummy);
+        }
+        
+        function findMatches(realEvents, dummyEvents) {
+            let matches = 0;
+            const tolerance = 100; // 100ms tolerance for timing
+            
+            for (const realEvent of realEvents) {
+                for (const dummyEvent of dummyEvents) {
+                    if (realEvent.type === dummyEvent.type &&
+                        Math.abs(realEvent.timestamp - dummyEvent.timestamp) < tolerance) {
+                        matches++;
+                        break;
+                    }
+                }
+            }
+            
+            return matches;
+        }
+        
+        function updateComparisonTable(realEvents, dummyEvents) {
+            const tbody = document.getElementById('comparison-tbody');
+            tbody.innerHTML = '';
+            
+            if (realEvents.length === 0 && dummyEvents.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">No events to compare yet</td></tr>';
+                return;
+            }
+            
+            // Merge and sort events by timestamp
+            const allEvents = [];
+            realEvents.forEach(e => allEvents.push({ ...e, source: 'real' }));
+            dummyEvents.forEach(e => allEvents.push({ ...e, source: 'dummy' }));
+            allEvents.sort((a, b) => a.timestamp - b.timestamp);
+            
+            // Create comparison rows
+            for (let i = 0; i < Math.max(realEvents.length, dummyEvents.length); i++) {
+                const real = realEvents[i];
+                const dummy = dummyEvents[i];
+                
+                const row = document.createElement('tr');
+                const isMatch = real && dummy && real.type === dummy.type;
+                const timingDiff = real && dummy ? Math.abs(real.timestamp - dummy.timestamp) : null;
+                
+                row.className = isMatch ? 'match' : 'mismatch';
+                row.innerHTML = `
+                    <td>${real ? new Date(real.timestamp).toLocaleTimeString() : '—'}</td>
+                    <td>${real ? real.type : dummy ? dummy.type : '—'}</td>
+                    <td>${real ? JSON.stringify(real.data) : '—'}</td>
+                    <td>${dummy ? JSON.stringify(dummy.data) : '—'}</td>
+                    <td>${isMatch ? '✅' : '❌'}</td>
+                    <td>${timingDiff !== null ? timingDiff + 'ms' : '—'}</td>
+                `;
+                
+                tbody.appendChild(row);
+            }
+        }
+        
+        function updateStats() {
+            document.getElementById('real-events').textContent = stats.realEvents;
+            document.getElementById('dummy-events').textContent = stats.dummyEvents;
+            document.getElementById('matches').textContent = stats.matches;
+            
+            const accuracy = stats.realEvents > 0 ? 
+                Math.round((stats.matches / Math.max(stats.realEvents, stats.dummyEvents)) * 100) : 100;
+            document.getElementById('accuracy').textContent = accuracy + '%';
+        }
+        
+        function runAccuracyTest() {
+            logEvent('system', 'test', 'Starting automated accuracy test');
+            
+            // Simulate a series of events and compare timing
+            const testSequence = [
+                { type: 'laser', data: { position: 50 } },
+                { type: 'nav', data: { direction: 'clock', speed: 20 } },
+                { type: 'button', data: { button: 'go' } },
+                { type: 'laser', data: { position: 100 } },
+                { type: 'volume', data: { direction: 'clock', speed: 20 } }
+            ];
+            
+            let index = 0;
+            const interval = setInterval(() => {
+                if (index < testSequence.length) {
+                    const event = testSequence[index];
+                    
+                    // Send via dummy hardware
+                    if (dummyHardware) {
+                        switch (event.type) {
+                            case 'laser':
+                                dummyHardware.sendLaserEvent(event.data.position);
+                                break;
+                            case 'nav':
+                                dummyHardware.sendNavEvent(event.data.direction, event.data.speed);
+                                break;
+                            case 'button':
+                                dummyHardware.sendButtonEvent(event.data.button);
+                                break;
+                            case 'volume':
+                                dummyHardware.sendVolumeEvent(event.data.direction, event.data.speed);
+                                break;
+                        }
+                    }
+                    
+                    index++;
+                } else {
+                    clearInterval(interval);
+                    logEvent('system', 'test', 'Automated accuracy test completed');
+                }
+            }, 500);
+        }
+        
+        function clearLogs() {
+            document.getElementById('event-log').innerHTML = '';
+            document.getElementById('comparison-tbody').innerHTML = 
+                '<tr><td colspan="6" style="text-align: center; color: #666;">No events to compare yet</td></tr>';
+            
+            events.real = [];
+            events.dummy = [];
+            stats = { realEvents: 0, dummyEvents: 0, matches: 0 };
+            updateStats();
+            
+            logEvent('system', 'action', 'Logs cleared');
+        }
+    </script>
+</body>
+</html>

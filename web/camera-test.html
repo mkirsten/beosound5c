@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Camera Feed Test</title>
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            padding: 20px;
+            margin: 0;
+        }
+        h1 { color: #6699ff; margin-bottom: 10px; }
+        h2 { color: #888; font-size: 16px; margin: 30px 0 10px 0; }
+        .test-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .test-box {
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 15px;
+            width: 520px;
+        }
+        .test-box h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: #6699ff;
+        }
+        .feed-container {
+            width: 492px;
+            height: 492px;
+            background: #222;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .feed-container img,
+        .feed-container iframe {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border: none;
+        }
+        .status {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #666;
+        }
+        .status.success { color: #4CAF50; }
+        .status.error { color: #f44336; }
+        .config {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .config label {
+            display: block;
+            margin-bottom: 5px;
+            color: #888;
+        }
+        .config input {
+            width: 100%;
+            padding: 8px;
+            background: #333;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        .config button {
+            background: #6699ff;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .config button:hover {
+            background: #5588ee;
+        }
+        .note {
+            background: #2a2a1a;
+            border-left: 3px solid #FFC107;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 12px;
+            color: #ccc;
+        }
+    </style>
+</head>
+<body>
+    <h1>Camera Feed Test for BeoSound 5c</h1>
+    <p>Test different methods to display your UniFi doorbell camera.</p>
+
+    <div class="config">
+        <label>Home Assistant URL (with port):</label>
+        <input type="text" id="haUrl" value="http://homeassistant.local:8123" placeholder="http://homeassistant.local:8123">
+
+        <label>Camera Entity ID:</label>
+        <input type="text" id="cameraEntity" value="camera.doorbell" placeholder="camera.doorbell">
+
+        <label>Long-Lived Access Token (from HA Profile):</label>
+        <input type="password" id="haToken" value="" placeholder="Paste your HA token here">
+
+        <button onclick="runTests()">Test Camera Feed</button>
+
+        <div class="note">
+            <strong>To get a token:</strong> HA → Profile → Long-Lived Access Tokens → Create Token
+        </div>
+    </div>
+
+    <div class="test-container">
+        <!-- Test 1: MJPEG Proxy Stream -->
+        <div class="test-box">
+            <h3>1. HA Camera Proxy (MJPEG Stream)</h3>
+            <div class="feed-container" id="mjpeg-container">
+                <span style="color:#666">Click "Test Camera Feed"</span>
+            </div>
+            <div class="status" id="mjpeg-status">Waiting...</div>
+            <div class="note">Uses: /api/camera_proxy_stream/{entity_id}</div>
+        </div>
+
+        <!-- Test 2: Snapshot with refresh -->
+        <div class="test-box">
+            <h3>2. Snapshot (refreshes every 2s)</h3>
+            <div class="feed-container" id="snapshot-container">
+                <span style="color:#666">Click "Test Camera Feed"</span>
+            </div>
+            <div class="status" id="snapshot-status">Waiting...</div>
+            <div class="note">Uses: /api/camera_proxy/{entity_id}</div>
+        </div>
+
+        <!-- Test 3: HA iframe -->
+        <div class="test-box">
+            <h3>3. HA Dashboard Iframe (picture-entity card)</h3>
+            <div class="feed-container" id="iframe-container">
+                <span style="color:#666">Click "Test Camera Feed"</span>
+            </div>
+            <div class="status" id="iframe-status">Waiting...</div>
+            <div class="note">Requires HA dashboard with camera card. May need auth.</div>
+        </div>
+
+        <!-- Test 4: go2rtc WebRTC -->
+        <div class="test-box">
+            <h3>4. go2rtc (if configured in HA)</h3>
+            <div class="feed-container" id="go2rtc-container">
+                <span style="color:#666">Click "Test Camera Feed"</span>
+            </div>
+            <div class="status" id="go2rtc-status">Waiting...</div>
+            <div class="note">Requires go2rtc addon. Check: HA → Settings → Add-ons</div>
+        </div>
+    </div>
+
+    <h2>Debug Info</h2>
+    <pre id="debug" style="background:#111; padding:10px; border-radius:4px; font-size:11px; overflow:auto; max-height:200px;"></pre>
+
+    <script>
+        let snapshotInterval = null;
+
+        function log(msg) {
+            const debug = document.getElementById('debug');
+            debug.textContent += new Date().toLocaleTimeString() + ': ' + msg + '\n';
+            debug.scrollTop = debug.scrollHeight;
+        }
+
+        function runTests() {
+            const haUrl = document.getElementById('haUrl').value.replace(/\/$/, '');
+            const cameraEntity = document.getElementById('cameraEntity').value;
+            const haToken = document.getElementById('haToken').value;
+
+            log('Starting tests...');
+            log('HA URL: ' + haUrl);
+            log('Camera: ' + cameraEntity);
+            log('Token: ' + (haToken ? 'provided' : 'NOT PROVIDED'));
+
+            // Clear previous
+            if (snapshotInterval) clearInterval(snapshotInterval);
+
+            // Test 1: MJPEG Stream
+            testMjpegStream(haUrl, cameraEntity, haToken);
+
+            // Test 2: Snapshot
+            testSnapshot(haUrl, cameraEntity, haToken);
+
+            // Test 3: Iframe
+            testIframe(haUrl, cameraEntity, haToken);
+
+            // Test 4: go2rtc
+            testGo2rtc(haUrl, cameraEntity);
+        }
+
+        function testMjpegStream(haUrl, entity, token) {
+            const container = document.getElementById('mjpeg-container');
+            const status = document.getElementById('mjpeg-status');
+
+            // For MJPEG, we need token in URL or use signed URL
+            const url = `${haUrl}/api/camera_proxy_stream/${entity}?token=${token}`;
+
+            log('MJPEG URL: ' + url.replace(token, '[TOKEN]'));
+
+            const img = document.createElement('img');
+            img.onload = () => {
+                status.textContent = '✓ Working!';
+                status.className = 'status success';
+                log('MJPEG: SUCCESS');
+            };
+            img.onerror = () => {
+                status.textContent = '✗ Failed - check token/entity';
+                status.className = 'status error';
+                log('MJPEG: FAILED');
+            };
+            img.src = url;
+
+            container.innerHTML = '';
+            container.appendChild(img);
+        }
+
+        function testSnapshot(haUrl, entity, token) {
+            const container = document.getElementById('snapshot-container');
+            const status = document.getElementById('snapshot-status');
+
+            const img = document.createElement('img');
+            container.innerHTML = '';
+            container.appendChild(img);
+
+            let successCount = 0;
+
+            function refresh() {
+                const url = `${haUrl}/api/camera_proxy/${entity}?token=${token}&_t=${Date.now()}`;
+                img.src = url;
+            }
+
+            img.onload = () => {
+                successCount++;
+                if (successCount === 1) {
+                    status.textContent = '✓ Working! Refreshing every 2s';
+                    status.className = 'status success';
+                    log('Snapshot: SUCCESS');
+                }
+            };
+            img.onerror = () => {
+                status.textContent = '✗ Failed - check token/entity';
+                status.className = 'status error';
+                log('Snapshot: FAILED');
+            };
+
+            refresh();
+            snapshotInterval = setInterval(refresh, 2000);
+        }
+
+        function testIframe(haUrl, entity, token) {
+            const container = document.getElementById('iframe-container');
+            const status = document.getElementById('iframe-status');
+
+            // Try multiple iframe approaches
+            const entityName = entity.replace('camera.', '');
+
+            // Option 1: Direct to media-browser camera view
+            // Option 2: History with camera entity (shows snapshot)
+            // Option 3: Custom dashboard (if exists)
+            const urls = [
+                `${haUrl}/api/camera_proxy/${entity}`,  // Direct image (may work in iframe)
+                `${haUrl}/media-browser/browser/${entity}`,
+                `${haUrl}/lovelace-cameras/0?kiosk`,
+                `${haUrl}/lovelace/0?kiosk`
+            ];
+
+            // Try the simplest approach: direct camera image in iframe
+            const url = `${haUrl}/api/camera_proxy/${entity}`;
+
+            log('Iframe URL: ' + url);
+
+            // For iframe, we'll embed an img tag that auto-refreshes
+            // This works because the iframe is same-origin relative to HA
+            container.innerHTML = `
+                <iframe
+                    src="data:text/html,${encodeURIComponent(`
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <style>
+                                body { margin: 0; background: #000; overflow: hidden; }
+                                img { width: 100%; height: 100%; object-fit: cover; }
+                            </style>
+                        </head>
+                        <body>
+                            <img id="cam" src="${haUrl}/api/camera_proxy/${entity}?token=${token}">
+                            <script>
+                                setInterval(() => {
+                                    document.getElementById('cam').src =
+                                        '${haUrl}/api/camera_proxy/${entity}?token=${token}&t=' + Date.now();
+                                }, 2000);
+                            </script>
+                        </body>
+                        </html>
+                    `)}"
+                    style="width:100%;height:100%;border:none;">
+                </iframe>
+            `;
+
+            status.textContent = '? Loading iframe with auto-refresh...';
+            status.className = 'status';
+            log('Iframe: Created with data URL');
+        }
+
+        function testGo2rtc(haUrl, entity) {
+            const container = document.getElementById('go2rtc-container');
+            const status = document.getElementById('go2rtc-status');
+
+            // go2rtc typically runs on port 1984 or via HA addon
+            const go2rtcUrl = haUrl.replace(':8123', ':1984');
+            const streamName = entity.replace('camera.', '');
+
+            // For MJPEG from go2rtc
+            const mjpegUrl = `${go2rtcUrl}/api/stream.mjpeg?src=${streamName}`;
+
+            log('go2rtc MJPEG URL: ' + mjpegUrl);
+
+            const img = document.createElement('img');
+            img.onload = () => {
+                status.textContent = '✓ go2rtc working!';
+                status.className = 'status success';
+                log('go2rtc: SUCCESS');
+            };
+            img.onerror = () => {
+                status.textContent = '? go2rtc not found or stream not configured';
+                status.className = 'status';
+                log('go2rtc: Not available (this is OK, optional)');
+            };
+            img.src = mjpegUrl;
+
+            container.innerHTML = '';
+            container.appendChild(img);
+        }
+    </script>
+</body>
+</html>
