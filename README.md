@@ -46,7 +46,7 @@ cd ~/beosound5c
 sudo ./install.sh
 ```
 
-The installer handles everything: packages, USB permissions, display config, service installation, and configuration prompts. It will ask if you want to reboot when complete.
+The installer handles everything: packages, USB permissions, display config, service installation, configuration prompts, and optional BeoRemote One pairing. It will ask if you want to reboot when complete.
 
 ## Configuration
 
@@ -69,29 +69,7 @@ SPOTIFY_USER_ID=""                   # For playlist fetching
 
 To reconfigure: `sudo nano /etc/beosound5c/config.env` then restart services.
 
-### Pairing BeoRemote One
-
-1. On remote: LIST → Settings → Pairing → Pair
-2. On device:
-```bash
-sudo systemctl stop beo-bluetooth
-bluetoothctl scan on       # Look for "BEORC"
-bluetoothctl pair XX:XX:XX:XX:XX:XX
-bluetoothctl trust XX:XX:XX:XX:XX:XX
-```
-3. Update `BEOREMOTE_MAC` in config and restart: `sudo systemctl start beo-bluetooth`
-
-## Architecture
-
-```
-BS5 Hardware (USB) → input.py (8765) → Web UI
-Sonos Player → media.py (8766) → Web UI
-IR/MasterLink → masterlink.py → Home Assistant
-BeoRemote One → bluetooth.sh → Home Assistant
-Static Files → HTTP (8000) → Chromium Kiosk
-```
-
-### Services
+## Services
 
 | Service | File | Description |
 |---------|------|-------------|
@@ -104,7 +82,7 @@ Static Files → HTTP (8000) → Chromium Kiosk
 
 Service definitions: [`services/system/`](services/system/)
 
-### Directory Structure
+## Directory Structure
 
 ```
 web/                 # Web UI (HTML, CSS, JavaScript)
