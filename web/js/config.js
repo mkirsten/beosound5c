@@ -8,6 +8,12 @@ const AppConfig = {
     // Device-specific data files
     scenesFile: '../json/scenes.json',  // Override per device: '../json/scenes_kitchen.json'
 
+    // Home Assistant configuration
+    homeAssistant: {
+        url: 'http://homeassistant.local:8123',
+        securityDashboard: 'dashboard-cameras/home'  // Dashboard path for SECURITY page (without leading slash)
+    },
+
     // Webhook forwarding endpoint (backend forwards to HA)
     webhookUrl: 'http://localhost:8767/forward',
 

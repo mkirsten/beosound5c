@@ -1,80 +1,33 @@
 # Contributing to BeoSound 5c
 
-Thank you for your interest in contributing to the BeoSound 5c project! This project aims to bring new life to Bang & Olufsen BeoSound 5 devices using modern technology.
+## Reporting Issues
 
-## Getting Started
+**Installation/configuration problems**: Email markus@beosound5c.com — I'm happy to help troubleshoot your setup.
 
-### Development Environment
+**Bugs in the system**: Open a GitHub issue with steps to reproduce and relevant logs (`journalctl -u beo-* -f`).
 
-1. **Without BeoSound 5 hardware** (emulation mode):
-   ```bash
-   cd web
-   python3 -m http.server 8000
-   # Open http://localhost:8000 in your browser
-   ```
-   Use mouse wheel for laser pointer, arrow keys for navigation wheel, and Enter for GO button.
+## Suggesting Features
 
-2. **With BeoSound 5 hardware**:
-   - SSH to your device: `ssh beosound5c.local`
-   - Install services: `cd services/system && sudo ./install-services.sh`
-   - See [README.md](README.md) for full setup instructions
+Email markus@beosound5c.com with your idea and use case.
 
-### Project Structure
+## Submitting Code
 
-- `web/` - Web interface (HTML, CSS, JavaScript)
-- `services/` - Python and Bash services for hardware integration
-- `tools/` - Utility scripts for debugging and setup
-- `tests/` - Test files and debugging utilities
+This project is built for my personal setup, but contributions should be **as generic as possible**:
 
-## How to Contribute
+- **Setup-specific logic** (e.g., what happens when a button is pressed) belongs in Home Assistant automations, not the codebase
+- **User-specific values** belong in configuration files (`/etc/beosound5c/config.env`, `web/js/config.js`)
+- **Generic features** that work across different setups are welcome in the project
 
-### Reporting Bugs
-
-1. Check existing issues to avoid duplicates
-2. Include your setup details (Raspberry Pi model, OS version, etc.)
-3. Provide steps to reproduce the issue
-4. Include relevant logs from `journalctl -u beo-* -f`
-
-### Suggesting Features
-
-1. Open an issue describing the feature
-2. Explain the use case and how it benefits the project
-3. If possible, outline a proposed implementation approach
-
-### Submitting Code
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature-name`
-3. Make your changes
-4. Test thoroughly (both emulation mode and on hardware if possible)
-5. Commit with clear, descriptive messages
-6. Push to your fork and open a Pull Request
+When adding features:
+- Ensure they work in emulator mode — add mocks where needed so others can test without hardware
+- Keep changes minimal and focused
 
 ### Code Style
 
-- **Python**: Follow PEP 8 guidelines
-- **JavaScript**: Use consistent formatting with the existing codebase
-- **Shell scripts**: Use `shellcheck` for linting
-- Keep changes focused and minimal - avoid unrelated refactoring
-
-### Testing
-
-- Test UI changes in both emulation mode and on real hardware when possible
-- For hardware-specific changes, document testing steps clearly
-- Include any necessary test files or debugging aids
-
-## Areas Where Help is Needed
-
-- Documentation improvements
-- Testing on different Raspberry Pi models
-- Home Assistant integration examples
-- Sonos and Spotify integration enhancements
-- Accessibility improvements
-- Multi-language support
-
-## Questions?
-
-Open an issue with your question, and we'll do our best to help.
+Using AI for code assistance is fine. Please:
+- Sanity check generated code
+- Keep changes minimal — don't refactor unrelated code
+- Match the existing style
 
 ## License
 

@@ -570,6 +570,21 @@ if [ ! -f "$CONFIG_FILE" ]; then
     read -p "Home Assistant webhook URL [$DEFAULT_WEBHOOK]: " HA_WEBHOOK_URL
     HA_WEBHOOK_URL="${HA_WEBHOOK_URL:-$DEFAULT_WEBHOOK}"
 
+    # Home Assistant security dashboard (for SECURITY page)
+    echo ""
+    log_info "Home Assistant Dashboard for SECURITY Page (Optional)"
+    echo ""
+    echo "The SECURITY menu item can display a Home Assistant dashboard (e.g., camera feeds)."
+    echo "Enter the dashboard path without leading slash."
+    echo "Examples: lovelace-cameras/0, dashboard-cameras/home"
+    echo ""
+    read -p "HA dashboard for SECURITY page (press Enter to skip): " HA_SECURITY_DASHBOARD
+    if [ -n "$HA_SECURITY_DASHBOARD" ]; then
+        log_success "Security dashboard: $HA_SECURITY_DASHBOARD"
+    else
+        log_info "No security dashboard configured - SECURITY page will be empty"
+    fi
+
     # -------------------------------------------------------------------------
     # Home Assistant Token - with detailed instructions
     # -------------------------------------------------------------------------
@@ -855,6 +870,9 @@ HA_URL="$HA_URL"
 # Home Assistant webhook URL for BeoSound 5c events
 HA_WEBHOOK_URL="$HA_WEBHOOK_URL"
 
+# Home Assistant dashboard for SECURITY page (without leading slash)
+HA_SECURITY_DASHBOARD="$HA_SECURITY_DASHBOARD"
+
 # Home Assistant Long-Lived Access Token (for API access)
 HA_TOKEN="$HA_TOKEN"
 
@@ -1082,4 +1100,12 @@ echo ""
 
 if [ $FAILED_CHECKS -gt 0 ]; then
     exit 1
+fi
+
+# Prompt for reboot
+echo ""
+read -p "Would you like to reboot now to apply all changes? (Y/n): " REBOOT_NOW
+if [[ ! "$REBOOT_NOW" =~ ^[Nn]$ ]]; then
+    log_info "Rebooting..."
+    sudo reboot
 fi

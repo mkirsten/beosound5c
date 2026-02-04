@@ -702,9 +702,15 @@ class UIStore {
             
             if (securityIframe) {
                 // Set the iframe source to the Home Assistant camera dashboard
-                // Uses default HA URL - cameras are typically accessible on local network
-                const haUrl = 'http://homeassistant.local:8123';
-                securityIframe.src = `${haUrl}/dashboard-cameras/home&kiosk`;
+                // Configured in web/js/config.js
+                const haUrl = window.AppConfig?.homeAssistant?.url || 'http://homeassistant.local:8123';
+                const securityDashboard = window.AppConfig?.homeAssistant?.securityDashboard;
+
+                if (securityDashboard) {
+                    securityIframe.src = `${haUrl}/${securityDashboard}&kiosk`;
+                } else {
+                    console.log('No security dashboard configured');
+                }
                 
                 // Make iframe fully interactive
                 securityIframe.style.pointerEvents = 'auto';
