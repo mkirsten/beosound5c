@@ -4,8 +4,6 @@ A modern recreation of the Bang & Olufsen BeoSound 5 experience using web techno
 
 **Website: [www.beosound5c.com](https://www.beosound5c.com)**
 
-https://github.com/mkirsten/beosound5c/raw/main/assets/demo.mp4
-
 This project replaces the original BeoSound 5 software with a circular arc-based touch UI that integrates with Sonos players, Spotify, and Home Assistant. It works with the original BS5 hardware (rotary encoder, laser pointer, display) and supports BeoRemote One for wireless control.
 
 I built this for my own setup, but it runs daily on multiple BeoSound 5 units. Your setup may require some configuration — particularly for Home Assistant integration.
