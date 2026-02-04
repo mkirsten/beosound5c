@@ -1283,9 +1283,7 @@ class ArcList {
         breadcrumbElement.style.transform = `translate(${returnX}px, ${returnY}px) scale(1)`;
         breadcrumbElement.style.opacity = '1'; // Full opacity when returning
         breadcrumbElement.style.filter = 'blur(0px)';
-        
-            `translate(${currentX}px, 0px) → translate(${returnX}px, ${returnY}px)`);
-        
+
         // Wait for breadcrumb slide-back animation to complete
         await this.delay(400);
         
@@ -1502,9 +1500,7 @@ class ArcList {
                 
                 // Mark it so we can identify it later
                 selectedElement.dataset.animatedParent = 'true';
-                
-                    `translate(${currentX}px, 0px) → translate(${BREADCRUMB_ABSOLUTE_X}px, 0px)`);
-                
+
                 // Wait for both breadcrumb animation and playlist hiding to complete
                 await this.delay(400);
                 
@@ -2176,6 +2172,35 @@ class ArcList {
             const duration = Date.now() - startTime;
             console.log(`🔴 [IFRAME-WEBHOOK] ERROR: ${error.message} (${duration}ms)`);
             console.log(`🔴 [IFRAME-WEBHOOK] Error details:`, error);
+        }
+
+        // Notify emulator via bridge (no-op if not in emulator)
+        this.notifyEmulatorOfSelection(id, itemName);
+    }
+
+    /**
+     * Notify emulator of selection (scenes, playlists, tracks)
+     * Uses EmulatorBridge - does nothing if not running in emulator
+     */
+    notifyEmulatorOfSelection(id, itemName) {
+        if (!window.EmulatorBridge?.isInEmulator) return;
+
+        if (this.config.context === 'scenes') {
+            window.EmulatorBridge.notifySceneActivated(id, itemName);
+        } else if (this.config.context === 'music') {
+            if (this.viewMode === 'parent' || this.viewMode === 'single') {
+                window.EmulatorBridge.notifyPlaylistSelected(
+                    this.parentData[this.currentIndex]?.id,
+                    itemName
+                );
+            } else if (this.viewMode === 'child') {
+                window.EmulatorBridge.notifyTrackSelected(
+                    this.currentIndex,
+                    itemName,
+                    this.selectedParent?.id,
+                    this.selectedParent?.name
+                );
+            }
         }
     }
 }

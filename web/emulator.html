@@ -70,17 +70,20 @@
         .left-panel {
             display: flex;
             flex-direction: column;
-            gap: 15px;
-            width: 110px;
-            padding-top: 40px;
+            justify-content: space-between;
+            width: 140px;
+            height: 480px;
+            margin-top: 20px;
         }
 
         /* Right panel - log & shortcuts */
         .right-panel {
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            justify-content: space-between;
             width: 180px;
+            height: 480px;
+            margin-top: 20px;
         }
 
         /* Device Area */
@@ -229,7 +232,13 @@
         .bs5-btn-go { width: 50%; }
         .bs5-btn-go::before { content: 'GO'; font-size: 11px; letter-spacing: 2px; }
 
-        /* Entity Cards - Squared */
+        /* Entity Cards - Clickable with submenu */
+        .entity-wrapper {
+            position: relative;
+            flex: 1;
+            display: flex;
+        }
+
         .entity {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -240,9 +249,25 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            aspect-ratio: 1;
             text-align: center;
             gap: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+        }
+
+        .entity:hover {
+            background: var(--surface-hover);
+            border-color: #555;
+            transform: scale(1.02);
+        }
+
+        .entity:active {
+            transform: scale(0.98);
+        }
+
+        .entity.expanded {
+            border-color: var(--accent);
         }
 
         .entity-icon {
@@ -278,12 +303,84 @@
         .entity-state.on { color: var(--success); }
         .entity-state.playing { color: var(--success); }
 
+        .entity-hint {
+            font-size: 8px;
+            color: var(--text-muted);
+            margin-top: 4px;
+            opacity: 0.7;
+        }
+
+        /* Entity Submenu */
+        .entity-submenu {
+            position: absolute;
+            left: 100%;
+            top: 0;
+            margin-left: 8px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px;
+            min-width: 120px;
+            display: none;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        .entity-submenu.visible {
+            display: block;
+        }
+
+        .submenu-title {
+            font-size: 9px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .submenu-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 12px;
+            margin: 4px 0;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .submenu-btn:hover {
+            background: rgba(255,255,255,0.15);
+            border-color: #555;
+        }
+
+        .submenu-btn:active {
+            background: rgba(255,255,255,0.25);
+        }
+
+        .submenu-btn-row {
+            display: flex;
+            gap: 4px;
+        }
+
+        .submenu-btn-row .submenu-btn {
+            flex: 1;
+            padding: 8px 6px;
+        }
+
         /* Control panels */
         .control-panel {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 12px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
         }
 
         .control-panel h3 {
@@ -293,6 +390,7 @@
             color: var(--text-muted);
             margin-bottom: 8px;
             text-transform: uppercase;
+            flex-shrink: 0;
         }
 
         /* Event Log */
@@ -300,7 +398,7 @@
             background: rgba(0, 0, 0, 0.5);
             border-radius: 4px;
             padding: 8px;
-            height: 120px;
+            flex: 1;
             overflow-y: auto;
             font-family: monospace;
             font-size: 9px;
@@ -314,12 +412,14 @@
         .event-log-entry.input { color: #6699ff; }
         .event-log-entry.nav { color: #00ffcc; }
         .event-log-entry.button { color: var(--warning); }
+        .event-log-entry.queue { color: #ff99ff; }
 
         /* Shortcuts */
         .shortcuts-list {
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            justify-content: space-between;
+            flex: 1;
             font-size: 9px;
         }
 
@@ -340,6 +440,13 @@
             font-size: 9px;
         }
 
+        /* Entity volume display */
+        .entity-volume {
+            font-size: 9px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
         /* Responsive */
         @media (max-width: 1200px) {
             .main-area {
@@ -356,6 +463,13 @@
             .left-panel { order: 2; }
             .right-panel { order: 3; }
             .device-area { order: 1; min-width: auto; }
+            .entity-submenu {
+                left: auto;
+                right: 0;
+                top: 100%;
+                margin-left: 0;
+                margin-top: 8px;
+            }
         }
     </style>
 </head>
@@ -369,47 +483,131 @@
         <div class="main-area">
             <!-- Left Panel - Entities -->
             <div class="left-panel">
-                <div class="entity">
-                    <div class="entity-icon">💡</div>
-                    <div class="entity-content">
-                        <div class="entity-name">Living Room</div>
-                        <div class="entity-state on">On • 80%</div>
+                <!-- Home Assistant -->
+                <div class="entity-wrapper">
+                    <div class="entity" data-entity="ha" onclick="EmulatorController.toggleSubmenu('ha')">
+                        <div class="entity-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+                                <polyline points="9 22 9 12 15 12 15 22"/>
+                            </svg>
+                        </div>
+                        <div class="entity-content">
+                            <div class="entity-name">Home Assistant</div>
+                            <div class="entity-state on">Connected</div>
+                        </div>
+                        <div class="entity-hint">Click to control</div>
+                    </div>
+                    <div class="entity-submenu" id="submenu-ha">
+                        <div class="submenu-title">Home Assistant</div>
+                        <div class="submenu-btn" onclick="EmulatorController.sendWebhook()">Trigger camera overlay</div>
                     </div>
                 </div>
 
-                <div class="entity">
-                    <div class="entity-icon">
-                        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5">
-                            <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
-                            <polyline points="9 22 9 12 15 12 15 22"/>
-                        </svg>
+                <!-- Beo4 Remote -->
+                <div class="entity-wrapper">
+                    <div class="entity" data-entity="beo4" onclick="EmulatorController.toggleSubmenu('beo4')">
+                        <div class="entity-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <rect x="6" y="2" width="12" height="20" rx="2"/>
+                                <circle cx="12" cy="7" r="2"/>
+                                <line x1="9" y1="12" x2="15" y2="12"/>
+                                <line x1="9" y1="15" x2="15" y2="15"/>
+                                <line x1="9" y1="18" x2="15" y2="18"/>
+                            </svg>
+                        </div>
+                        <div class="entity-content">
+                            <div class="entity-name">Beo4</div>
+                        </div>
+                        <div class="entity-hint">Click to control</div>
                     </div>
-                    <div class="entity-content">
-                        <div class="entity-name">Home Assistant</div>
-                        <div class="entity-state on">Connected</div>
+                    <div class="entity-submenu" id="submenu-beo4">
+                        <div class="submenu-title">Beo4 Remote</div>
+                        <div class="submenu-btn-row">
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('up')">UP</div>
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('down')">DOWN</div>
+                        </div>
+                        <div class="submenu-btn-row">
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('vol_up')">VOL+</div>
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('vol_down')">VOL-</div>
+                        </div>
+                        <div class="submenu-btn" onclick="EmulatorController.remoteBtn('go')">GO</div>
                     </div>
                 </div>
 
-                <div class="entity">
-                    <div class="entity-icon">📱</div>
-                    <div class="entity-content">
-                        <div class="entity-name">Beo4</div>
+                <!-- BeoRemote One (Bluetooth) -->
+                <div class="entity-wrapper">
+                    <div class="entity" data-entity="beoremote" onclick="EmulatorController.toggleSubmenu('beoremote')">
+                        <div class="entity-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                                <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+                            </svg>
+                        </div>
+                        <div class="entity-content">
+                            <div class="entity-name">BeoRemote One</div>
+                            <div class="entity-state on">Paired</div>
+                        </div>
+                        <div class="entity-hint">Click to control</div>
+                    </div>
+                    <div class="entity-submenu" id="submenu-beoremote">
+                        <div class="submenu-title">BeoRemote One</div>
+                        <div class="submenu-btn-row">
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('up')">UP</div>
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('down')">DOWN</div>
+                        </div>
+                        <div class="submenu-btn-row">
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('vol_up')">VOL+</div>
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('vol_down')">VOL-</div>
+                        </div>
+                        <div class="submenu-btn" onclick="EmulatorController.remoteBtn('go')">GO</div>
                     </div>
                 </div>
 
-                <div class="entity">
-                    <div class="entity-icon">🎮</div>
-                    <div class="entity-content">
-                        <div class="entity-name">BeoRemote One</div>
-                        <div class="entity-state on">Paired</div>
+                <!-- Sonos Speaker -->
+                <div class="entity-wrapper">
+                    <div class="entity" data-entity="sonos" onclick="EmulatorController.toggleSubmenu('sonos')">
+                        <div class="entity-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M12 3c-4.97 0-9 3.58-9 8v5c0 1.1.9 2 2 2h2v-7H5v-1c0-3.87 3.13-7 7-7s7 3.13 7 7v1h-2v7h2c1.1 0 2-.9 2-2v-5c0-4.42-4.03-8-9-8z"/>
+                            </svg>
+                        </div>
+                        <div class="entity-content">
+                            <div class="entity-name">Sonos</div>
+                            <div class="entity-state playing" id="sonos-state">Playing</div>
+                            <div class="entity-volume" id="sonos-volume">Vol: 30%</div>
+                        </div>
+                        <div class="entity-hint">Click to control</div>
+                    </div>
+                    <div class="entity-submenu" id="submenu-sonos">
+                        <div class="submenu-title">Sonos Playback</div>
+                        <div class="submenu-btn-row">
+                            <div class="submenu-btn" onclick="EmulatorController.prevTrack()">◀◀</div>
+                            <div class="submenu-btn" onclick="EmulatorController.nextTrack()">▶▶</div>
+                        </div>
+                        <div class="submenu-btn" onclick="EmulatorController.togglePlayback()">Play/Pause</div>
+                        <div class="submenu-title" style="margin-top: 8px;">Volume</div>
+                        <div class="submenu-btn-row">
+                            <div class="submenu-btn" onclick="EmulatorController.volumeDown()">VOL-</div>
+                            <div class="submenu-btn" onclick="EmulatorController.volumeUp()">VOL+</div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="entity">
-                    <div class="entity-icon">🔊</div>
-                    <div class="entity-content">
-                        <div class="entity-name">Sonos Move</div>
-                        <div class="entity-state playing" id="sonos-state">Playing</div>
+                <!-- Light -->
+                <div class="entity-wrapper">
+                    <div class="entity" data-entity="light">
+                        <div class="entity-icon" id="light-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="#fbbf24" stroke="#fbbf24" stroke-width="1.5">
+                                <path d="M9 21h6"/>
+                                <path d="M12 3a6 6 0 0 1 6 6c0 2.22-1.21 4.16-3 5.2V16a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-1.8c-1.79-1.04-3-2.98-3-5.2a6 6 0 0 1 6-6z"/>
+                                <path d="M9 18h6"/>
+                            </svg>
+                        </div>
+                        <div class="entity-content">
+                            <div class="entity-name">Living Room</div>
+                            <div class="entity-state on" id="light-state">On</div>
+                            <div class="entity-volume" id="light-brightness">Brightness: 20%</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -457,78 +655,252 @@
                 </div>
             </div>
         </div>
+
     </div>
 
     <script>
-        // Mock album data - 10 different albums
-        const mockAlbums = [
-            { artist: 'Daft Punk', title: 'Get Lucky', album: 'Random Access Memories', color: '#1a1a2e' },
-            { artist: 'The Beatles', title: 'Here Comes the Sun', album: 'Abbey Road', color: '#2d4a3e' },
-            { artist: 'Pink Floyd', title: 'Comfortably Numb', album: 'The Wall', color: '#4a2d2d' },
-            { artist: 'Queen', title: 'Bohemian Rhapsody', album: 'A Night at the Opera', color: '#3d2d4a' },
-            { artist: 'Michael Jackson', title: 'Billie Jean', album: 'Thriller', color: '#4a3d2d' },
-            { artist: 'Fleetwood Mac', title: 'Dreams', album: 'Rumours', color: '#2d3d4a' },
-            { artist: 'Led Zeppelin', title: 'Stairway to Heaven', album: 'Led Zeppelin IV', color: '#3a3a2a' },
-            { artist: 'Radiohead', title: 'Karma Police', album: 'OK Computer', color: '#2a3a3a' },
-            { artist: 'Nirvana', title: 'Smells Like Teen Spirit', album: 'Nevermind', color: '#3a2a3a' },
-            { artist: 'David Bowie', title: 'Heroes', album: 'Heroes', color: '#2a2a3a' }
-        ];
-
         const EmulatorController = {
             iframe: null,
             laserPosition: 93,
             maxLogEntries: 50,
-            currentTrackIndex: 0,
             wheelDragState: { active: false, startY: 0 },
 
-            init() {
+            // Queue system
+            playlists: [],
+            queue: [],
+            queueIndex: 0,
+            autoAdvanceInterval: null,
+            isPlaying: true,
+            openSubmenu: null,
+            volume: 30,
+            lightBrightness: 20,
+
+            // Scene to light brightness mapping
+            sceneBrightness: {
+                'dinner': 25,
+                'cozy': 10,
+                'frame': 50,
+                'all_on': 100,
+                'church_off': 0
+            },
+
+            // Artwork URLs to preload (non-Spotify)
+            extraArtwork: [
+                'https://image.tmdb.org/t/p/w500/49WJfeN0moxb9IPfGn8AIqMGskD.jpg' // Stranger Things
+            ],
+
+            async init() {
                 this.iframe = document.getElementById('bs5-iframe');
                 this.setupButtons();
                 this.setupKeyboardShortcuts();
                 this.setupWheelScrolling();
                 this.setupWheelDragging();
                 this.setupIframeListener();
+                this.setupClickOutside();
+
+                // Load playlists and preload all artwork
+                await this.loadPlaylists();
+                await this.preloadAllArtwork();
 
                 this.log('Demo ready', 'system');
 
-                // Send initial track to iframe
-                setTimeout(() => this.sendCurrentTrack(), 1000);
+                // Send initial track to iframe after a short delay
+                setTimeout(() => {
+                    this.sendCurrentTrack();
+                    this.startAutoAdvance();
+                }, 500);
+            },
+
+            async preloadAllArtwork() {
+                const imageUrls = new Set();
+
+                // Collect all playlist cover images
+                this.playlists.forEach(playlist => {
+                    if (playlist.image) imageUrls.add(playlist.image);
+                    // Collect all track images
+                    if (playlist.tracks) {
+                        playlist.tracks.forEach(track => {
+                            if (track.image) imageUrls.add(track.image);
+                        });
+                    }
+                });
+
+                // Add extra artwork (Netflix, etc.)
+                this.extraArtwork.forEach(url => imageUrls.add(url));
+
+                this.log(`Preloading ${imageUrls.size} images...`, 'system');
+
+                // Preload all images in parallel
+                const preloadPromises = Array.from(imageUrls).map(url => {
+                    return new Promise((resolve) => {
+                        const img = new Image();
+                        img.onload = () => resolve(url);
+                        img.onerror = () => resolve(null); // Don't fail on error
+                        img.src = url;
+                    });
+                });
+
+                const results = await Promise.all(preloadPromises);
+                const loaded = results.filter(r => r !== null).length;
+                this.log(`Preloaded ${loaded}/${imageUrls.size} images`, 'system');
+            },
+
+            async loadPlaylists() {
+                try {
+                    const response = await fetch('json/playlists_with_tracks.json');
+                    this.playlists = await response.json();
+
+                    // Initialize queue with first playlist's tracks
+                    if (this.playlists.length > 0 && this.playlists[0].tracks) {
+                        this.setQueueFromPlaylist(this.playlists[0]);
+                    }
+
+                    this.log(`Loaded ${this.playlists.length} playlists`, 'queue');
+                } catch (error) {
+                    console.error('Failed to load playlists:', error);
+                    this.log('Failed to load playlists', 'error');
+                }
+            },
+
+            setQueueFromPlaylist(playlist) {
+                this.queue = playlist.tracks.map(track => ({
+                    ...track,
+                    playlistName: playlist.name,
+                    playlistImage: playlist.image
+                }));
+                this.queueIndex = 0;
+                this.log(`Queue: ${playlist.name} (${this.queue.length} tracks)`, 'queue');
             },
 
             get currentTrack() {
-                return mockAlbums[this.currentTrackIndex];
+                if (this.queue.length === 0) return null;
+                return this.queue[this.queueIndex];
             },
 
             sendCurrentTrack() {
                 const track = this.currentTrack;
+                if (!track) return;
+
                 this.sendToIframe('mock_track', {
                     artist: track.artist,
-                    title: track.title,
-                    album: track.album,
-                    artwork: this.generateArtwork(track)
+                    title: track.name,
+                    album: track.playlistName || 'Unknown Album',
+                    artwork: track.image
                 });
-                document.getElementById('sonos-state').textContent = `Playing`;
-                this.log(`Now playing: ${track.artist} - ${track.title}`, 'input');
-            },
 
-            generateArtwork(track) {
-                // Generate a simple SVG data URL as album art
-                const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">
-                    <rect width="300" height="300" fill="${track.color}"/>
-                    <text x="150" y="130" text-anchor="middle" fill="white" font-family="Helvetica" font-size="24" font-weight="bold">${track.artist.substring(0, 15)}</text>
-                    <text x="150" y="170" text-anchor="middle" fill="#aaa" font-family="Helvetica" font-size="16">${track.album.substring(0, 20)}</text>
-                </svg>`;
-                return 'data:image/svg+xml;base64,' + btoa(svg);
+                document.getElementById('sonos-state').textContent = this.isPlaying ? 'Playing' : 'Paused';
+                document.getElementById('sonos-state').className = `entity-state ${this.isPlaying ? 'playing' : ''}`;
+
+                this.log(`Now: ${track.artist} - ${track.name}`, 'input');
             },
 
             nextTrack() {
-                this.currentTrackIndex = (this.currentTrackIndex + 1) % mockAlbums.length;
+                if (this.queue.length === 0) return;
+                this.queueIndex = (this.queueIndex + 1) % this.queue.length;
                 this.sendCurrentTrack();
+                this.restartAutoAdvance();
             },
 
             prevTrack() {
-                this.currentTrackIndex = (this.currentTrackIndex - 1 + mockAlbums.length) % mockAlbums.length;
+                if (this.queue.length === 0) return;
+                this.queueIndex = (this.queueIndex - 1 + this.queue.length) % this.queue.length;
                 this.sendCurrentTrack();
+                this.restartAutoAdvance();
+            },
+
+            playTrackAtIndex(index) {
+                if (index >= 0 && index < this.queue.length) {
+                    this.queueIndex = index;
+                    this.isPlaying = true;
+                    this.sendCurrentTrack();
+                    this.restartAutoAdvance();
+                }
+            },
+
+            togglePlayback() {
+                this.isPlaying = !this.isPlaying;
+                document.getElementById('sonos-state').textContent = this.isPlaying ? 'Playing' : 'Paused';
+                document.getElementById('sonos-state').className = `entity-state ${this.isPlaying ? 'playing' : ''}`;
+
+                if (this.isPlaying) {
+                    this.startAutoAdvance();
+                } else {
+                    this.stopAutoAdvance();
+                }
+                this.log(this.isPlaying ? 'Playback resumed' : 'Playback paused', 'queue');
+            },
+
+            volumeUp() {
+                this.volume = Math.min(100, this.volume + 5);
+                this.updateVolumeDisplay();
+                this.log(`Volume: ${this.volume}%`, 'queue');
+            },
+
+            volumeDown() {
+                this.volume = Math.max(0, this.volume - 5);
+                this.updateVolumeDisplay();
+                this.log(`Volume: ${this.volume}%`, 'queue');
+            },
+
+            updateVolumeDisplay() {
+                document.getElementById('sonos-volume').textContent = `Vol: ${this.volume}%`;
+            },
+
+
+            startAutoAdvance() {
+                this.stopAutoAdvance();
+                if (!this.isPlaying) return;
+
+                this.autoAdvanceInterval = setInterval(() => {
+                    if (this.isPlaying) {
+                        this.nextTrack();
+                    }
+                }, 30000); // Auto-advance every 30 seconds
+            },
+
+            stopAutoAdvance() {
+                if (this.autoAdvanceInterval) {
+                    clearInterval(this.autoAdvanceInterval);
+                    this.autoAdvanceInterval = null;
+                }
+            },
+
+            restartAutoAdvance() {
+                this.stopAutoAdvance();
+                this.startAutoAdvance();
+            },
+
+            // Handle GO action from iframe (playlist or track selected)
+            handleGoAction(data) {
+                const actionType = data.actionType || data.type;
+
+                if (actionType === 'playlist' && data.playlistId) {
+                    // Find playlist and set as queue
+                    const playlist = this.playlists.find(p => p.id === data.playlistId || p.name === data.playlistName);
+                    if (playlist) {
+                        this.setQueueFromPlaylist(playlist);
+                        this.isPlaying = true;
+                        this.sendCurrentTrack();
+                        this.restartAutoAdvance();
+                        this.log(`Playing: ${playlist.name}`, 'queue');
+                    }
+                } else if (actionType === 'track') {
+                    // Find the playlist first if we have a playlistId
+                    if (data.playlistId) {
+                        const playlist = this.playlists.find(p => p.id === data.playlistId || p.name === data.playlistName);
+                        if (playlist && playlist.tracks) {
+                            // Set the queue from this playlist if not already set
+                            if (this.queue.length === 0 || this.queue[0]?.playlistName !== playlist.name) {
+                                this.setQueueFromPlaylist(playlist);
+                            }
+                        }
+                    }
+
+                    // Play specific track
+                    if (data.trackIndex !== undefined) {
+                        this.playTrackAtIndex(data.trackIndex);
+                    }
+                }
             },
 
             sendToIframe(type, data) {
@@ -539,6 +911,71 @@
 
             sendLaserEvent(position) {
                 this.sendToIframe('laser', { position });
+            },
+
+            // Entity submenu handling
+            toggleSubmenu(entityId) {
+                const submenu = document.getElementById(`submenu-${entityId}`);
+                const entity = document.querySelector(`[data-entity="${entityId}"]`);
+
+                // Close other submenus
+                document.querySelectorAll('.entity-submenu.visible').forEach(el => {
+                    if (el.id !== `submenu-${entityId}`) {
+                        el.classList.remove('visible');
+                    }
+                });
+                document.querySelectorAll('.entity.expanded').forEach(el => {
+                    if (el.dataset.entity !== entityId) {
+                        el.classList.remove('expanded');
+                    }
+                });
+
+                // Toggle this submenu
+                submenu.classList.toggle('visible');
+                entity.classList.toggle('expanded');
+                this.openSubmenu = submenu.classList.contains('visible') ? entityId : null;
+            },
+
+            setupClickOutside() {
+                document.addEventListener('click', (e) => {
+                    if (!e.target.closest('.entity-wrapper')) {
+                        document.querySelectorAll('.entity-submenu.visible').forEach(el => el.classList.remove('visible'));
+                        document.querySelectorAll('.entity.expanded').forEach(el => el.classList.remove('expanded'));
+                        this.openSubmenu = null;
+                    }
+                });
+            },
+
+            // Submenu actions
+            sendWebhook() {
+                this.log('Webhook sent to HA', 'button');
+                // Trigger the camera overlay in the iframe (uses the existing CameraOverlayManager)
+                this.sendToIframe('camera_toggle', {});
+            },
+
+            remoteBtn(btn) {
+                switch (btn) {
+                    case 'up':
+                        this.prevTrack();
+                        this.log('Remote: UP (prev)', 'button');
+                        break;
+                    case 'down':
+                        this.nextTrack();
+                        this.log('Remote: DOWN (next)', 'button');
+                        break;
+                    case 'vol_up':
+                        this.volumeUp();
+                        this.log('Remote: VOL+', 'button');
+                        break;
+                    case 'vol_down':
+                        this.volumeDown();
+                        this.log('Remote: VOL-', 'button');
+                        break;
+                    case 'go':
+                        this.togglePlayback();
+                        this.log('Remote: GO (play/pause)', 'button');
+                        break;
+                }
             },
 
             setupButtons() {
@@ -641,8 +1078,59 @@
                         this.log(`View: ${event.data.path.replace('menu/', '')}`, 'nav');
                     } else if (event.data?.type === 'request_track') {
                         this.sendCurrentTrack();
+                    } else if (event.data?.type === 'go_action') {
+                        this.handleGoAction(event.data);
+                    } else if (event.data?.type === 'playback_control') {
+                        // Handle playback controls from Playing view buttons
+                        const action = event.data.action;
+                        if (action === 'prev_track') {
+                            this.prevTrack();
+                            this.log('Playback: prev', 'queue');
+                        } else if (action === 'next_track') {
+                            this.nextTrack();
+                            this.log('Playback: next', 'queue');
+                        } else if (action === 'toggle_playback') {
+                            this.togglePlayback();
+                        }
+                    } else if (event.data?.type === 'scene_activated') {
+                        this.handleSceneActivated(event.data.sceneId, event.data.sceneName);
                     }
                 });
+            },
+
+            handleSceneActivated(sceneId, sceneName) {
+                const brightness = this.sceneBrightness[sceneId];
+                if (brightness !== undefined) {
+                    this.lightBrightness = brightness;
+                    this.updateLightDisplay();
+                    this.log(`Scene: ${sceneName} (${brightness}%)`, 'button');
+                }
+            },
+
+            updateLightDisplay() {
+                const stateEl = document.getElementById('light-state');
+                const brightnessEl = document.getElementById('light-brightness');
+                const iconEl = document.getElementById('light-icon');
+                const isOn = this.lightBrightness > 0;
+
+                stateEl.textContent = isOn ? 'On' : 'Off';
+                stateEl.className = `entity-state ${isOn ? 'on' : ''}`;
+                brightnessEl.textContent = `Brightness: ${this.lightBrightness}%`;
+
+                // Update icon color based on state
+                if (isOn) {
+                    iconEl.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24" fill="#fbbf24" stroke="#fbbf24" stroke-width="1.5">
+                        <path d="M9 21h6"/>
+                        <path d="M12 3a6 6 0 0 1 6 6c0 2.22-1.21 4.16-3 5.2V16a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-1.8c-1.79-1.04-3-2.98-3-5.2a6 6 0 0 1 6-6z"/>
+                        <path d="M9 18h6"/>
+                    </svg>`;
+                } else {
+                    iconEl.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M9 21h6"/>
+                        <path d="M12 3a6 6 0 0 1 6 6c0 2.22-1.21 4.16-3 5.2V16a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-1.8c-1.79-1.04-3-2.98-3-5.2a6 6 0 0 1 6-6z"/>
+                        <path d="M9 18h6"/>
+                    </svg>`;
+                }
             },
 
             log(message, type = 'info') {

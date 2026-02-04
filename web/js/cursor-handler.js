@@ -668,6 +668,21 @@ function handleButtonEvent(uiStore, data) {
         }
     }
 
+    // Handle Playing view buttons in emulator mode - send playback controls via bridge
+    if (currentPage === 'menu/playing' && window.EmulatorBridge?.isInEmulator) {
+        const button = data.button.toLowerCase();
+        const actionMap = {
+            'left': 'prev_track',
+            'right': 'next_track',
+            'go': 'toggle_playback'
+        };
+
+        if (actionMap[button]) {
+            window.EmulatorBridge.notifyPlaybackControl(actionMap[button]);
+            return;
+        }
+    }
+
     // Forward button events to iframe pages that handle their own navigation
     if (window.IframeMessenger && window.IframeMessenger.routeHasIframe(currentPage)) {
         window.IframeMessenger.sendButtonEvent(currentPage, data.button);
