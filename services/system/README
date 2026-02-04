@@ -1,0 +1,57 @@
+# BeoSound 5C Services Setup
+
+## Automated Installation (Recommended)
+
+Use the provided scripts for easy service management:
+
+### Install All Services
+```bash
+sudo ./install-services.sh
+```
+
+### Uninstall All Services  
+```bash
+sudo ./uninstall-services.sh
+```
+
+## Manual Installation
+
+Create the service files as per the files in here. All logs are then routed to RAM.
+
+### Register and enable, e.g.,
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable beo-bluetooth.service
+sudo systemctl start beo-bluetooth.service
+```
+
+### Control with e.g.,
+```bash
+sudo systemctl stop beo-bluetooth.service
+sudo systemctl start beo-bluetooth.service
+sudo systemctl restart beo-bluetooth.service
+```
+
+### Check status
+```bash
+systemctl status beo-bluetooth.service
+```
+
+### Tail logs with timestamps
+```bash
+journalctl -u beo-bluetooth.service -f -l
+```
+
+### Tail logs just like they would show in STDOUT
+```bash
+journalctl -u beo-bluetooth.service -f -o cat
+```
+
+## Service Dependencies
+
+- `beo-http.service` - Base HTTP server (port 8000)
+- `beo-ui.service` - Chromium UI kiosk (depends on HTTP)
+- `beo-media.service` - Media/Sonos server (port 8766)
+- `beo-input.service` - Hardware input server (port 8765)
+- `beo-bluetooth.service` - Bluetooth remote service
+- `beo-masterlink.service` - MasterLink sniffer

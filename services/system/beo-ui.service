@@ -1,0 +1,19 @@
+[Unit]
+Description=BeoSound5c Chromium UI kiosk
+After=network.target beo-http.service
+Wants=network.target beo-http.service
+Requires=beo-http.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/beosound5c/services
+ExecStart=/home/pi/beosound5c/services/ui.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target 

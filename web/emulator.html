@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeoSound 5c - Interactive Demo</title>
+    <link rel="icon" type="image/x-icon" href="assets/favicons/favicon.ico">
+    <style>
+        :root {
+            --bg: #000;
+            --surface: #111;
+            --surface-hover: #1a1a1a;
+            --border: #333;
+            --text: #fff;
+            --text-muted: #888;
+            --accent: #c33;
+            --success: #5a5;
+            --warning: #ca0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .demo-container {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            padding: 20px;
+            align-items: center;
+        }
+
+        .demo-header {
+            text-align: center;
+            padding: 10px 0 20px;
+        }
+
+        .demo-header h1 {
+            font-size: 20px;
+            font-weight: 300;
+            letter-spacing: 3px;
+            color: var(--text);
+        }
+
+        .demo-header p {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
+
+        /* Main layout */
+        .main-area {
+            display: flex;
+            gap: 20px;
+            max-width: 1400px;
+            width: 100%;
+        }
+
+        /* Left panel - entities */
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            width: 140px;
+            height: 480px;
+            margin-top: 20px;
+        }
+
+        /* Right panel - log & shortcuts */
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            width: 180px;
+            height: 480px;
+            margin-top: 20px;
+        }
+
+        /* Device Area */
+        .device-area {
+            position: relative;
+            flex: 1;
+            min-width: 800px;
+            height: 520px;
+        }
+
+        /* BeoSound 5 Device Styles */
+        .bs5-device {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .bs5-body {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .bs5-screen {
+            width: 640px;
+            height: 480px;
+            background: linear-gradient(145deg, #1a1a1a 0%, #0f0f0f 50%, #1a1a1a 100%);
+            border: 2px solid #2a2a2a;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+            z-index: 1;
+            box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.9), 0 8px 30px rgba(0, 0, 0, 0.6);
+        }
+
+        .bs5-screen-inner {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            right: 18px;
+            bottom: 24px;
+            background: #000;
+            border: 1px solid #222;
+            border-radius: 3px;
+            overflow: hidden;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .bs5-screen-inner iframe {
+            width: 182%;
+            height: 182%;
+            border: none;
+            background: #000;
+            transform: scale(0.55);
+            transform-origin: top left;
+        }
+
+        .bs5-logo {
+            position: absolute;
+            bottom: 6px;
+            left: 0;
+            right: 0;
+            height: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Helvetica Neue', -apple-system, sans-serif;
+            font-size: 7px;
+            font-weight: 400;
+            letter-spacing: 2.5px;
+            color: #666;
+            user-select: none;
+        }
+
+        .bs5-wheel {
+            position: absolute;
+            right: -115px;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 2;
+        }
+
+        .bs5-wheel-ring {
+            width: 250px;
+            height: 250px;
+            border-radius: 50%;
+            background: linear-gradient(155deg, #c8c8c8 0%, #b0b0b0 25%, #989898 50%, #a8a8a8 75%, #b8b8b8 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 6px 30px rgba(0, 0, 0, 0.5), inset 0 2px 6px rgba(255, 255, 255, 0.5), inset 0 -3px 6px rgba(0, 0, 0, 0.2);
+            padding: 18px;
+            cursor: grab;
+        }
+
+        .bs5-wheel-ring:active { cursor: grabbing; }
+
+        .bs5-wheel-disc {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: linear-gradient(155deg, #e0dcd6 0%, #d8d4ce 30%, #c8c4be 60%, #d0ccc6 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.6), inset 0 -2px 4px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.15);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            cursor: grab;
+        }
+
+        .bs5-wheel-disc:active { cursor: grabbing; }
+
+        .bs5-wheel-bar {
+            width: 100%;
+            height: 22px;
+            background: #252525;
+            display: flex;
+            align-items: center;
+            font-family: 'Helvetica Neue', -apple-system, sans-serif;
+            font-size: 14px;
+            font-weight: 400;
+            color: #fff;
+            user-select: none;
+        }
+
+        .bs5-btn-back, .bs5-btn-fwd, .bs5-btn-go {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .bs5-btn-back:hover, .bs5-btn-fwd:hover, .bs5-btn-go:hover { background: rgba(255, 255, 255, 0.1); }
+        .bs5-btn-back:active, .bs5-btn-fwd:active, .bs5-btn-go:active { background: rgba(255, 255, 255, 0.2); }
+        .bs5-btn-back.active, .bs5-btn-fwd.active, .bs5-btn-go.active { background: rgba(255, 255, 255, 0.25); }
+
+        .bs5-btn-back { width: 25%; }
+        .bs5-btn-back::before { content: '‹'; font-size: 15px; }
+
+        .bs5-btn-fwd { width: 25%; }
+        .bs5-btn-fwd::before { content: '›'; font-size: 15px; }
+
+        .bs5-btn-go { width: 50%; }
+        .bs5-btn-go::before { content: 'GO'; font-size: 11px; letter-spacing: 2px; }
+
+        /* Entity Cards - Clickable with submenu */
+        .entity-wrapper {
+            position: relative;
+            flex: 1;
+            display: flex;
+        }
+
+        .entity {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 11px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            gap: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+        }
+
+        .entity:hover {
+            background: var(--surface-hover);
+            border-color: #555;
+            transform: scale(1.02);
+        }
+
+        .entity:active {
+            transform: scale(0.98);
+        }
+
+        .entity.expanded {
+            border-color: var(--accent);
+        }
+
+        .entity-icon {
+            font-size: 24px;
+        }
+
+        .entity-icon svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .entity-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .entity-name {
+            color: var(--text);
+            font-weight: 500;
+            font-size: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .entity-state {
+            color: var(--text-muted);
+            font-size: 9px;
+        }
+
+        .entity-state.on { color: var(--success); }
+        .entity-state.playing { color: var(--success); }
+
+        .entity-hint {
+            font-size: 8px;
+            color: var(--text-muted);
+            margin-top: 4px;
+            opacity: 0.7;
+        }
+
+        /* Entity Submenu */
+        .entity-submenu {
+            position: absolute;
+            left: 100%;
+            top: 0;
+            margin-left: 8px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px;
+            min-width: 120px;
+            display: none;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        .entity-submenu.visible {
+            display: block;
+        }
+
+        .submenu-title {
+            font-size: 9px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .submenu-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 12px;
+            margin: 4px 0;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .submenu-btn:hover {
+            background: rgba(255,255,255,0.15);
+            border-color: #555;
+        }
+
+        .submenu-btn:active {
+            background: rgba(255,255,255,0.25);
+        }
+
+        .submenu-btn-row {
+            display: flex;
+            gap: 4px;
+        }
+
+        .submenu-btn-row .submenu-btn {
+            flex: 1;
+            padding: 8px 6px;
+        }
+
+        /* Control panels */
+        .control-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .control-panel h3 {
+            font-size: 10px;
+            font-weight: 500;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            flex-shrink: 0;
+        }
+
+        /* Event Log */
+        .event-log {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 4px;
+            padding: 8px;
+            flex: 1;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 9px;
+        }
+
+        .event-log-entry {
+            padding: 1px 0;
+            color: var(--text-muted);
+        }
+
+        .event-log-entry.input { color: #6699ff; }
+        .event-log-entry.nav { color: #00ffcc; }
+        .event-log-entry.button { color: var(--warning); }
+        .event-log-entry.queue { color: #ff99ff; }
+
+        /* Shortcuts */
+        .shortcuts-list {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            flex: 1;
+            font-size: 9px;
+        }
+
+        .shortcut-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 3px 6px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+        }
+
+        .shortcut-key {
+            background: var(--surface-hover);
+            padding: 1px 5px;
+            border-radius: 2px;
+            font-family: monospace;
+            font-size: 9px;
+        }
+
+        /* Entity volume display */
+        .entity-volume {
+            font-size: 9px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .main-area {
+                flex-direction: column;
+                align-items: center;
+            }
+            .left-panel, .right-panel {
+                flex-direction: row;
+                width: 100%;
+                flex-wrap: wrap;
+                justify-content: center;
+                padding-top: 0;
+            }
+            .left-panel { order: 2; }
+            .right-panel { order: 3; }
+            .device-area { order: 1; min-width: auto; }
+            .entity-submenu {
+                left: auto;
+                right: 0;
+                top: 100%;
+                margin-left: 0;
+                margin-top: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <header class="demo-header">
+            <h1>BEOSOUND 5C INTERACTIVE DEMO</h1>
+            <p>Use mouse wheel on device, arrow keys for navigation, Enter for GO</p>
+        </header>
+
+        <div class="main-area">
+            <!-- Left Panel - Entities -->
+            <div class="left-panel">
+                <!-- Home Assistant -->
+                <div class="entity-wrapper">
+                    <div class="entity" data-entity="ha" onclick="EmulatorController.toggleSubmenu('ha')">
+                        <div class="entity-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+                                <polyline points="9 22 9 12 15 12 15 22"/>
+                            </svg>
+                        </div>
+                        <div class="entity-content">
+                            <div class="entity-name">Home Assistant</div>
+                            <div class="entity-state on">Connected</div>
+                        </div>
+                        <div class="entity-hint">Click to control</div>
+                    </div>
+                    <div class="entity-submenu" id="submenu-ha">
+                        <div class="submenu-title">Home Assistant</div>
+                        <div class="submenu-btn" onclick="EmulatorController.sendWebhook()">Trigger camera overlay</div>
+                    </div>
+                </div>
+
+                <!-- Beo4 Remote -->
+                <div class="entity-wrapper">
+                    <div class="entity" data-entity="beo4" onclick="EmulatorController.toggleSubmenu('beo4')">
+                        <div class="entity-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <rect x="6" y="2" width="12" height="20" rx="2"/>
+                                <circle cx="12" cy="7" r="2"/>
+                                <line x1="9" y1="12" x2="15" y2="12"/>
+                                <line x1="9" y1="15" x2="15" y2="15"/>
+                                <line x1="9" y1="18" x2="15" y2="18"/>
+                            </svg>
+                        </div>
+                        <div class="entity-content">
+                            <div class="entity-name">Beo4</div>
+                        </div>
+                        <div class="entity-hint">Click to control</div>
+                    </div>
+                    <div class="entity-submenu" id="submenu-beo4">
+                        <div class="submenu-title">Beo4 Remote</div>
+                        <div class="submenu-btn-row">
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('up')">UP</div>
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('down')">DOWN</div>
+                        </div>
+                        <div class="submenu-btn-row">
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('vol_up')">VOL+</div>
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('vol_down')">VOL-</div>
+                        </div>
+                        <div class="submenu-btn" onclick="EmulatorController.remoteBtn('go')">GO</div>
+                    </div>
+                </div>
+
+                <!-- BeoRemote One (Bluetooth) -->
+                <div class="entity-wrapper">
+                    <div class="entity" data-entity="beoremote" onclick="EmulatorController.toggleSubmenu('beoremote')">
+                        <div class="entity-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                                <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+                            </svg>
+                        </div>
+                        <div class="entity-content">
+                            <div class="entity-name">BeoRemote One</div>
+                            <div class="entity-state on">Paired</div>
+                        </div>
+                        <div class="entity-hint">Click to control</div>
+                    </div>
+                    <div class="entity-submenu" id="submenu-beoremote">
+                        <div class="submenu-title">BeoRemote One</div>
+                        <div class="submenu-btn-row">
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('up')">UP</div>
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('down')">DOWN</div>
+                        </div>
+                        <div class="submenu-btn-row">
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('vol_up')">VOL+</div>
+                            <div class="submenu-btn" onclick="EmulatorController.remoteBtn('vol_down')">VOL-</div>
+                        </div>
+                        <div class="submenu-btn" onclick="EmulatorController.remoteBtn('go')">GO</div>
+                    </div>
+                </div>
+
+                <!-- Sonos Speaker -->
+                <div class="entity-wrapper">
+                    <div class="entity" data-entity="sonos" onclick="EmulatorController.toggleSubmenu('sonos')">
+                        <div class="entity-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M12 3c-4.97 0-9 3.58-9 8v5c0 1.1.9 2 2 2h2v-7H5v-1c0-3.87 3.13-7 7-7s7 3.13 7 7v1h-2v7h2c1.1 0 2-.9 2-2v-5c0-4.42-4.03-8-9-8z"/>
+                            </svg>
+                        </div>
+                        <div class="entity-content">
+                            <div class="entity-name">Sonos</div>
+                            <div class="entity-state playing" id="sonos-state">Playing</div>
+                            <div class="entity-volume" id="sonos-volume">Vol: 30%</div>
+                        </div>
+                        <div class="entity-hint">Click to control</div>
+                    </div>
+                    <div class="entity-submenu" id="submenu-sonos">
+                        <div class="submenu-title">Sonos Playback</div>
+                        <div class="submenu-btn-row">
+                            <div class="submenu-btn" onclick="EmulatorController.prevTrack()">◀◀</div>
+                            <div class="submenu-btn" onclick="EmulatorController.nextTrack()">▶▶</div>
+                        </div>
+                        <div class="submenu-btn" onclick="EmulatorController.togglePlayback()">Play/Pause</div>
+                        <div class="submenu-title" style="margin-top: 8px;">Volume</div>
+                        <div class="submenu-btn-row">
+                            <div class="submenu-btn" onclick="EmulatorController.volumeDown()">VOL-</div>
+                            <div class="submenu-btn" onclick="EmulatorController.volumeUp()">VOL+</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Light -->
+                <div class="entity-wrapper">
+                    <div class="entity" data-entity="light">
+                        <div class="entity-icon" id="light-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="#fbbf24" stroke="#fbbf24" stroke-width="1.5">
+                                <path d="M9 21h6"/>
+                                <path d="M12 3a6 6 0 0 1 6 6c0 2.22-1.21 4.16-3 5.2V16a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-1.8c-1.79-1.04-3-2.98-3-5.2a6 6 0 0 1 6-6z"/>
+                                <path d="M9 18h6"/>
+                            </svg>
+                        </div>
+                        <div class="entity-content">
+                            <div class="entity-name">Living Room</div>
+                            <div class="entity-state on" id="light-state">On</div>
+                            <div class="entity-volume" id="light-brightness">Brightness: 20%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Device Area -->
+            <div class="device-area">
+                <div class="bs5-device">
+                    <div class="bs5-body">
+                        <div class="bs5-screen">
+                            <div class="bs5-screen-inner">
+                                <iframe id="bs5-iframe" src="index.html?emulator=true" allowfullscreen></iframe>
+                            </div>
+                            <div class="bs5-logo">BANG &amp; OLUFSEN</div>
+                        </div>
+                        <div class="bs5-wheel" id="nav-wheel">
+                            <div class="bs5-wheel-ring">
+                                <div class="bs5-wheel-disc">
+                                    <div class="bs5-wheel-bar">
+                                        <span class="bs5-btn-back" id="btn-back"></span>
+                                        <span class="bs5-btn-fwd" id="btn-fwd"></span>
+                                        <span class="bs5-btn-go" id="btn-go"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Log & Shortcuts -->
+            <div class="right-panel">
+                <div class="control-panel">
+                    <h3>Shortcuts</h3>
+                    <div class="shortcuts-list">
+                        <div class="shortcut-item"><span>Laser pointer</span><span class="shortcut-key">Scroll</span></div>
+                        <div class="shortcut-item"><span>Navigation</span><span class="shortcut-key">↑ ↓</span></div>
+                        <div class="shortcut-item"><span>Back / Forward</span><span class="shortcut-key">← →</span></div>
+                        <div class="shortcut-item"><span>GO button</span><span class="shortcut-key">Enter</span></div>
+                    </div>
+                </div>
+
+                <div class="control-panel">
+                    <h3>Event Log</h3>
+                    <div class="event-log" id="event-log"></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const EmulatorController = {
+            iframe: null,
+            laserPosition: 93,
+            maxLogEntries: 50,
+            wheelDragState: { active: false, startY: 0 },
+
+            // Queue system
+            playlists: [],
+            queue: [],
+            queueIndex: 0,
+            autoAdvanceInterval: null,
+            isPlaying: true,
+            openSubmenu: null,
+            volume: 30,
+            lightBrightness: 20,
+
+            // Scene to light brightness mapping
+            sceneBrightness: {
+                'dinner': 25,
+                'cozy': 10,
+                'frame': 50,
+                'all_on': 100,
+                'church_off': 0
+            },
+
+            // Artwork URLs to preload (non-Spotify)
+            extraArtwork: [
+                'https://image.tmdb.org/t/p/w500/49WJfeN0moxb9IPfGn8AIqMGskD.jpg' // Stranger Things
+            ],
+
+            async init() {
+                this.iframe = document.getElementById('bs5-iframe');
+                this.setupButtons();
+                this.setupKeyboardShortcuts();
+                this.setupWheelScrolling();
+                this.setupWheelDragging();
+                this.setupIframeListener();
+                this.setupClickOutside();
+
+                // Load playlists and preload all artwork
+                await this.loadPlaylists();
+                await this.preloadAllArtwork();
+
+                this.log('Demo ready', 'system');
+
+                // Send initial track to iframe after a short delay
+                setTimeout(() => {
+                    this.sendCurrentTrack();
+                    this.startAutoAdvance();
+                }, 500);
+            },
+
+            async preloadAllArtwork() {
+                const imageUrls = new Set();
+
+                // Collect all playlist cover images
+                this.playlists.forEach(playlist => {
+                    if (playlist.image) imageUrls.add(playlist.image);
+                    // Collect all track images
+                    if (playlist.tracks) {
+                        playlist.tracks.forEach(track => {
+                            if (track.image) imageUrls.add(track.image);
+                        });
+                    }
+                });
+
+                // Add extra artwork (Netflix, etc.)
+                this.extraArtwork.forEach(url => imageUrls.add(url));
+
+                this.log(`Preloading ${imageUrls.size} images...`, 'system');
+
+                // Preload all images in parallel
+                const preloadPromises = Array.from(imageUrls).map(url => {
+                    return new Promise((resolve) => {
+                        const img = new Image();
+                        img.onload = () => resolve(url);
+                        img.onerror = () => resolve(null); // Don't fail on error
+                        img.src = url;
+                    });
+                });
+
+                const results = await Promise.all(preloadPromises);
+                const loaded = results.filter(r => r !== null).length;
+                this.log(`Preloaded ${loaded}/${imageUrls.size} images`, 'system');
+            },
+
+            async loadPlaylists() {
+                try {
+                    const response = await fetch('json/playlists_with_tracks.json');
+                    this.playlists = await response.json();
+
+                    // Initialize queue with first playlist's tracks
+                    if (this.playlists.length > 0 && this.playlists[0].tracks) {
+                        this.setQueueFromPlaylist(this.playlists[0]);
+                    }
+
+                    this.log(`Loaded ${this.playlists.length} playlists`, 'queue');
+                } catch (error) {
+                    console.error('Failed to load playlists:', error);
+                    this.log('Failed to load playlists', 'error');
+                }
+            },
+
+            setQueueFromPlaylist(playlist) {
+                this.queue = playlist.tracks.map(track => ({
+                    ...track,
+                    playlistName: playlist.name,
+                    playlistImage: playlist.image
+                }));
+                this.queueIndex = 0;
+                this.log(`Queue: ${playlist.name} (${this.queue.length} tracks)`, 'queue');
+            },
+
+            get currentTrack() {
+                if (this.queue.length === 0) return null;
+                return this.queue[this.queueIndex];
+            },
+
+            sendCurrentTrack() {
+                const track = this.currentTrack;
+                if (!track) return;
+
+                this.sendToIframe('mock_track', {
+                    artist: track.artist,
+                    title: track.name,
+                    album: track.playlistName || 'Unknown Album',
+                    artwork: track.image
+                });
+
+                document.getElementById('sonos-state').textContent = this.isPlaying ? 'Playing' : 'Paused';
+                document.getElementById('sonos-state').className = `entity-state ${this.isPlaying ? 'playing' : ''}`;
+
+                this.log(`Now: ${track.artist} - ${track.name}`, 'input');
+            },
+
+            nextTrack() {
+                if (this.queue.length === 0) return;
+                this.queueIndex = (this.queueIndex + 1) % this.queue.length;
+                this.sendCurrentTrack();
+                this.restartAutoAdvance();
+            },
+
+            prevTrack() {
+                if (this.queue.length === 0) return;
+                this.queueIndex = (this.queueIndex - 1 + this.queue.length) % this.queue.length;
+                this.sendCurrentTrack();
+                this.restartAutoAdvance();
+            },
+
+            playTrackAtIndex(index) {
+                if (index >= 0 && index < this.queue.length) {
+                    this.queueIndex = index;
+                    this.isPlaying = true;
+                    this.sendCurrentTrack();
+                    this.restartAutoAdvance();
+                }
+            },
+
+            togglePlayback() {
+                this.isPlaying = !this.isPlaying;
+                document.getElementById('sonos-state').textContent = this.isPlaying ? 'Playing' : 'Paused';
+                document.getElementById('sonos-state').className = `entity-state ${this.isPlaying ? 'playing' : ''}`;
+
+                if (this.isPlaying) {
+                    this.startAutoAdvance();
+                } else {
+                    this.stopAutoAdvance();
+                }
+                this.log(this.isPlaying ? 'Playback resumed' : 'Playback paused', 'queue');
+            },
+
+            volumeUp() {
+                this.volume = Math.min(100, this.volume + 5);
+                this.updateVolumeDisplay();
+                this.log(`Volume: ${this.volume}%`, 'queue');
+            },
+
+            volumeDown() {
+                this.volume = Math.max(0, this.volume - 5);
+                this.updateVolumeDisplay();
+                this.log(`Volume: ${this.volume}%`, 'queue');
+            },
+
+            updateVolumeDisplay() {
+                document.getElementById('sonos-volume').textContent = `Vol: ${this.volume}%`;
+            },
+
+
+            startAutoAdvance() {
+                this.stopAutoAdvance();
+                if (!this.isPlaying) return;
+
+                this.autoAdvanceInterval = setInterval(() => {
+                    if (this.isPlaying) {
+                        this.nextTrack();
+                    }
+                }, 30000); // Auto-advance every 30 seconds
+            },
+
+            stopAutoAdvance() {
+                if (this.autoAdvanceInterval) {
+                    clearInterval(this.autoAdvanceInterval);
+                    this.autoAdvanceInterval = null;
+                }
+            },
+
+            restartAutoAdvance() {
+                this.stopAutoAdvance();
+                this.startAutoAdvance();
+            },
+
+            // Handle GO action from iframe (playlist or track selected)
+            handleGoAction(data) {
+                const actionType = data.actionType || data.type;
+
+                if (actionType === 'playlist' && data.playlistId) {
+                    // Find playlist and set as queue
+                    const playlist = this.playlists.find(p => p.id === data.playlistId || p.name === data.playlistName);
+                    if (playlist) {
+                        this.setQueueFromPlaylist(playlist);
+                        this.isPlaying = true;
+                        this.sendCurrentTrack();
+                        this.restartAutoAdvance();
+                        this.log(`Playing: ${playlist.name}`, 'queue');
+                    }
+                } else if (actionType === 'track') {
+                    // Find the playlist first if we have a playlistId
+                    if (data.playlistId) {
+                        const playlist = this.playlists.find(p => p.id === data.playlistId || p.name === data.playlistName);
+                        if (playlist && playlist.tracks) {
+                            // Set the queue from this playlist if not already set
+                            if (this.queue.length === 0 || this.queue[0]?.playlistName !== playlist.name) {
+                                this.setQueueFromPlaylist(playlist);
+                            }
+                        }
+                    }
+
+                    // Play specific track
+                    if (data.trackIndex !== undefined) {
+                        this.playTrackAtIndex(data.trackIndex);
+                    }
+                }
+            },
+
+            sendToIframe(type, data) {
+                if (this.iframe?.contentWindow) {
+                    this.iframe.contentWindow.postMessage({ type, data }, '*');
+                }
+            },
+
+            sendLaserEvent(position) {
+                this.sendToIframe('laser', { position });
+            },
+
+            // Entity submenu handling
+            toggleSubmenu(entityId) {
+                const submenu = document.getElementById(`submenu-${entityId}`);
+                const entity = document.querySelector(`[data-entity="${entityId}"]`);
+
+                // Close other submenus
+                document.querySelectorAll('.entity-submenu.visible').forEach(el => {
+                    if (el.id !== `submenu-${entityId}`) {
+                        el.classList.remove('visible');
+                    }
+                });
+                document.querySelectorAll('.entity.expanded').forEach(el => {
+                    if (el.dataset.entity !== entityId) {
+                        el.classList.remove('expanded');
+                    }
+                });
+
+                // Toggle this submenu
+                submenu.classList.toggle('visible');
+                entity.classList.toggle('expanded');
+                this.openSubmenu = submenu.classList.contains('visible') ? entityId : null;
+            },
+
+            setupClickOutside() {
+                document.addEventListener('click', (e) => {
+                    if (!e.target.closest('.entity-wrapper')) {
+                        document.querySelectorAll('.entity-submenu.visible').forEach(el => el.classList.remove('visible'));
+                        document.querySelectorAll('.entity.expanded').forEach(el => el.classList.remove('expanded'));
+                        this.openSubmenu = null;
+                    }
+                });
+            },
+
+            // Submenu actions
+            sendWebhook() {
+                this.log('Webhook sent to HA', 'button');
+                // Trigger the camera overlay in the iframe (uses the existing CameraOverlayManager)
+                this.sendToIframe('camera_toggle', {});
+            },
+
+            remoteBtn(btn) {
+                switch (btn) {
+                    case 'up':
+                        this.prevTrack();
+                        this.log('Remote: UP (prev)', 'button');
+                        break;
+                    case 'down':
+                        this.nextTrack();
+                        this.log('Remote: DOWN (next)', 'button');
+                        break;
+                    case 'vol_up':
+                        this.volumeUp();
+                        this.log('Remote: VOL+', 'button');
+                        break;
+                    case 'vol_down':
+                        this.volumeDown();
+                        this.log('Remote: VOL-', 'button');
+                        break;
+                    case 'go':
+                        this.togglePlayback();
+                        this.log('Remote: GO (play/pause)', 'button');
+                        break;
+                }
+            },
+
+            setupButtons() {
+                const btnBack = document.getElementById('btn-back');
+                const btnFwd = document.getElementById('btn-fwd');
+                const btnGo = document.getElementById('btn-go');
+
+                const press = (btn, el) => {
+                    el.classList.add('active');
+                    this.sendToIframe('button', { button: btn });
+                    this.log(`Button: ${btn}`, 'button');
+                    setTimeout(() => el.classList.remove('active'), 150);
+                };
+
+                btnBack.addEventListener('click', () => press('left', btnBack));
+                btnFwd.addEventListener('click', () => press('right', btnFwd));
+                btnGo.addEventListener('click', () => press('go', btnGo));
+            },
+
+            setupKeyboardShortcuts() {
+                document.addEventListener('keydown', (e) => {
+                    if (e.target.tagName === 'INPUT') return;
+                    switch (e.key) {
+                        case 'ArrowUp':
+                            e.preventDefault();
+                            this.sendToIframe('nav', { direction: 'counter', speed: 20 });
+                            this.log('Nav: up', 'nav');
+                            break;
+                        case 'ArrowDown':
+                            e.preventDefault();
+                            this.sendToIframe('nav', { direction: 'clock', speed: 20 });
+                            this.log('Nav: down', 'nav');
+                            break;
+                        case 'ArrowLeft':
+                            e.preventDefault();
+                            document.getElementById('btn-back').click();
+                            break;
+                        case 'ArrowRight':
+                            e.preventDefault();
+                            document.getElementById('btn-fwd').click();
+                            break;
+                        case 'Enter':
+                        case ' ':
+                            e.preventDefault();
+                            document.getElementById('btn-go').click();
+                            break;
+                        case 'n':
+                        case 'N':
+                            e.preventDefault();
+                            this.nextTrack();
+                            break;
+                        case 'p':
+                        case 'P':
+                            e.preventDefault();
+                            this.prevTrack();
+                            break;
+                    }
+                });
+            },
+
+            setupWheelScrolling() {
+                document.getElementById('nav-wheel').addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? 3 : -3;
+                    this.laserPosition = Math.max(3, Math.min(123, this.laserPosition + delta));
+                    this.sendLaserEvent(Math.round(this.laserPosition));
+                    this.log(`Laser: ${Math.round(this.laserPosition)}`, 'input');
+                });
+            },
+
+            setupWheelDragging() {
+                const wheelRing = document.querySelector('.bs5-wheel-ring');
+                const wheelDisc = document.querySelector('.bs5-wheel-disc');
+
+                const startDrag = (e) => {
+                    if (!e.target.closest('.bs5-wheel-bar')) {
+                        this.wheelDragState = { active: true, startY: e.clientY };
+                    }
+                };
+
+                wheelRing.addEventListener('mousedown', startDrag);
+                wheelDisc.addEventListener('mousedown', startDrag);
+
+                document.addEventListener('mousemove', (e) => {
+                    if (!this.wheelDragState.active) return;
+                    const deltaY = this.wheelDragState.startY - e.clientY;
+                    if (Math.abs(deltaY) >= 15) {
+                        this.sendToIframe('nav', { direction: deltaY > 0 ? 'counter' : 'clock', speed: 20 });
+                        this.log(`Nav: ${deltaY > 0 ? 'up' : 'down'}`, 'nav');
+                        this.wheelDragState.startY = e.clientY;
+                    }
+                });
+
+                document.addEventListener('mouseup', () => { this.wheelDragState.active = false; });
+            },
+
+            setupIframeListener() {
+                window.addEventListener('message', (event) => {
+                    if (event.data?.type === 'view_changed') {
+                        this.log(`View: ${event.data.path.replace('menu/', '')}`, 'nav');
+                    } else if (event.data?.type === 'request_track') {
+                        this.sendCurrentTrack();
+                    } else if (event.data?.type === 'go_action') {
+                        this.handleGoAction(event.data);
+                    } else if (event.data?.type === 'playback_control') {
+                        // Handle playback controls from Playing view buttons
+                        const action = event.data.action;
+                        if (action === 'prev_track') {
+                            this.prevTrack();
+                            this.log('Playback: prev', 'queue');
+                        } else if (action === 'next_track') {
+                            this.nextTrack();
+                            this.log('Playback: next', 'queue');
+                        } else if (action === 'toggle_playback') {
+                            this.togglePlayback();
+                        }
+                    } else if (event.data?.type === 'scene_activated') {
+                        this.handleSceneActivated(event.data.sceneId, event.data.sceneName);
+                    }
+                });
+            },
+
+            handleSceneActivated(sceneId, sceneName) {
+                const brightness = this.sceneBrightness[sceneId];
+                if (brightness !== undefined) {
+                    this.lightBrightness = brightness;
+                    this.updateLightDisplay();
+                    this.log(`Scene: ${sceneName} (${brightness}%)`, 'button');
+                }
+            },
+
+            updateLightDisplay() {
+                const stateEl = document.getElementById('light-state');
+                const brightnessEl = document.getElementById('light-brightness');
+                const iconEl = document.getElementById('light-icon');
+                const isOn = this.lightBrightness > 0;
+
+                stateEl.textContent = isOn ? 'On' : 'Off';
+                stateEl.className = `entity-state ${isOn ? 'on' : ''}`;
+                brightnessEl.textContent = `Brightness: ${this.lightBrightness}%`;
+
+                // Update icon color based on state
+                if (isOn) {
+                    iconEl.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24" fill="#fbbf24" stroke="#fbbf24" stroke-width="1.5">
+                        <path d="M9 21h6"/>
+                        <path d="M12 3a6 6 0 0 1 6 6c0 2.22-1.21 4.16-3 5.2V16a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-1.8c-1.79-1.04-3-2.98-3-5.2a6 6 0 0 1 6-6z"/>
+                        <path d="M9 18h6"/>
+                    </svg>`;
+                } else {
+                    iconEl.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M9 21h6"/>
+                        <path d="M12 3a6 6 0 0 1 6 6c0 2.22-1.21 4.16-3 5.2V16a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-1.8c-1.79-1.04-3-2.98-3-5.2a6 6 0 0 1 6-6z"/>
+                        <path d="M9 18h6"/>
+                    </svg>`;
+                }
+            },
+
+            log(message, type = 'info') {
+                const logEl = document.getElementById('event-log');
+                const entry = document.createElement('div');
+                entry.className = `event-log-entry ${type}`;
+                const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                entry.textContent = `[${time}] ${message}`;
+                logEl.appendChild(entry);
+                while (logEl.children.length > this.maxLogEntries) logEl.removeChild(logEl.firstChild);
+                logEl.scrollTop = logEl.scrollHeight;
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => EmulatorController.init());
+    </script>
+</body>
+</html>

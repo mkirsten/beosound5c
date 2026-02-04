@@ -1,0 +1,52 @@
+{
+  "0": {
+    "id": "4cZvqesxx8gPtXM5FkdjY0",
+    "name": "0: Audiophile",
+    "image": "https://mosaic.scdn.co/640/ab67616d00001e022eb7098e98461a4eaadcb33bab67616d00001e026525c04ee9f9bc5d21413c34ab67616d00001e02a879104c8e7ce859d2ae28fbab67616d00001e02e898af97dfcea2aa8754bad6"
+  },
+  "9": {
+    "id": "1FgHkjtMrreZmD6iJf3muE",
+    "name": "9: Party",
+    "image": "https://mosaic.scdn.co/640/ab67616d00001e0263bb98f014a9f2d5f8127d53ab67616d00001e0282770198e5f6eee03d9b0213ab67616d00001e028863bc11d2aa12b54f5aeb36ab67616d00001e02ccdddb2e5349ea0608c3e016"
+  },
+  "8": {
+    "id": "6Kkxi8Jj4Fo9F2Z51NMNJq",
+    "name": "8: Rock",
+    "image": "https://mosaic.scdn.co/640/ab67616d00001e025387fe3636211d34e2afeb3cab67616d00001e025aad343ff29fde5201368b3eab67616d00001e02813da91820fd194cbee5bdceab67616d00001e02f7c223721f1d860395444dbe"
+  },
+  "7": {
+    "id": "4ZudjDnendwyOxUkIuExnh",
+    "name": "7: Motown classics",
+    "image": "https://mosaic.scdn.co/640/ab67616d00001e0238266f9d67ff7283d886918bab67616d00001e024c2ca4281bd1ac61f7b17b90ab67616d00001e02c0fa62ae53b2aeae3766f13dab67616d00001e02e1b457da33ad6c1aa91f79e3"
+  },
+  "6": {
+    "id": "1tBDuYh4mPKG38k7kZCjZf",
+    "name": "6: Big band jazz",
+    "image": "https://mosaic.scdn.co/640/ab67616d00001e0202239c872e9ea9854bb3db7dab67616d00001e020bdc619b8ec28aa042a9c2ddab67616d00001e02363fe34c126af11ab783abf4ab67616d00001e02d6592259c6e49e7fed5e2645"
+  },
+  "5": {
+    "id": "0xpvAUxe2gUemVPjwwhG62",
+    "name": "5: Dinner",
+    "image": "https://mosaic.scdn.co/640/ab67616d00001e0229efa5f817c6170673fd0f80ab67616d00001e0260e2d73637d8a2167a4f1e9cab67616d00001e02837e3e8f3bd1b415327e9d10ab67616d00001e02d482421feca5a50bf6daa1b6"
+  },
+  "4": {
+    "id": "1h4tQ1qjFBkpdcOlsw4a2H",
+    "name": "4: Singer songwriter",
+    "image": "https://mosaic.scdn.co/640/ab67616d00001e02a0894e05a6ca30189157da01ab67616d00001e02a17943cc4876f85d1418c74dab67616d00001e02a565aad3c9c1515c3ea8d003ab67616d00001e02a862408f423515fe42b8bdec"
+  },
+  "3": {
+    "id": "5yAZ0IX9zuZS3HnnBvUENb",
+    "name": "3: 80s and 90s soft",
+    "image": "https://mosaic.scdn.co/640/ab67616d00001e0221f81a93050141991650c093ab67616d00001e02456c0b5d0316a80dc600802eab67616d00001e024b509947e48d592bfd0d237bab67616d00001e0277589bb1ffa2cb520d959b80"
+  },
+  "2": {
+    "id": "0DlNSXEOyx15jV3voLLKQA",
+    "name": "2: Lofi chillout",
+    "image": "https://mosaic.scdn.co/640/ab67616d00001e0220f996498bea76c5d9b68960ab67616d00001e0265a1c4b60106e510e6a06807ab67616d00001e026721a68cf704470e5983fd0dab67616d00001e0280826ba469c97716526e7588"
+  },
+  "1": {
+    "id": "6ZrydZ0LOZP0IMtkqyl78U",
+    "name": "1: Soft relaxation",
+    "image": "https://mosaic.scdn.co/640/ab67616d00001e0224994af91e85151e2abf54c5ab67616d00001e0226525eb999188ce63fc0614eab67616d00001e022e08852f1ff77a0baee6505eab67616d00001e025972a0ea65a8da6bb9d3b90c"
+  }
+}
