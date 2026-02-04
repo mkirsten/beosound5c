@@ -26,7 +26,6 @@ fetch.log
 
 # Project instructions (keep locally, exclude from public repo)
 publish.sh
-CLAUDE.md
 
 # Environment-specific
 /etc/beosound5c/
