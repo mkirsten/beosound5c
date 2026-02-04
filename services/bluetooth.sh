@@ -12,7 +12,7 @@ fi
 MAC="${BEOREMOTE_MAC:-00:00:00:00:00:00}"
 DEVICE_NAME="${DEVICE_NAME:-BeoSound5c}"
 BT_DEVICE_NAME="${BT_DEVICE_NAME:-BeoSound 5c}"
-BS5C_BASE_PATH="${BS5C_BASE_PATH:-/home/kirsten/beosound5c}"
+BS5C_BASE_PATH="${BS5C_BASE_PATH:-/home/pi/beosound5c}"
 
 # Home Assistant webhook (use environment variable)
 WEBHOOK="${HA_WEBHOOK_URL:-http://homeassistant.local:8123/api/webhook/beosound5c}"

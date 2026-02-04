@@ -6,11 +6,11 @@ Requires=bluetooth.target
 
 [Service]
 Type=simple
-User=kirsten
-Group=kirsten
-WorkingDirectory=/home/kirsten/beosound5c/services
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/beosound5c/services
 EnvironmentFile=-/etc/beosound5c/config.env
-ExecStart=/home/kirsten/beosound5c/services/bluetooth.sh
+ExecStart=/home/pi/beosound5c/services/bluetooth.sh
 Restart=always
 RestartSec=10
 StandardOutput=journal

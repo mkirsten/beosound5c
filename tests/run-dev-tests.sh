@@ -221,7 +221,7 @@ trap cleanup EXIT
 # Check if we're in the right directory
 if [ ! -f "web/index.html" ]; then
     echo "❌ Please run this script from the beosound5c project root directory"
-    echo "   cd /Users/kirsten/Development/beosound5c"
+    echo "   cd $(pwd)"
     exit 1
 fi
 

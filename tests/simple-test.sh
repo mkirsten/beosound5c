@@ -8,7 +8,7 @@ echo "======================================"
 # Check if we're in the right directory
 if [ ! -f "web/index.html" ]; then
     echo "❌ Please run this from the beosound5c project root:"
-    echo "   cd /Users/kirsten/Development/beosound5c"
+    echo "   cd $(pwd)"
     exit 1
 fi
 

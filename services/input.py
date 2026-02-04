@@ -11,7 +11,7 @@ BTN_MAP = {0x20:'left', 0x10:'right', 0x40:'go', 0x80:'power'}
 clients = set()
 
 # Base path for BeoSound 5c installation (from env or default)
-BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/kirsten/beosound5c')
+BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/pi/beosound5c')
 
 # Media server connection
 MEDIA_SERVER_URL = 'ws://localhost:8766'
