@@ -92,6 +92,9 @@ const EmulatorModeManager = {
                 case 'get_state':
                     this.sendStateToParent();
                     break;
+                case 'mock_track':
+                    this.handleExternalTrack(data);
+                    break;
             }
         });
 
@@ -134,6 +137,31 @@ const EmulatorModeManager = {
                 window.CameraOverlayManager.show();
             }
         }
+    },
+
+    handleExternalTrack(data) {
+        // Handle track update from parent emulator.html
+        if (!window.uiStore?.handleMediaUpdate) return;
+
+        const mockData = {
+            title: data.title,
+            artist: data.artist,
+            album: data.album,
+            artwork_url: data.artwork,
+            artwork: data.artwork,
+            playback_state: 'PLAYING',
+            state: 'playing',
+            position_ms: 0,
+            duration_ms: 240000,
+            position: '0:00',
+            duration: '4:00'
+        };
+
+        console.log(`[DEMO] External track: ${data.artist} - ${data.title}`);
+        window.uiStore.handleMediaUpdate(mockData, 'external_emulator');
+
+        // Stop internal track cycling when receiving external tracks
+        this.stopTrackCycle();
     },
 
     setupViewChangeReporting() {

@@ -14,7 +14,6 @@
             --text: #fff;
             --text-muted: #888;
             --accent: #c33;
-            --accent-hover: #e44;
             --success: #5a5;
             --warning: #ca0;
         }
@@ -33,7 +32,6 @@
             overflow-x: hidden;
         }
 
-        /* Layout */
         .demo-container {
             display: flex;
             flex-direction: column;
@@ -60,12 +58,37 @@
             margin-top: 5px;
         }
 
-        /* Device Area with Entities */
+        /* Main layout */
+        .main-area {
+            display: flex;
+            gap: 20px;
+            max-width: 1400px;
+            width: 100%;
+        }
+
+        /* Left panel - entities */
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 110px;
+            padding-top: 40px;
+        }
+
+        /* Right panel - log & shortcuts */
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 180px;
+        }
+
+        /* Device Area */
         .device-area {
             position: relative;
-            width: 1000px;
+            flex: 1;
+            min-width: 800px;
             height: 520px;
-            margin-bottom: 20px;
         }
 
         /* BeoSound 5 Device Styles */
@@ -154,9 +177,7 @@
             cursor: grab;
         }
 
-        .bs5-wheel-ring:active {
-            cursor: grabbing;
-        }
+        .bs5-wheel-ring:active { cursor: grabbing; }
 
         .bs5-wheel-disc {
             width: 100%;
@@ -171,9 +192,7 @@
             cursor: grab;
         }
 
-        .bs5-wheel-disc:active {
-            cursor: grabbing;
-        }
+        .bs5-wheel-disc:active { cursor: grabbing; }
 
         .bs5-wheel-bar {
             width: 100%;
@@ -197,13 +216,9 @@
             transition: background 0.15s ease;
         }
 
-        .bs5-btn-back:hover, .bs5-btn-fwd:hover, .bs5-btn-go:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
-
-        .bs5-btn-back:active, .bs5-btn-fwd:active, .bs5-btn-go:active {
-            background: rgba(255, 255, 255, 0.2);
-        }
+        .bs5-btn-back:hover, .bs5-btn-fwd:hover, .bs5-btn-go:hover { background: rgba(255, 255, 255, 0.1); }
+        .bs5-btn-back:active, .bs5-btn-fwd:active, .bs5-btn-go:active { background: rgba(255, 255, 255, 0.2); }
+        .bs5-btn-back.active, .bs5-btn-fwd.active, .bs5-btn-go.active { background: rgba(255, 255, 255, 0.25); }
 
         .bs5-btn-back { width: 25%; }
         .bs5-btn-back::before { content: '‹'; font-size: 15px; }
@@ -214,263 +229,70 @@
         .bs5-btn-go { width: 50%; }
         .bs5-btn-go::before { content: 'GO'; font-size: 11px; letter-spacing: 2px; }
 
-        .bs5-btn-back.active, .bs5-btn-fwd.active, .bs5-btn-go.active {
-            background: rgba(255, 255, 255, 0.25);
-        }
-
-        /* Entity Cards */
+        /* Entity Cards - Squared */
         .entity {
-            position: absolute;
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 12px;
             font-size: 11px;
-            min-width: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            aspect-ratio: 1;
+            text-align: center;
+            gap: 6px;
         }
 
         .entity-icon {
             font-size: 24px;
-            margin-bottom: 6px;
+        }
+
+        .entity-icon svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .entity-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
         }
 
         .entity-name {
             color: var(--text);
             font-weight: 500;
-            margin-bottom: 3px;
+            font-size: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .entity-state {
             color: var(--text-muted);
-            font-size: 10px;
+            font-size: 9px;
         }
 
-        .entity-state.on {
-            color: var(--success);
-        }
+        .entity-state.on { color: var(--success); }
+        .entity-state.playing { color: var(--success); }
 
-        .entity-state.playing {
-            color: #6699ff;
-        }
-
-        /* Entity positions */
-        .entity-ha {
-            top: 20px;
-            left: 20px;
-        }
-
-        .entity-light1 {
-            top: 20px;
-            right: 20px;
-        }
-
-        .entity-light2 {
-            bottom: 20px;
-            right: 20px;
-        }
-
-        .entity-sonos {
-            bottom: 20px;
-            left: 20px;
-        }
-
-        .entity-beo4 {
-            top: 50%;
-            left: 20px;
-            transform: translateY(-50%);
-        }
-
-        /* Animated connection lines */
-        .entity::before {
-            content: '';
-            position: absolute;
-            width: 40px;
-            height: 1px;
-            background: linear-gradient(90deg, var(--border) 0%, transparent 100%);
-        }
-
-        .entity-ha::before {
-            right: -40px;
-            top: 50%;
-        }
-
-        .entity-light1::before {
-            left: -40px;
-            top: 50%;
-            background: linear-gradient(270deg, var(--border) 0%, transparent 100%);
-        }
-
-        .entity-sonos::before {
-            right: -40px;
-            top: 50%;
-        }
-
-        .entity-beo4::before {
-            right: -40px;
-            top: 50%;
-        }
-
-        /* Controls Panel - Below Device */
-        .controls-panel {
-            display: flex;
-            gap: 20px;
-            max-width: 1000px;
-            width: 100%;
-        }
-
-        .control-group {
+        /* Control panels */
+        .control-panel {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 8px;
-            padding: 15px;
-            flex: 1;
+            padding: 12px;
         }
 
-        .control-group h3 {
-            font-size: 11px;
+        .control-panel h3 {
+            font-size: 10px;
             font-weight: 500;
             letter-spacing: 1.5px;
             color: var(--text-muted);
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             text-transform: uppercase;
-        }
-
-        /* Laser Pointer Slider */
-        .laser-control {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .laser-slider-container {
-            position: relative;
-            height: 32px;
-            background: linear-gradient(90deg,
-                rgba(102, 153, 255, 0.3) 0%,
-                rgba(102, 153, 255, 0.8) 10%,
-                rgba(0, 255, 204, 0.8) 90%,
-                rgba(0, 255, 204, 0.3) 100%
-            );
-            border-radius: 16px;
-            overflow: hidden;
-        }
-
-        .laser-slider {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 100%;
-            height: 100%;
-            background: transparent;
-            cursor: pointer;
-        }
-
-        .laser-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 20px;
-            height: 28px;
-            background: white;
-            border-radius: 10px;
-            cursor: grab;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        }
-
-        .laser-labels {
-            display: flex;
-            justify-content: space-between;
-            font-size: 9px;
-            color: var(--text-muted);
-        }
-
-        /* Volume Wheel */
-        .volume-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .volume-wheel {
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            background: linear-gradient(155deg, #444 0%, #333 50%, #3a3a3a 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.3);
-            cursor: grab;
-            position: relative;
-        }
-
-        .volume-wheel::before {
-            content: '';
-            position: absolute;
-            top: 6px;
-            width: 3px;
-            height: 8px;
-            background: var(--accent);
-            border-radius: 2px;
-        }
-
-        .volume-value {
-            font-size: 18px;
-            font-weight: 300;
-        }
-
-        /* Nav Buttons */
-        .nav-buttons {
-            display: flex;
-            gap: 8px;
-        }
-
-        .nav-btn {
-            flex: 1;
-            padding: 8px;
-            background: var(--surface-hover);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            color: var(--text);
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-
-        .nav-btn:hover {
-            background: #2a2a2a;
-            border-color: var(--accent);
-        }
-
-        .nav-btn:active {
-            background: var(--accent);
-        }
-
-        /* Debug Panel */
-        .debug-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
-            font-family: monospace;
-            font-size: 10px;
-        }
-
-        .debug-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 4px 8px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 3px;
-        }
-
-        .debug-key {
-            color: var(--text-muted);
-        }
-
-        .debug-value {
-            color: var(--success);
-        }
-
-        .debug-value.warning {
-            color: var(--warning);
         }
 
         /* Event Log */
@@ -478,7 +300,7 @@
             background: rgba(0, 0, 0, 0.5);
             border-radius: 4px;
             padding: 8px;
-            height: 60px;
+            height: 120px;
             overflow-y: auto;
             font-family: monospace;
             font-size: 9px;
@@ -494,9 +316,9 @@
         .event-log-entry.button { color: var(--warning); }
 
         /* Shortcuts */
-        .shortcuts-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
+        .shortcuts-list {
+            display: flex;
+            flex-direction: column;
             gap: 4px;
             font-size: 9px;
         }
@@ -512,25 +334,28 @@
 
         .shortcut-key {
             background: var(--surface-hover);
-            padding: 1px 4px;
+            padding: 1px 5px;
             border-radius: 2px;
             font-family: monospace;
-            font-size: 8px;
+            font-size: 9px;
         }
 
         /* Responsive */
-        @media (max-width: 1050px) {
-            .device-area {
-                transform: scale(0.8);
-                transform-origin: top center;
-                height: 420px;
+        @media (max-width: 1200px) {
+            .main-area {
+                flex-direction: column;
+                align-items: center;
             }
-            .controls-panel {
+            .left-panel, .right-panel {
+                flex-direction: row;
+                width: 100%;
                 flex-wrap: wrap;
+                justify-content: center;
+                padding-top: 0;
             }
-            .control-group {
-                min-width: 200px;
-            }
+            .left-panel { order: 2; }
+            .right-panel { order: 3; }
+            .device-area { order: 1; min-width: auto; }
         }
     </style>
 </head>
@@ -538,165 +363,127 @@
     <div class="demo-container">
         <header class="demo-header">
             <h1>BEOSOUND 5C INTERACTIVE DEMO</h1>
-            <p>Use mouse wheel on device, or controls below</p>
+            <p>Use mouse wheel on device, arrow keys for navigation, Enter for GO</p>
         </header>
 
-        <!-- Device Area with Entities -->
-        <div class="device-area">
-            <!-- Entities around the device -->
-            <div class="entity entity-ha">
-                <div class="entity-icon">🏠</div>
-                <div class="entity-name">Home Assistant</div>
-                <div class="entity-state on">Connected</div>
-            </div>
-
-            <div class="entity entity-light1">
-                <div class="entity-icon">💡</div>
-                <div class="entity-name">Living Room</div>
-                <div class="entity-state on">On • 80%</div>
-            </div>
-
-            <div class="entity entity-light2">
-                <div class="entity-icon">💡</div>
-                <div class="entity-name">Kitchen</div>
-                <div class="entity-state">Off</div>
-            </div>
-
-            <div class="entity entity-sonos">
-                <div class="entity-icon">🔊</div>
-                <div class="entity-name">Sonos Move</div>
-                <div class="entity-state playing" id="sonos-state">Playing • 35%</div>
-            </div>
-
-            <div class="entity entity-beo4">
-                <div class="entity-icon">📱</div>
-                <div class="entity-name">Beo4 Remote</div>
-                <div class="entity-state on">Paired</div>
-            </div>
-
-            <!-- BeoSound 5 Device -->
-            <div class="bs5-device">
-                <div class="bs5-body">
-                    <div class="bs5-screen">
-                        <div class="bs5-screen-inner">
-                            <iframe id="bs5-iframe" src="index.html?emulator=true" allowfullscreen></iframe>
-                        </div>
-                        <div class="bs5-logo">BANG &amp; OLUFSEN</div>
+        <div class="main-area">
+            <!-- Left Panel - Entities -->
+            <div class="left-panel">
+                <div class="entity">
+                    <div class="entity-icon">💡</div>
+                    <div class="entity-content">
+                        <div class="entity-name">Living Room</div>
+                        <div class="entity-state on">On • 80%</div>
                     </div>
-                    <div class="bs5-wheel" id="nav-wheel">
-                        <div class="bs5-wheel-ring">
-                            <div class="bs5-wheel-disc">
-                                <div class="bs5-wheel-bar">
-                                    <span class="bs5-btn-back" id="btn-back"></span>
-                                    <span class="bs5-btn-fwd" id="btn-fwd"></span>
-                                    <span class="bs5-btn-go" id="btn-go"></span>
+                </div>
+
+                <div class="entity">
+                    <div class="entity-icon">
+                        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+                            <polyline points="9 22 9 12 15 12 15 22"/>
+                        </svg>
+                    </div>
+                    <div class="entity-content">
+                        <div class="entity-name">Home Assistant</div>
+                        <div class="entity-state on">Connected</div>
+                    </div>
+                </div>
+
+                <div class="entity">
+                    <div class="entity-icon">📱</div>
+                    <div class="entity-content">
+                        <div class="entity-name">Beo4</div>
+                    </div>
+                </div>
+
+                <div class="entity">
+                    <div class="entity-icon">🎮</div>
+                    <div class="entity-content">
+                        <div class="entity-name">BeoRemote One</div>
+                        <div class="entity-state on">Paired</div>
+                    </div>
+                </div>
+
+                <div class="entity">
+                    <div class="entity-icon">🔊</div>
+                    <div class="entity-content">
+                        <div class="entity-name">Sonos Move</div>
+                        <div class="entity-state playing" id="sonos-state">Playing</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Device Area -->
+            <div class="device-area">
+                <div class="bs5-device">
+                    <div class="bs5-body">
+                        <div class="bs5-screen">
+                            <div class="bs5-screen-inner">
+                                <iframe id="bs5-iframe" src="index.html?emulator=true" allowfullscreen></iframe>
+                            </div>
+                            <div class="bs5-logo">BANG &amp; OLUFSEN</div>
+                        </div>
+                        <div class="bs5-wheel" id="nav-wheel">
+                            <div class="bs5-wheel-ring">
+                                <div class="bs5-wheel-disc">
+                                    <div class="bs5-wheel-bar">
+                                        <span class="bs5-btn-back" id="btn-back"></span>
+                                        <span class="bs5-btn-fwd" id="btn-fwd"></span>
+                                        <span class="bs5-btn-go" id="btn-go"></span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Controls Panel -->
-        <div class="controls-panel">
-            <!-- Laser Pointer -->
-            <div class="control-group">
-                <h3>Laser Pointer</h3>
-                <div class="laser-control">
-                    <div class="laser-slider-container">
-                        <input type="range" class="laser-slider" id="laser-slider" min="3" max="123" value="93">
-                    </div>
-                    <div class="laser-labels">
-                        <span>SHOWING</span>
-                        <span>Position: <span id="laser-position">93</span></span>
-                        <span>PLAYING</span>
+            <!-- Right Panel - Log & Shortcuts -->
+            <div class="right-panel">
+                <div class="control-panel">
+                    <h3>Shortcuts</h3>
+                    <div class="shortcuts-list">
+                        <div class="shortcut-item"><span>Laser pointer</span><span class="shortcut-key">Scroll</span></div>
+                        <div class="shortcut-item"><span>Navigation</span><span class="shortcut-key">↑ ↓</span></div>
+                        <div class="shortcut-item"><span>Back / Forward</span><span class="shortcut-key">← →</span></div>
+                        <div class="shortcut-item"><span>GO button</span><span class="shortcut-key">Enter</span></div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Volume & Nav -->
-            <div class="control-group">
-                <h3>Volume</h3>
-                <div class="volume-row">
-                    <div class="volume-wheel" id="volume-wheel"></div>
-                    <div class="volume-value"><span id="volume-value">50</span>%</div>
-                </div>
-                <h3 style="margin-top: 12px;">Navigation</h3>
-                <div class="nav-buttons">
-                    <button class="nav-btn" id="nav-up">↑</button>
-                    <button class="nav-btn" id="nav-down">↓</button>
-                </div>
-            </div>
-
-            <!-- Debug -->
-            <div class="control-group">
-                <h3>Debug</h3>
-                <div class="debug-grid">
-                    <div class="debug-item">
-                        <span class="debug-key">mode</span>
-                        <span class="debug-value">DEMO</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="debug-key">laser</span>
-                        <span class="debug-value" id="debug-laser">93</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="debug-key">angle</span>
-                        <span class="debug-value" id="debug-angle">180°</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="debug-key">view</span>
-                        <span class="debug-value" id="debug-view">playing</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="debug-key">vol</span>
-                        <span class="debug-value" id="debug-volume">50</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="debug-key">ws</span>
-                        <span class="debug-value warning">MOCK</span>
-                    </div>
-                    <div class="debug-item" style="grid-column: span 2;">
-                        <span class="debug-key">track</span>
-                        <span class="debug-value" id="debug-track">—</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Log & Shortcuts -->
-            <div class="control-group">
-                <h3>Event Log</h3>
-                <div class="event-log" id="event-log"></div>
-                <h3 style="margin-top: 10px;">Shortcuts</h3>
-                <div class="shortcuts-grid">
-                    <div class="shortcut-item"><span>Scroll</span><span class="shortcut-key">Laser</span></div>
-                    <div class="shortcut-item"><span>↑↓</span><span class="shortcut-key">Nav</span></div>
-                    <div class="shortcut-item"><span>←→</span><span class="shortcut-key">‹ ›</span></div>
-                    <div class="shortcut-item"><span>Enter</span><span class="shortcut-key">GO</span></div>
-                    <div class="shortcut-item"><span>+/-</span><span class="shortcut-key">Vol</span></div>
-                    <div class="shortcut-item"><span>K</span><span class="shortcut-key">Cam</span></div>
+                <div class="control-panel">
+                    <h3>Event Log</h3>
+                    <div class="event-log" id="event-log"></div>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        // Mock album data - 10 different albums
+        const mockAlbums = [
+            { artist: 'Daft Punk', title: 'Get Lucky', album: 'Random Access Memories', color: '#1a1a2e' },
+            { artist: 'The Beatles', title: 'Here Comes the Sun', album: 'Abbey Road', color: '#2d4a3e' },
+            { artist: 'Pink Floyd', title: 'Comfortably Numb', album: 'The Wall', color: '#4a2d2d' },
+            { artist: 'Queen', title: 'Bohemian Rhapsody', album: 'A Night at the Opera', color: '#3d2d4a' },
+            { artist: 'Michael Jackson', title: 'Billie Jean', album: 'Thriller', color: '#4a3d2d' },
+            { artist: 'Fleetwood Mac', title: 'Dreams', album: 'Rumours', color: '#2d3d4a' },
+            { artist: 'Led Zeppelin', title: 'Stairway to Heaven', album: 'Led Zeppelin IV', color: '#3a3a2a' },
+            { artist: 'Radiohead', title: 'Karma Police', album: 'OK Computer', color: '#2a3a3a' },
+            { artist: 'Nirvana', title: 'Smells Like Teen Spirit', album: 'Nevermind', color: '#3a2a3a' },
+            { artist: 'David Bowie', title: 'Heroes', album: 'Heroes', color: '#2a2a3a' }
+        ];
+
         const EmulatorController = {
             iframe: null,
             laserPosition: 93,
-            volume: 50,
-            volumeWheelAngle: 0,
-            maxLogEntries: 30,
-            currentTrack: null,
+            maxLogEntries: 50,
+            currentTrackIndex: 0,
             wheelDragState: { active: false, startY: 0 },
 
             init() {
                 this.iframe = document.getElementById('bs5-iframe');
-                this.setupLaserSlider();
-                this.setupVolumeWheel();
                 this.setupButtons();
-                this.setupNavigation();
                 this.setupKeyboardShortcuts();
                 this.setupWheelScrolling();
                 this.setupWheelDragging();
@@ -704,28 +491,44 @@
 
                 this.log('Demo ready', 'system');
 
-                setInterval(() => this.syncLaserFromIframe(), 200);
-                setInterval(() => this.updateSonosState(), 5000);
+                // Send initial track to iframe
+                setTimeout(() => this.sendCurrentTrack(), 1000);
             },
 
-            syncLaserFromIframe() {
-                if (this.iframe?.contentWindow?.uiStore) {
-                    const iframeLaser = this.iframe.contentWindow.uiStore.laserPosition;
-                    if (iframeLaser && Math.abs(iframeLaser - this.laserPosition) > 1) {
-                        this.laserPosition = iframeLaser;
-                        document.getElementById('laser-slider').value = this.laserPosition;
-                        document.getElementById('laser-position').textContent = Math.round(this.laserPosition);
-                        document.getElementById('debug-laser').textContent = Math.round(this.laserPosition);
-                        document.getElementById('debug-angle').textContent = this.laserToAngle(this.laserPosition).toFixed(0) + '°';
-                    }
-                }
+            get currentTrack() {
+                return mockAlbums[this.currentTrackIndex];
             },
 
-            updateSonosState() {
+            sendCurrentTrack() {
                 const track = this.currentTrack;
-                if (track) {
-                    document.getElementById('sonos-state').textContent = `Playing • ${this.volume}%`;
-                }
+                this.sendToIframe('mock_track', {
+                    artist: track.artist,
+                    title: track.title,
+                    album: track.album,
+                    artwork: this.generateArtwork(track)
+                });
+                document.getElementById('sonos-state').textContent = `Playing`;
+                this.log(`Now playing: ${track.artist} - ${track.title}`, 'input');
+            },
+
+            generateArtwork(track) {
+                // Generate a simple SVG data URL as album art
+                const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">
+                    <rect width="300" height="300" fill="${track.color}"/>
+                    <text x="150" y="130" text-anchor="middle" fill="white" font-family="Helvetica" font-size="24" font-weight="bold">${track.artist.substring(0, 15)}</text>
+                    <text x="150" y="170" text-anchor="middle" fill="#aaa" font-family="Helvetica" font-size="16">${track.album.substring(0, 20)}</text>
+                </svg>`;
+                return 'data:image/svg+xml;base64,' + btoa(svg);
+            },
+
+            nextTrack() {
+                this.currentTrackIndex = (this.currentTrackIndex + 1) % mockAlbums.length;
+                this.sendCurrentTrack();
+            },
+
+            prevTrack() {
+                this.currentTrackIndex = (this.currentTrackIndex - 1 + mockAlbums.length) % mockAlbums.length;
+                this.sendCurrentTrack();
             },
 
             sendToIframe(type, data) {
@@ -734,66 +537,8 @@
                 }
             },
 
-            setupLaserSlider() {
-                const slider = document.getElementById('laser-slider');
-                slider.addEventListener('input', (e) => {
-                    this.laserPosition = parseInt(e.target.value);
-                    document.getElementById('laser-position').textContent = this.laserPosition;
-                    this.sendLaserEvent(this.laserPosition);
-                    this.log(`Laser: ${this.laserPosition}`, 'input');
-                });
-            },
-
             sendLaserEvent(position) {
                 this.sendToIframe('laser', { position });
-                document.getElementById('debug-laser').textContent = position;
-                document.getElementById('debug-angle').textContent = this.laserToAngle(position).toFixed(0) + '°';
-            },
-
-            laserToAngle(position) {
-                if (position <= 3) return 150;
-                if (position >= 123) return 210;
-                return 150 + (position - 3) * (60 / 120);
-            },
-
-            setupVolumeWheel() {
-                const wheel = document.getElementById('volume-wheel');
-                let isDragging = false;
-                let lastY = 0;
-
-                wheel.addEventListener('mousedown', (e) => {
-                    isDragging = true;
-                    lastY = e.clientY;
-                });
-
-                document.addEventListener('mousemove', (e) => {
-                    if (!isDragging) return;
-                    const deltaY = lastY - e.clientY;
-                    lastY = e.clientY;
-                    if (Math.abs(deltaY) > 2) {
-                        this.adjustVolume(deltaY > 0 ? 1 : -1);
-                        this.volumeWheelAngle += deltaY * 2;
-                        wheel.style.transform = `rotate(${this.volumeWheelAngle}deg)`;
-                    }
-                });
-
-                document.addEventListener('mouseup', () => { isDragging = false; });
-
-                wheel.addEventListener('wheel', (e) => {
-                    e.preventDefault();
-                    const direction = e.deltaY > 0 ? -1 : 1;
-                    this.adjustVolume(direction);
-                    this.volumeWheelAngle += direction * 15;
-                    wheel.style.transform = `rotate(${this.volumeWheelAngle}deg)`;
-                });
-            },
-
-            adjustVolume(direction) {
-                this.volume = Math.max(0, Math.min(100, this.volume + direction * 2));
-                document.getElementById('volume-value').textContent = this.volume;
-                document.getElementById('debug-volume').textContent = this.volume;
-                this.sendToIframe('volume', { direction: direction > 0 ? 'clock' : 'counter', speed: 10 });
-                this.log(`Vol: ${this.volume}%`, 'input');
             },
 
             setupButtons() {
@@ -813,29 +558,43 @@
                 btnGo.addEventListener('click', () => press('go', btnGo));
             },
 
-            setupNavigation() {
-                document.getElementById('nav-up').addEventListener('click', () => {
-                    this.sendToIframe('nav', { direction: 'counter', speed: 20 });
-                    this.log('Nav: up', 'nav');
-                });
-                document.getElementById('nav-down').addEventListener('click', () => {
-                    this.sendToIframe('nav', { direction: 'clock', speed: 20 });
-                    this.log('Nav: down', 'nav');
-                });
-            },
-
             setupKeyboardShortcuts() {
                 document.addEventListener('keydown', (e) => {
                     if (e.target.tagName === 'INPUT') return;
                     switch (e.key) {
-                        case 'ArrowUp': e.preventDefault(); this.sendToIframe('nav', { direction: 'counter', speed: 20 }); this.log('Nav: up', 'nav'); break;
-                        case 'ArrowDown': e.preventDefault(); this.sendToIframe('nav', { direction: 'clock', speed: 20 }); this.log('Nav: down', 'nav'); break;
-                        case 'ArrowLeft': e.preventDefault(); document.getElementById('btn-back').click(); break;
-                        case 'ArrowRight': e.preventDefault(); document.getElementById('btn-fwd').click(); break;
-                        case 'Enter': case ' ': e.preventDefault(); document.getElementById('btn-go').click(); break;
-                        case '+': case '=': case 'PageUp': e.preventDefault(); this.adjustVolume(1); break;
-                        case '-': case '_': case 'PageDown': e.preventDefault(); this.adjustVolume(-1); break;
-                        case 'k': case 'K': e.preventDefault(); this.sendToIframe('camera_toggle', {}); this.log('Camera', 'button'); break;
+                        case 'ArrowUp':
+                            e.preventDefault();
+                            this.sendToIframe('nav', { direction: 'counter', speed: 20 });
+                            this.log('Nav: up', 'nav');
+                            break;
+                        case 'ArrowDown':
+                            e.preventDefault();
+                            this.sendToIframe('nav', { direction: 'clock', speed: 20 });
+                            this.log('Nav: down', 'nav');
+                            break;
+                        case 'ArrowLeft':
+                            e.preventDefault();
+                            document.getElementById('btn-back').click();
+                            break;
+                        case 'ArrowRight':
+                            e.preventDefault();
+                            document.getElementById('btn-fwd').click();
+                            break;
+                        case 'Enter':
+                        case ' ':
+                            e.preventDefault();
+                            document.getElementById('btn-go').click();
+                            break;
+                        case 'n':
+                        case 'N':
+                            e.preventDefault();
+                            this.nextTrack();
+                            break;
+                        case 'p':
+                        case 'P':
+                            e.preventDefault();
+                            this.prevTrack();
+                            break;
                     }
                 });
             },
@@ -845,8 +604,6 @@
                     e.preventDefault();
                     const delta = e.deltaY > 0 ? 3 : -3;
                     this.laserPosition = Math.max(3, Math.min(123, this.laserPosition + delta));
-                    document.getElementById('laser-slider').value = this.laserPosition;
-                    document.getElementById('laser-position').textContent = Math.round(this.laserPosition);
                     this.sendLaserEvent(Math.round(this.laserPosition));
                     this.log(`Laser: ${Math.round(this.laserPosition)}`, 'input');
                 });
@@ -881,11 +638,9 @@
             setupIframeListener() {
                 window.addEventListener('message', (event) => {
                     if (event.data?.type === 'view_changed') {
-                        document.getElementById('debug-view').textContent = event.data.path.replace('menu/', '');
-                    } else if (event.data?.type === 'track_changed') {
-                        this.currentTrack = event.data.track;
-                        const t = event.data.track;
-                        document.getElementById('debug-track').textContent = t ? `${t.artist} - ${t.title}`.substring(0, 25) : '—';
+                        this.log(`View: ${event.data.path.replace('menu/', '')}`, 'nav');
+                    } else if (event.data?.type === 'request_track') {
+                        this.sendCurrentTrack();
                     }
                 });
             },
@@ -894,7 +649,8 @@
                 const logEl = document.getElementById('event-log');
                 const entry = document.createElement('div');
                 entry.className = `event-log-entry ${type}`;
-                entry.textContent = `[${new Date().toLocaleTimeString('en-US', { hour12: false })}] ${message}`;
+                const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                entry.textContent = `[${time}] ${message}`;
                 logEl.appendChild(entry);
                 while (logEl.children.length > this.maxLogEntries) logEl.removeChild(logEl.firstChild);
                 logEl.scrollTop = logEl.scrollHeight;
