@@ -28,35 +28,53 @@ const EmulatorModeManager = {
         console.log('[EMULATOR] Mode manager initialized');
     },
 
-    // Listen for messages from parent emulator
+    // Listen for messages from parent emulator AND child iframes
     setupMessageListener() {
         window.addEventListener('message', (event) => {
             if (!event.data || !event.data.type) return;
 
             const { type, data } = event.data;
+            const isFromParent = event.source === this.parentWindow;
+            const isFromChild = event.source !== window && event.source !== this.parentWindow;
 
-            switch (type) {
-                case 'laser':
-                    this.forwardToHardware('sendLaserEvent', data.position);
-                    break;
-                case 'nav':
-                    this.forwardToHardware('sendNavEvent', data.direction, data.speed || 20);
-                    break;
-                case 'volume':
-                    this.forwardToHardware('sendVolumeEvent', data.direction, data.speed || 10);
-                    break;
-                case 'button':
-                    this.forwardToHardware('sendButtonEvent', data.button);
-                    break;
-                case 'camera_toggle':
-                    this.handleCameraToggle();
-                    break;
-                case 'get_state':
-                    this.sendStateToParent();
-                    break;
-                case 'mock_track':
-                    this.handleExternalTrack(data);
-                    break;
+            // Messages from parent emulator (inputs)
+            if (isFromParent) {
+                switch (type) {
+                    case 'laser':
+                        this.forwardToHardware('sendLaserEvent', data.position);
+                        break;
+                    case 'nav':
+                        this.forwardToHardware('sendNavEvent', data.direction, data.speed || 20);
+                        break;
+                    case 'volume':
+                        this.forwardToHardware('sendVolumeEvent', data.direction, data.speed || 10);
+                        break;
+                    case 'button':
+                        this.forwardToHardware('sendButtonEvent', data.button);
+                        break;
+                    case 'camera_toggle':
+                        this.handleCameraToggle();
+                        break;
+                    case 'get_state':
+                        this.sendStateToParent();
+                        break;
+                    case 'mock_track':
+                        this.handleExternalTrack(data);
+                        break;
+                }
+            }
+
+            // Messages from child iframes (scenes, music) - forward to parent emulator
+            if (isFromChild && this.parentWindow) {
+                switch (type) {
+                    case 'scene_activated':
+                    case 'go_action':
+                    case 'playback_control':
+                        // Forward these messages up to the emulator
+                        this.parentWindow.postMessage(event.data, '*');
+                        console.log(`[EMULATOR] Forwarded ${type} to parent:`, event.data);
+                        break;
+                }
             }
         });
 

@@ -1,12 +1,12 @@
-// Centralized configuration for BeoSound 5c
+// Centralized configuration for BeoSound 5c - KITCHEN DEVICE
 // All HA communication goes through the backend - no credentials needed here
 
 const AppConfig = {
     // Device identification
-    deviceName: 'church',  // 'church' (5c) or 'kitchen' (5d)
+    deviceName: 'kitchen',  // 'church' (5c) or 'kitchen' (5d)
 
     // Device-specific data files
-    scenesFile: '../json/scenes.json',  // Override per device: '../json/scenes_kitchen.json'
+    scenesFile: '../json/scenes_kitchen.json',
 
     // Home Assistant configuration
     homeAssistant: {

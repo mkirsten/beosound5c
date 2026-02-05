@@ -4,9 +4,9 @@
 const EmulatorMockData = {
     // === Camera images for security overlay ===
     cameras: {
-        'Front door': 'https://images.unsplash.com/photo-1558036117-15d82a90b9b1?w=640&h=480&fit=crop',
-        'Door': 'https://images.unsplash.com/photo-1558036117-15d82a90b9b1?w=640&h=480&fit=crop',
-        'Gate': 'images/gate-camera.jpg',
+        'Front door': 'images/demo/door-camera.jpg',
+        'Door': 'images/demo/door-camera.jpg',
+        'Gate': 'images/demo/gate-camera.jpg',
         'default': 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=640&h=480&fit=crop'
     },
 
@@ -15,9 +15,23 @@ const EmulatorMockData = {
         {
             title: "Stranger Things",
             app_name: "Netflix",
-            friendly_name: "Church TV",
+            friendly_name: "Living Room TV",
             state: "playing",
             artwork: "https://image.tmdb.org/t/p/w500/49WJfeN0moxb9IPfGn8AIqMGskD.jpg"
+        },
+        {
+            title: "The Bear",
+            app_name: "Disney+",
+            friendly_name: "Living Room TV",
+            state: "playing",
+            artwork: "https://image.tmdb.org/t/p/w500/sHFlbKS3WLqMnp9t2ghADIJFnuQ.jpg"
+        },
+        {
+            title: "Severance",
+            app_name: "Apple TV+",
+            friendly_name: "Living Room TV",
+            state: "paused",
+            artwork: "https://image.tmdb.org/t/p/w500/lFf6LLrQjYldcZItzOkGmMMigP7.jpg"
         }
     ],
 

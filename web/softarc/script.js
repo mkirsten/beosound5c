@@ -2021,14 +2021,26 @@ class ArcList {
     }
 
     /**
+     * Get device name from parent AppConfig (for webhook identification)
+     */
+    getDeviceName() {
+        try {
+            return window.parent?.AppConfig?.deviceName || 'unknown';
+        } catch (e) {
+            return 'unknown';
+        }
+    }
+
+    /**
      * Send webhook for button presses (left/right)
      */
     async sendButtonWebhook(button) {
         console.log(`🟡 [IFRAME-WEBHOOK] sendButtonWebhook called for: ${button}`);
-        
+
         // For button webhooks, we don't need an item ID, just use "1" as default
         const webhookData = {
             device_type: "Panel",
+            device_name: this.getDeviceName(),
             panel_context: this.config.context,
             button: button,
             id: "1"
@@ -2101,6 +2113,7 @@ class ArcList {
             // Use standardized format for all contexts
             webhookData = {
                 device_type: "Panel",
+                device_name: this.getDeviceName(),
                 panel_context: this.config.context,
                 button: "go",
                 id: id
@@ -2125,6 +2138,7 @@ class ArcList {
                 // Include parent_id for music tracks
                 webhookData = {
                     device_type: "Panel",
+                    device_name: this.getDeviceName(),
                     panel_context: this.config.context,
                     button: "go",
                     id: id,
@@ -2136,6 +2150,7 @@ class ArcList {
                 // Use standardized format for non-music child items
                 webhookData = {
                     device_type: "Panel",
+                    device_name: this.getDeviceName(),
                     panel_context: this.config.context,
                     button: "go",
                     id: id

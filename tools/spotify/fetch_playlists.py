@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Fetch all Spotify playlists for a user.
+Fetch all Spotify playlists for the authenticated user.
 Auto-detects digit playlists by name pattern (e.g., "5: Dinner" → digit 5).
-Uses client credentials flow - no user auth required.
+Uses OAuth refresh token flow - requires running setup_spotify.py first.
 Run via cron to keep playlists updated.
 """
 
@@ -12,10 +12,11 @@ import re
 import base64
 import urllib.request
 import urllib.error
+import urllib.parse
 from datetime import datetime
 
-# Spotify user ID to fetch playlists from
-SPOTIFY_USER_ID = os.getenv('SPOTIFY_USER_ID', '')
+# Spotify refresh token (obtained via setup_spotify.py OAuth flow)
+REFRESH_TOKEN = os.getenv('SPOTIFY_REFRESH_TOKEN', '')
 
 # Paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +25,7 @@ DIGIT_PLAYLISTS_FILE = os.path.join(PROJECT_ROOT, 'web', 'json', 'digit_playlist
 OUTPUT_FILE = os.path.join(PROJECT_ROOT, 'web', 'json', 'playlists_with_tracks.json')
 LOG_FILE = os.path.join(SCRIPT_DIR, 'fetch.log')
 
-# Spotify API credentials (client credentials flow - no user auth needed)
+# Spotify API credentials (OAuth flow - run setup_spotify.py first)
 # Get your credentials at https://developer.spotify.com/dashboard
 CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID', '')
 CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET', '')
@@ -41,13 +42,21 @@ def log(msg):
         pass
 
 def get_access_token():
-    """Get Spotify access token using client credentials flow."""
+    """Get Spotify access token using refresh token flow."""
+    if not REFRESH_TOKEN:
+        raise ValueError("SPOTIFY_REFRESH_TOKEN not set. Run setup_spotify.py first.")
+
     auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
     auth_b64 = base64.b64encode(auth_str.encode()).decode()
 
+    data = urllib.parse.urlencode({
+        'grant_type': 'refresh_token',
+        'refresh_token': REFRESH_TOKEN
+    }).encode()
+
     req = urllib.request.Request(
         'https://accounts.spotify.com/api/token',
-        data=b'grant_type=client_credentials',
+        data=data,
         headers={
             'Authorization': f'Basic {auth_b64}',
             'Content-Type': 'application/x-www-form-urlencoded'
@@ -90,11 +99,11 @@ def fetch_playlist_tracks(token, playlist_id, max_tracks=100):
 
     return tracks
 
-def fetch_user_playlists(token, user_id):
-    """Fetch all playlists for a user."""
+def fetch_user_playlists(token):
+    """Fetch all playlists for the authenticated user."""
     headers = {'Authorization': f'Bearer {token}'}
     playlists = []
-    url = f'https://api.spotify.com/v1/users/{user_id}/playlists?limit=50'
+    url = 'https://api.spotify.com/v1/me/playlists?limit=50'
 
     while url:
         try:
@@ -141,8 +150,8 @@ def main():
         return 1
 
     # Fetch all user's playlists
-    log(f"Fetching playlists for user: {SPOTIFY_USER_ID}")
-    all_playlists = fetch_user_playlists(token, SPOTIFY_USER_ID)
+    log("Fetching playlists for authenticated user")
+    all_playlists = fetch_user_playlists(token)
     log(f"Found {len(all_playlists)} playlists")
 
     # Fetch tracks for each playlist and detect digit playlists
