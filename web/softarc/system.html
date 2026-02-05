@@ -503,7 +503,7 @@
         <div class="section-content info-section active" id="info">
             <h1>BeoSound 5c</h1>
             <div class="version">Build: <span id="git-tag">--</span></div>
-            <div class="repo-link">github.com/your-username/beosound5c</div>
+            <div class="repo-link">github.com/mkirsten/beosound5c</div>
             <p class="description">
                 A modern software recreation of the iconic Bang & Olufsen BeoSound 5,
                 bringing the classic circular arc interface back to life. Integrates with
@@ -785,6 +785,16 @@
                 if (window.top?.EmulatorModeManager?.isActive) {
                     this.isDemoMode = true;
                 }
+                // Auto-detect development mode (running on Mac/localhost without real backend)
+                const platform = navigator.platform?.toLowerCase() || '';
+                const userAgent = navigator.userAgent?.toLowerCase() || '';
+                const isMac = platform.includes('mac') || userAgent.includes('macintosh') || userAgent.includes('mac os');
+                const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                console.log('[SYSTEM] Platform detection:', { platform, isMac, hostname: window.location.hostname, isLocalhost });
+                if (isMac && isLocalhost) {
+                    this.isDemoMode = true;
+                    console.log('[SYSTEM] Development mode detected (Mac + localhost)');
+                }
 
                 if (this.isDemoMode) {
                     console.log('[SYSTEM] Demo mode enabled - using mock data');
@@ -795,12 +805,12 @@
             loadMockData() {
                 // Mock system info
                 const mockSystemInfo = window.top?.EmulatorModeManager?.getSystemInfo?.() || {
-                    hostname: 'beosound5c-demo',
-                    ip_address: '192.168.1.100',
-                    uptime: '3 days, 14:22',
-                    cpu_temp: '45.2°C',
-                    memory: '42%',
-                    git_tag: 'v2.1.0-demo'
+                    hostname: window.location.hostname,
+                    ip_address: 'localhost',
+                    uptime: 'Development Mode',
+                    cpu_temp: 'N/A',
+                    memory: 'N/A',
+                    git_tag: 'dev'
                 };
 
                 // Update UI with mock data
@@ -808,54 +818,55 @@
                 document.getElementById('sys-ip').textContent = mockSystemInfo.ip_address;
                 document.getElementById('sys-uptime').textContent = mockSystemInfo.uptime;
                 document.getElementById('sys-temp').textContent = mockSystemInfo.cpu_temp;
-                document.getElementById('sys-temp').className = 'value status-ok';
-                document.getElementById('sys-memory').textContent = mockSystemInfo.memory || '42%';
-                document.getElementById('sys-git').textContent = mockSystemInfo.git_tag || 'v2.1.0-demo';
-                document.getElementById('git-tag').textContent = mockSystemInfo.git_tag || 'v2.1.0-demo';
+                document.getElementById('sys-temp').className = 'value';
+                document.getElementById('sys-memory').textContent = mockSystemInfo.memory || 'N/A';
+                document.getElementById('sys-git').textContent = mockSystemInfo.git_tag || 'dev';
+                document.getElementById('git-tag').textContent = mockSystemInfo.git_tag || 'dev';
 
-                // Mock connection status
-                document.getElementById('conn-input').textContent = 'Demo Mode';
+                // Connection status - check actual WebSocket connections
+                document.getElementById('conn-input').textContent = 'Dev Mode';
                 document.getElementById('conn-input').className = 'value status-warning';
-                document.getElementById('conn-media').textContent = 'Demo Mode';
-                document.getElementById('conn-media').className = 'value status-warning';
-                document.getElementById('conn-ha').textContent = 'Demo Mode';
+                document.getElementById('conn-media').textContent = 'Checking...';
+                document.getElementById('conn-media').className = 'value';
+                document.getElementById('conn-ha').textContent = 'Dev Mode';
                 document.getElementById('conn-ha').className = 'value status-warning';
 
-                // Mock Sonos data
-                document.getElementById('sonos-speaker').textContent = 'Living Room (Demo)';
-                document.getElementById('sonos-ip').textContent = '192.168.1.50';
-                document.getElementById('sonos-grouped').textContent = 'No (standalone)';
-                document.getElementById('sonos-state').textContent = 'playing';
-                document.getElementById('sonos-state').className = 'value status-ok';
-                document.getElementById('sonos-volume').textContent = '35%';
-                document.getElementById('sonos-track').textContent = 'Bohemian Rhapsody';
-                document.getElementById('sonos-artist').textContent = 'Queen';
-                document.getElementById('sonos-album').textContent = 'A Night at the Opera';
+                // Mock Sonos data - will be updated by media server if connected
+                document.getElementById('sonos-speaker').textContent = 'Development Mode';
+                document.getElementById('sonos-ip').textContent = '—';
+                document.getElementById('sonos-grouped').textContent = '—';
+                document.getElementById('sonos-state').textContent = '—';
+                document.getElementById('sonos-state').className = 'value';
+                document.getElementById('sonos-volume').textContent = '—';
+                document.getElementById('sonos-track').textContent = '—';
+                document.getElementById('sonos-artist').textContent = '—';
+                document.getElementById('sonos-album').textContent = '—';
 
-                // Mock config data
-                document.getElementById('cfg-device-name').textContent = 'Church (Demo)';
-                document.getElementById('cfg-sonos-ip').textContent = '192.168.1.50';
-                document.getElementById('cfg-ha-url').textContent = 'homeassistant.local:8123';
-                document.getElementById('cfg-beoremote-mac').textContent = 'AA:BB:CC:DD:EE:FF';
-                document.getElementById('cfg-bt-name').textContent = 'BeoRemote One';
+                // Config data from AppConfig
+                const deviceName = window.top?.AppConfig?.deviceName || 'Development';
+                document.getElementById('cfg-device-name').textContent = deviceName;
+                document.getElementById('cfg-sonos-ip').textContent = '—';
+                document.getElementById('cfg-ha-url').textContent = window.top?.AppConfig?.homeAssistant?.url?.replace('http://', '') || '—';
+                document.getElementById('cfg-beoremote-mac').textContent = '—';
+                document.getElementById('cfg-bt-name').textContent = '—';
 
                 // Mock hardware data
                 document.getElementById('hw-laser').textContent = '93';
-                document.getElementById('hw-button').textContent = 'go';
-                document.getElementById('hw-backlight').textContent = 'On';
-                document.getElementById('hw-backlight').className = 'value status-ok';
+                document.getElementById('hw-button').textContent = '—';
+                document.getElementById('hw-backlight').textContent = 'Simulated';
+                document.getElementById('hw-backlight').className = 'value status-warning';
 
-                // Mock Spotify data
-                document.getElementById('spotify-user').textContent = 'demo_user';
-                document.getElementById('spotify-playlists').textContent = '42';
-                document.getElementById('spotify-digits').textContent = '10/10';
-                document.getElementById('spotify-fetch-time').textContent = new Date().toLocaleDateString();
+                // Spotify data - will be updated by fetchSpotifyInfo
+                document.getElementById('spotify-user').textContent = 'mkirsten';
+                document.getElementById('spotify-playlists').textContent = '—';
+                document.getElementById('spotify-digits').textContent = '—';
+                document.getElementById('spotify-fetch-time').textContent = '—';
 
-                // Mock service status - all running in demo
+                // Service status - dev mode shows warning
                 ['masterlink', 'bluetooth', 'input', 'media', 'http', 'ui', 'spotify-fetch'].forEach(svc => {
                     const dot = document.getElementById(`dot-${svc}`);
                     if (dot) {
-                        dot.className = 'status-dot running';
+                        dot.className = 'status-dot warning';
                     }
                 });
 
@@ -864,20 +875,58 @@
 
                 // Mock people
                 this.loadMockPeople();
+
+                // Still try to connect to media server (it might be running locally)
+                this.connectMediaWebSocketDev();
+            }
+
+            connectMediaWebSocketDev() {
+                try {
+                    const ws = new WebSocket('ws://localhost:8766');
+                    const mediaEl = document.getElementById('conn-media');
+
+                    ws.onopen = () => {
+                        mediaEl.textContent = 'Connected';
+                        mediaEl.className = 'value status-ok';
+                        document.getElementById('dot-media').className = 'status-dot running';
+                    };
+
+                    ws.onmessage = (event) => {
+                        try {
+                            const msg = JSON.parse(event.data);
+                            if (msg.type === 'media_update' && msg.data) {
+                                this.updateSonosInfo(msg.data);
+                            }
+                        } catch (e) {}
+                    };
+
+                    ws.onerror = () => {
+                        mediaEl.textContent = 'Not Running';
+                        mediaEl.className = 'value status-error';
+                    };
+
+                    ws.onclose = () => {
+                        mediaEl.textContent = 'Disconnected';
+                        mediaEl.className = 'value status-error';
+                    };
+                } catch (e) {
+                    document.getElementById('conn-media').textContent = 'Error';
+                    document.getElementById('conn-media').className = 'value status-error';
+                }
             }
 
             generateMockLogs() {
+                const now = new Date();
+                const time = now.toTimeString().slice(0, 8);
                 const logLines = [
-                    '[2024-01-15 14:32:01] [INFO] Demo mode active - simulated log output',
-                    '[2024-01-15 14:32:02] [INFO] BeoSound 5c system initialized',
-                    '[2024-01-15 14:32:03] [INFO] WebSocket server listening on port 8765',
-                    '[2024-01-15 14:32:04] [INFO] Media server connected to Sonos: Living Room',
-                    '[2024-01-15 14:32:05] [INFO] MasterLink sniffer ready',
-                    '<span class="log-warning">[2024-01-15 14:32:10] [WARN] This is simulated demo data</span>',
-                    '[2024-01-15 14:32:15] [INFO] IR command received: PLAY',
-                    '[2024-01-15 14:32:20] [INFO] Track changed: Queen - Bohemian Rhapsody',
-                    '[2024-01-15 14:32:25] [INFO] Volume set to 35%',
-                    '[2024-01-15 14:32:30] [INFO] Home Assistant webhook sent successfully'
+                    `[${time}] [INFO] Development mode - running on localhost`,
+                    `[${time}] [INFO] BeoSound 5c UI loaded`,
+                    `[${time}] [INFO] Dummy hardware simulation active`,
+                    '<span class="log-warning">[' + time + '] [WARN] Not connected to real hardware services</span>',
+                    `[${time}] [INFO] Use trackpad scroll for laser pointer`,
+                    `[${time}] [INFO] Use arrow keys for navigation wheel`,
+                    `[${time}] [INFO] Use Enter/Space for GO button`,
+                    '<span class="log-info">[' + time + '] [INFO] Media server may be running on :8766</span>'
                 ];
                 return logLines.join('\n');
             }

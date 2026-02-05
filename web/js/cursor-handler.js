@@ -706,9 +706,10 @@ function handleButtonEvent(uiStore, data) {
 // Send webhook for button events
 function sendWebhook(panelContext, button, id = '1') {
     const webhookUrl = AppConfig.webhookUrl;
-    
+
     const payload = {
         device_type: 'Panel',
+        device_name: AppConfig.deviceName || 'unknown',
         panel_context: panelContext,
         button: button,
         id: id

@@ -51,6 +51,9 @@ class UIStore {
         
         // Menu visibility state (simplified)
         this.menuVisible = true;
+
+        // Navigation transition timeout (for cancellation)
+        this.navigationTimeout = null;
         
         // Initialize views first
         this.views = {
@@ -72,9 +75,9 @@ class UIStore {
                 title: 'Playlists',
                 content: `
                     <div id="music-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                        <iframe id="music-iframe" src="softarc/music.html" style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);" allowfullscreen></iframe>
                     </div>
-                `
+                `,
+                preloadId: 'preload-music'
             },
             'menu/system': {
                 title: 'System',
@@ -88,20 +91,17 @@ class UIStore {
                 title: 'Scenes',
                 content: `
                     <div id="scenes-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                        <iframe id="scenes-iframe" src="softarc/scenes.html" style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);" allowfullscreen></iframe>
                     </div>
-                `
+                `,
+                preloadId: 'preload-scenes'
             },
             'menu/security': {
                 title: 'SECURITY',
                 content: `
-                    <div id="security-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
-                        <iframe id="security-iframe"
-                                style="width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); pointer-events: auto;"
-                                allowfullscreen
-                                tabindex="0"></iframe>
+                    <div id="security-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
                     </div>
-                `
+                `,
+                preloadId: 'preload-security'
             },
             'menu/playing': {
                 title: 'PLAYING',
@@ -203,6 +203,26 @@ class UIStore {
 
     // Fetch Apple TV media info from backend (which proxies HA)
     async fetchAppleTVMediaInfo() {
+        // Check for development mode (Mac + localhost) - use mock data
+        const isMac = navigator.platform.toLowerCase().includes('mac');
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+        if (isMac && isLocalhost && window.EmulatorMockData) {
+            const mockData = window.EmulatorMockData.getCurrentAppleTVShow();
+            this.appleTVMediaInfo = {
+                title: mockData.title || '—',
+                friendly_name: mockData.friendly_name || '—',
+                app_name: mockData.app_name || '—',
+                artwork: mockData.artwork || window.EmulatorMockData.generateShowingArtwork(mockData),
+                state: mockData.state || 'playing'
+            };
+
+            if (this.currentRoute === 'menu/showing') {
+                this.updateAppleTVMediaView();
+            }
+            return;
+        }
+
         try {
             const response = await fetch('http://localhost:8767/appletv');
             if (!response.ok) return;
@@ -273,6 +293,88 @@ class UIStore {
         // Setup menu items
         this.renderMenuItems();
         this.updatePointer();
+
+        // Preload iframes for faster navigation
+        this.preloadIframes();
+    }
+
+    // Preload iframe content in background for instant navigation
+    preloadIframes() {
+        const iframesToPreload = [
+            { id: 'preload-music', src: 'softarc/music.html' },
+            { id: 'preload-scenes', src: 'softarc/scenes.html' },
+            { id: 'preload-security', src: 'softarc/security.html' }
+        ];
+
+        // Create a hidden container for preloaded iframes
+        let preloadContainer = document.getElementById('iframe-preload-container');
+        if (!preloadContainer) {
+            preloadContainer = document.createElement('div');
+            preloadContainer.id = 'iframe-preload-container';
+            preloadContainer.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;';
+            document.body.appendChild(preloadContainer);
+        }
+
+        iframesToPreload.forEach(({ id, src }) => {
+            if (!document.getElementById(id)) {
+                const iframe = document.createElement('iframe');
+                iframe.id = id;
+                iframe.src = src;
+                iframe.style.cssText = 'width:1024px;height:768px;border:none;';
+                preloadContainer.appendChild(iframe);
+                console.log(`[PRELOAD] Loading ${src}`);
+            }
+        });
+
+        // Store preloaded state
+        this.iframesPreloaded = true;
+    }
+
+    // Move a preloaded iframe into the current view container
+    attachPreloadedIframe(preloadId) {
+        // Map preload IDs to container IDs
+        const containerMap = {
+            'preload-music': 'music-container',
+            'preload-scenes': 'scenes-container',
+            'preload-security': 'security-container'
+        };
+
+        const containerId = containerMap[preloadId];
+        const container = document.getElementById(containerId);
+        if (!container) {
+            console.warn(`[PRELOAD] Container ${containerId} not found`);
+            return;
+        }
+
+        // Check if iframe is already in this container
+        let iframe = container.querySelector('iframe');
+        if (iframe) {
+            console.log(`[PRELOAD] Iframe already in ${containerId}`);
+            return;
+        }
+
+        // Find the preloaded iframe (might be in preload container or need fresh load)
+        iframe = document.getElementById(preloadId);
+        if (iframe) {
+            // Style the iframe for display
+            iframe.style.cssText = 'width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);';
+            // Move iframe from preload container to view container
+            container.appendChild(iframe);
+            console.log(`[PRELOAD] Attached ${preloadId} to ${containerId}`);
+        } else {
+            // Fallback: create iframe if preload failed
+            const srcMap = {
+                'preload-music': 'softarc/music.html',
+                'preload-scenes': 'softarc/scenes.html',
+                'preload-security': 'softarc/security.html'
+            };
+            iframe = document.createElement('iframe');
+            iframe.id = preloadId;
+            iframe.src = srcMap[preloadId];
+            iframe.style.cssText = 'width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);';
+            container.appendChild(iframe);
+            console.log(`[PRELOAD] Created fresh iframe for ${containerId}`);
+        }
     }
 
 
@@ -640,6 +742,12 @@ class UIStore {
     
 
     navigateToView(path) {
+        // Cancel any pending navigation transition
+        if (this.navigationTimeout) {
+            clearTimeout(this.navigationTimeout);
+            this.navigationTimeout = null;
+        }
+
         // Update route immediately to prevent repeated navigation triggers
         this.currentRoute = path;
 
@@ -651,13 +759,14 @@ class UIStore {
             this.updateView();
             this.ensureContentVisible(); // Force content to stay visible
         } else {
-            // Regular menu navigation: use fade transition
+            // Regular menu navigation: update immediately (removed fade to prevent visibility issues)
             const contentArea = document.getElementById('contentArea');
             if (contentArea) {
                 contentArea.style.opacity = 0;
-                setTimeout(() => {
+                this.navigationTimeout = setTimeout(() => {
                     this.updateView();
-                }, 250);
+                    this.navigationTimeout = null;
+                }, 150); // Reduced from 250ms for snappier transitions
             } else {
                 this.updateView();
             }
@@ -683,7 +792,12 @@ class UIStore {
 
         // Update content while it's faded out
         contentArea.innerHTML = view.content;
-        
+
+        // If view has a preloaded iframe, move it into the container
+        if (view.preloadId) {
+            this.attachPreloadedIframe(view.preloadId);
+        }
+
         // Immediately update with cached info for playing view
         if (this.currentRoute === 'menu/playing') {
             this.updateNowPlayingView();
@@ -693,72 +807,20 @@ class UIStore {
         else if (this.currentRoute === 'menu/showing') {
             this.updateShowingView();
         }
-        
-        // If navigating to security view, set up the iframe
-        if (this.currentRoute === 'menu/security') {
-            const securityIframe = document.getElementById('security-iframe');
-            const securityContainer = document.getElementById('security-container');
-            const mainMenu = document.getElementById('mainMenu');
-            
-            if (securityIframe) {
-                // Set the iframe source to the Home Assistant camera dashboard
-                // Configured in web/js/config.js
-                const haUrl = window.AppConfig?.homeAssistant?.url || 'http://homeassistant.local:8123';
-                const securityDashboard = window.AppConfig?.homeAssistant?.securityDashboard;
 
-                if (securityDashboard) {
+        // For security view in non-emulator mode with HA config, override with HA dashboard
+        if (this.currentRoute === 'menu/security') {
+            const haUrl = window.AppConfig?.homeAssistant?.url;
+            const securityDashboard = window.AppConfig?.homeAssistant?.securityDashboard;
+            const isEmulator = window.EmulatorModeManager?.isActive || window.parent !== window;
+
+            if (!isEmulator && haUrl && securityDashboard) {
+                const securityContainer = document.getElementById('security-container');
+                const securityIframe = securityContainer?.querySelector('iframe');
+                if (securityIframe) {
                     securityIframe.src = `${haUrl}/${securityDashboard}&kiosk`;
-                } else {
-                    console.log('No security dashboard configured');
+                    console.log('Using Home Assistant security dashboard');
                 }
-                
-                // Make iframe fully interactive
-                securityIframe.style.pointerEvents = 'auto';
-                securityIframe.style.zIndex = '1000';
-                securityIframe.style.position = 'relative';
-                securityIframe.setAttribute('tabindex', '0');
-                
-                // Ensure all parent containers don't interfere with clicks
-                if (securityContainer) {
-                    securityContainer.style.pointerEvents = 'none';
-                }
-                if (contentArea) {
-                    contentArea.style.pointerEvents = 'none';
-                }
-                if (mainMenu) {
-                    mainMenu.style.pointerEvents = 'none';
-                }
-                
-                // Add a loading indicator if needed
-                securityIframe.onload = () => {
-                    securityIframe.classList.add('loaded');
-                    console.log('Security iframe loaded successfully');
-                    // Give the iframe focus so it can receive keyboard input
-                    setTimeout(() => {
-                        securityIframe.focus();
-                        console.log('Security iframe focused');
-                    }, 200);
-                };
-                
-                securityIframe.onerror = (error) => {
-                    console.error('Error loading security camera dashboard:', error);
-                };
-                
-                // Force iframe to be interactive
-                setTimeout(() => {
-                    securityIframe.style.pointerEvents = 'auto';
-                    securityIframe.style.isolation = 'isolate';
-                    console.log('Security iframe pointer events enabled');
-                }, 100);
-            }
-        } else {
-            // Reset pointer events for other views
-            const mainMenu = document.getElementById('mainMenu');
-            if (contentArea) {
-                contentArea.style.pointerEvents = 'auto';
-            }
-            if (mainMenu) {
-                mainMenu.style.pointerEvents = 'auto';
             }
         }
         
@@ -878,16 +940,39 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Fade out splash screen after UI is ready
+    // Fade out splash screen after artwork is ready
     const timeouts = window.Constants?.timeouts || {};
-    setTimeout(() => {
+
+    const hideSplash = () => {
         const splash = document.getElementById('splash-overlay');
-        if (splash) {
+        if (splash && !splash.classList.contains('fade-out')) {
             splash.classList.add('fade-out');
-            // Remove from DOM after animation completes
             setTimeout(() => {
                 splash.classList.add('hidden');
             }, timeouts.splashRemoveDelay || 800);
         }
-    }, timeouts.splashFadeDelay || 500); // Brief delay to ensure UI is rendered
+    };
+
+    // Wait for artwork to load before hiding splash
+    const waitForArtwork = () => {
+        const artworkEl = document.getElementById('now-playing-artwork');
+        if (artworkEl && artworkEl.src && artworkEl.src !== '' && artworkEl.src !== window.location.href) {
+            // Artwork src is set, wait for it to actually load
+            if (artworkEl.complete && artworkEl.naturalHeight > 0) {
+                hideSplash();
+            } else {
+                artworkEl.onload = hideSplash;
+                artworkEl.onerror = hideSplash; // Hide anyway on error
+            }
+        } else {
+            // No artwork yet, check again shortly
+            setTimeout(waitForArtwork, 100);
+        }
+    };
+
+    // Start checking for artwork after a brief delay, with a max timeout
+    setTimeout(waitForArtwork, 300);
+
+    // Fallback: hide splash after max wait time regardless
+    setTimeout(hideSplash, 3000);
 }); 

@@ -829,10 +829,80 @@ if [ ! -f "$CONFIG_FILE" ]; then
     fi
 
     # -------------------------------------------------------------------------
-    # Spotify (optional)
+    # Spotify Setup (optional)
     # -------------------------------------------------------------------------
     echo ""
-    read -p "Spotify user ID for playlists (press Enter to skip): " SPOTIFY_USER_ID
+    log_section "Spotify Integration (Optional)"
+    echo ""
+    echo "Spotify integration allows you to browse and play your Spotify playlists"
+    echo "through the BeoSound 5c interface. This requires a Spotify account and"
+    echo "creating a free Spotify Developer app."
+    echo ""
+    read -p "Do you want to set up Spotify playlist access? (y/N): " SETUP_SPOTIFY
+
+    SPOTIFY_CLIENT_ID=""
+    SPOTIFY_CLIENT_SECRET=""
+    SPOTIFY_REFRESH_TOKEN=""
+    SPOTIFY_SETUP_SUCCESS=false
+
+    if [[ "$SETUP_SPOTIFY" =~ ^[Yy]$ ]]; then
+        echo ""
+        log_info "Starting Spotify OAuth Setup Wizard..."
+        echo ""
+        echo -e "${YELLOW}This will start a temporary web server on this device.${NC}"
+        echo ""
+        echo "You'll need:"
+        echo "  1. A phone/tablet/computer on the same network"
+        echo "  2. A Spotify account"
+        echo "  3. To create a free app at developer.spotify.com"
+        echo ""
+        echo -e "${YELLOW}IMPORTANT: The SSL certificate is self-signed.${NC}"
+        echo "When you open the URL, your browser will show a security warning."
+        echo "You must tap 'Advanced' → 'Proceed anyway' to continue."
+        echo ""
+        read -p "Press Enter to start the setup wizard (or 's' to skip): " START_SPOTIFY_SETUP
+
+        if [[ ! "$START_SPOTIFY_SETUP" =~ ^[Ss]$ ]]; then
+            # Run the Spotify setup wizard
+            SPOTIFY_SETUP_SCRIPT="$INSTALL_DIR/tools/spotify/setup_spotify.py"
+
+            if [ -f "$SPOTIFY_SETUP_SCRIPT" ]; then
+                # Run as the install user (not root) to get correct paths
+                echo ""
+                sudo -u "$INSTALL_USER" python3 "$SPOTIFY_SETUP_SCRIPT"
+                SETUP_EXIT_CODE=$?
+
+                if [ $SETUP_EXIT_CODE -eq 0 ]; then
+                    # Check if credentials were saved
+                    SPOTIFY_CONFIG="$INSTALL_DIR/services/config.env"
+                    if [ -f "$SPOTIFY_CONFIG" ] && grep -q "SPOTIFY_REFRESH_TOKEN" "$SPOTIFY_CONFIG"; then
+                        # Read the values
+                        SPOTIFY_CLIENT_ID=$(grep "^SPOTIFY_CLIENT_ID=" "$SPOTIFY_CONFIG" | cut -d'"' -f2)
+                        SPOTIFY_CLIENT_SECRET=$(grep "^SPOTIFY_CLIENT_SECRET=" "$SPOTIFY_CONFIG" | cut -d'"' -f2)
+                        SPOTIFY_REFRESH_TOKEN=$(grep "^SPOTIFY_REFRESH_TOKEN=" "$SPOTIFY_CONFIG" | cut -d'"' -f2)
+
+                        if [ -n "$SPOTIFY_REFRESH_TOKEN" ]; then
+                            log_success "Spotify configured successfully!"
+                            SPOTIFY_SETUP_SUCCESS=true
+                        fi
+                    fi
+                fi
+
+                if [ "$SPOTIFY_SETUP_SUCCESS" = false ]; then
+                    log_warn "Spotify setup was not completed"
+                    log_info "You can run the setup later with:"
+                    log_info "  python3 $SPOTIFY_SETUP_SCRIPT"
+                fi
+            else
+                log_error "Spotify setup script not found: $SPOTIFY_SETUP_SCRIPT"
+            fi
+        else
+            log_info "Skipping Spotify setup"
+        fi
+    else
+        log_info "Skipping Spotify integration"
+        log_info "You can set it up later with: python3 $INSTALL_DIR/tools/spotify/setup_spotify.py"
+    fi
 
     # -------------------------------------------------------------------------
     # Write configuration file
@@ -890,8 +960,10 @@ BEOREMOTE_MAC="$BEOREMOTE_MAC"
 # Spotify Configuration
 # =============================================================================
 
-# Spotify user ID for playlist fetching
-SPOTIFY_USER_ID="$SPOTIFY_USER_ID"
+# Spotify API credentials (set up via tools/spotify/setup_spotify.py)
+SPOTIFY_CLIENT_ID="$SPOTIFY_CLIENT_ID"
+SPOTIFY_CLIENT_SECRET="$SPOTIFY_CLIENT_SECRET"
+SPOTIFY_REFRESH_TOKEN="$SPOTIFY_REFRESH_TOKEN"
 EOF
 
     chmod 644 "$CONFIG_FILE"
@@ -1050,11 +1122,14 @@ else
 echo -e "${CYAN}║${NC}  Status:           ${BLUE}Not configured (IR mode works)${NC}"
 fi
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
-if [ -n "$SPOTIFY_USER_ID" ]; then
-echo -e "${CYAN}║${NC}  ${YELLOW}Spotify${NC}                                                  ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  User ID:          ${GREEN}${SPOTIFY_USER_ID}${NC}"
+echo -e "${CYAN}║${NC}  ${YELLOW}Spotify${NC}                                                    ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+if [ -n "$SPOTIFY_REFRESH_TOKEN" ]; then
+echo -e "${CYAN}║${NC}  Status:           ${GREEN}Connected${NC}"
+else
+echo -e "${CYAN}║${NC}  Status:           ${BLUE}Not configured${NC}"
 fi
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}╠══════════════════════════════════════════════════════════╣${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  ${YELLOW}File Locations${NC}                                            ${CYAN}║${NC}"
@@ -1093,6 +1168,9 @@ echo -e "${CYAN}║${NC}     ${GREEN}sudo systemctl restart beo-*${NC}      Rest
 echo -e "${CYAN}║${NC}     ${GREEN}./services/system/status-services.sh${NC}  Check status     ${CYAN}║${NC}"
 if [ "$BEOREMOTE_MAC" = "00:00:00:00:00:00" ] || [ -z "$BEOREMOTE_MAC" ]; then
 echo -e "${CYAN}║${NC}     ${GREEN}sudo ./tools/bt/pair-remote.sh${NC}    Pair BT remote       ${CYAN}║${NC}"
+fi
+if [ -z "$SPOTIFY_REFRESH_TOKEN" ]; then
+echo -e "${CYAN}║${NC}     ${GREEN}python3 ./tools/spotify/setup_spotify.py${NC}  Setup Spotify${CYAN}║${NC}"
 fi
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"

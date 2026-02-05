@@ -62,19 +62,23 @@ def set_backlight(on: bool):
     else:
         state_byte1 &= ~0x40
     bs5_send_cmd(state_byte1)
-    
-    # Control screen using xrandr
-    env = os.environ.copy()
-    env["DISPLAY"] = ":0"
-    subprocess.run(
-        ["xrandr", "--output", "HDMI-1"] + 
-        (["--mode", "1024x768", "--rate", "60"] if on else ["--off"]),
-        env=env,
-        stderr=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        check=False,
-        timeout=2
-    )
+
+    # Control screen using xrandr (Linux only, skip on Mac)
+    try:
+        env = os.environ.copy()
+        env["DISPLAY"] = ":0"
+        subprocess.run(
+            ["xrandr", "--output", "HDMI-1"] +
+            (["--mode", "1024x768", "--rate", "60"] if on else ["--off"]),
+            env=env,
+            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            check=False,
+            timeout=2
+        )
+    except FileNotFoundError:
+        # xrandr not available (e.g., on macOS) - skip screen control
+        pass
 
 def toggle_backlight():
     """Toggle backlight state."""

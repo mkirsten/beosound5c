@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security - BeoSound 5c</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #000;
+            color: white;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .security-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 8px;
+            width: 95%;
+            height: 95%;
+            max-width: 900px;
+            max-height: 680px;
+        }
+
+        .camera-feed {
+            position: relative;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .camera-feed img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.9;
+        }
+
+        .camera-label {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+            padding: 20px 10px 8px;
+        }
+
+        .camera-name {
+            font-size: 11px;
+            font-weight: 500;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .camera-status {
+            font-size: 9px;
+            color: #5a5;
+            margin-top: 2px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .camera-status::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background: #5a5;
+            border-radius: 50%;
+        }
+
+        .camera-timestamp {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            font-size: 10px;
+            color: rgba(255,255,255,0.6);
+            font-family: Monaco, Consolas, monospace;
+            background: rgba(0,0,0,0.5);
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="security-grid">
+        <div class="camera-feed">
+            <img src="../images/demo/door-camera.jpg" alt="Front Door">
+            <div class="camera-timestamp" data-camera="0">12:34:56</div>
+            <div class="camera-label">
+                <div class="camera-name">Front Door</div>
+                <div class="camera-status">Live</div>
+            </div>
+        </div>
+        <div class="camera-feed">
+            <img src="../images/demo/gate-camera.jpg" alt="Gate">
+            <div class="camera-timestamp" data-camera="1">12:34:56</div>
+            <div class="camera-label">
+                <div class="camera-name">Gate</div>
+                <div class="camera-status">Live</div>
+            </div>
+        </div>
+        <div class="camera-feed">
+            <img src="../images/demo/cam-entrance.jpg" alt="Entrance">
+            <div class="camera-timestamp" data-camera="2">12:34:56</div>
+            <div class="camera-label">
+                <div class="camera-name">Entrance</div>
+                <div class="camera-status">Live</div>
+            </div>
+        </div>
+        <div class="camera-feed">
+            <img src="../images/demo/cam-living.jpg" alt="Living Room">
+            <div class="camera-timestamp" data-camera="3">12:34:56</div>
+            <div class="camera-label">
+                <div class="camera-name">Living Room</div>
+                <div class="camera-status">Live</div>
+            </div>
+        </div>
+        <div class="camera-feed">
+            <img src="../images/demo/cam-kitchen.jpg" alt="Kitchen">
+            <div class="camera-timestamp" data-camera="4">12:34:56</div>
+            <div class="camera-label">
+                <div class="camera-name">Kitchen</div>
+                <div class="camera-status">Live</div>
+            </div>
+        </div>
+        <div class="camera-feed">
+            <img src="../images/demo/cam-bathroom.jpg" alt="Bathroom">
+            <div class="camera-timestamp" data-camera="5">12:34:56</div>
+            <div class="camera-label">
+                <div class="camera-name">Bathroom</div>
+                <div class="camera-status">Live</div>
+            </div>
+        </div>
+        <div class="camera-feed">
+            <img src="../images/demo/cam-bedroom.jpg" alt="Bedroom">
+            <div class="camera-timestamp" data-camera="6">12:34:56</div>
+            <div class="camera-label">
+                <div class="camera-name">Bedroom</div>
+                <div class="camera-status">Live</div>
+            </div>
+        </div>
+        <div class="camera-feed">
+            <img src="../images/demo/cam-garden.jpg" alt="Garden">
+            <div class="camera-timestamp" data-camera="7">12:34:56</div>
+            <div class="camera-label">
+                <div class="camera-name">Garden</div>
+                <div class="camera-status">Live</div>
+            </div>
+        </div>
+        <div class="camera-feed">
+            <img src="../images/demo/cam-entrance.jpg" alt="Driveway">
+            <div class="camera-timestamp" data-camera="8">12:34:56</div>
+            <div class="camera-label">
+                <div class="camera-name">Driveway</div>
+                <div class="camera-status">Live</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Update timestamps to simulate live feeds
+        function updateTimestamps() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', {
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            document.querySelectorAll('.camera-timestamp').forEach(el => {
+                el.textContent = timeStr;
+            });
+        }
+
+        updateTimestamps();
+        setInterval(updateTimestamps, 1000);
+    </script>
+</body>
+</html>
