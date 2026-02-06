@@ -56,8 +56,15 @@ See [`services/config.env.example`](services/config.env.example) for all availab
 # Required
 DEVICE_NAME="Living Room"           # Identifies this unit in Home Assistant
 HA_URL="http://homeassistant.local:8123"
-HA_WEBHOOK_URL="http://homeassistant.local:8123/api/webhook/beosound5c"
 SONOS_IP="192.168.1.100"
+
+# Transport: how BS5c communicates with Home Assistant
+TRANSPORT_MODE="mqtt"               # webhook, mqtt, or both
+HA_WEBHOOK_URL="http://homeassistant.local:8123/api/webhook/beosound5c"  # for webhook mode
+MQTT_BROKER="homeassistant.local"   # for mqtt mode
+MQTT_PORT="1883"
+MQTT_USER=""
+MQTT_PASSWORD=""
 
 # Optional
 HA_SECURITY_DASHBOARD="dashboard-cameras/home"  # HA dashboard for SECURITY page
@@ -95,7 +102,39 @@ tools/               # Spotify OAuth, USB debugging utilities
 
 ## Home Assistant Integration
 
-Add to `configuration.yaml`:
+BeoSound 5c communicates with Home Assistant via **MQTT** (recommended) or **HTTP webhooks**. The transport is configured via `TRANSPORT_MODE` in `config.env`. The installer will prompt you to choose.
+
+### MQTT Setup (recommended)
+
+Requires an MQTT broker — the [Mosquitto add-on](https://github.com/home-assistant/addons/tree/master/mosquitto) works well. Create a user for the BS5c in the add-on config, then set `TRANSPORT_MODE="mqtt"` with your broker credentials.
+
+MQTT topics use the pattern `beosound5c/{device}/out|in|status`:
+
+```
+beosound5c/living_room/out      → BS5c sends button events to HA
+beosound5c/living_room/in       → HA sends commands to BS5c
+beosound5c/living_room/status   → Online/offline (retained)
+```
+
+Example HA automation trigger:
+```yaml
+trigger:
+  - platform: mqtt
+    topic: "beosound5c/living_room/out"
+```
+
+Example HA command to BS5c:
+```yaml
+action:
+  - action: mqtt.publish
+    data:
+      topic: "beosound5c/living_room/in"
+      payload: '{"command": "wake", "params": {"page": "now_playing"}}'
+```
+
+### HA Configuration
+
+Add to `configuration.yaml` (needed for the embedded Security page):
 
 ```yaml
 http:
@@ -112,9 +151,9 @@ homeassistant:
     - type: homeassistant
 ```
 
-**Security note**: These settings allow the BeoSound 5c to embed Home Assistant pages and send webhooks without authentication. Only add IPs you trust to `trusted_networks` and `cors_allowed_origins`. This is intended for devices on your local network.
+**Security note**: These settings allow the BeoSound 5c to embed Home Assistant pages without authentication. Only add IPs you trust to `trusted_networks` and `cors_allowed_origins`. This is intended for devices on your local network.
 
-See [`homeassistant/example-automation.yaml`](homeassistant/example-automation.yaml) for webhook handling examples.
+See [`homeassistant/example-automation.yaml`](homeassistant/example-automation.yaml) for complete automation examples covering both MQTT and webhook transports.
 
 ## Acknowledgments
 

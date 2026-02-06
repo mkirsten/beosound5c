@@ -15,7 +15,7 @@ from collections import defaultdict
 
 # Shared playlist lookup (single source of truth)
 from playlist_lookup import get_playlist_uri
-from transport import Transport
+from lib.transport import Transport
 
 # Configuration variables
 # Home Assistant webhook and WebSocket URLs

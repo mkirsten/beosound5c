@@ -5,7 +5,7 @@ import subprocess  # Add subprocess for xset commands
 import os  # For path operations
 import logging  # For media server communication logging
 from aiohttp import web, ClientSession  # For HTTP webhook server and forwarding
-from transport import Transport  # Unified HA transport
+from lib.transport import Transport  # Unified HA transport
 
 VID, PID = 0x0cd4, 0x1112
 BTN_MAP = {0x20:'left', 0x10:'right', 0x40:'go', 0x80:'power'}
