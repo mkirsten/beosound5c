@@ -5,10 +5,14 @@ import subprocess  # Add subprocess for xset commands
 import os  # For path operations
 import logging  # For media server communication logging
 from aiohttp import web, ClientSession  # For HTTP webhook server and forwarding
+from transport import Transport  # Unified HA transport
 
 VID, PID = 0x0cd4, 0x1112
 BTN_MAP = {0x20:'left', 0x10:'right', 0x40:'go', 0x80:'power'}
 clients = set()
+
+# Unified transport for HA communication (webhook, MQTT, or both)
+transport = Transport()
 
 # Base path for BeoSound 5c installation (from env or default)
 BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/pi/beosound5c')
@@ -403,126 +407,139 @@ async def handle_camera_snapshot(request):
             headers={'Access-Control-Allow-Origin': '*'}
         )
 
+async def process_command(data: dict) -> dict:
+    """Process an incoming command (from HTTP webhook or MQTT).
+
+    Returns a result dict with 'status' and other fields.
+    """
+    command = data.get('command', '')
+    params = data.get('params', {})
+
+    if command == 'screen_on':
+        print('[CMD] Turning screen ON')
+        set_backlight(True)
+        return {'status': 'ok', 'screen': 'on'}
+
+    elif command == 'screen_off':
+        print('[CMD] Turning screen OFF')
+        set_backlight(False)
+        return {'status': 'ok', 'screen': 'off'}
+
+    elif command == 'screen_toggle':
+        print('[CMD] Toggling screen')
+        toggle_backlight()
+        return {'status': 'ok', 'screen': 'on' if is_backlight_on() else 'off'}
+
+    elif command == 'show_page':
+        page = params.get('page', 'now_playing')
+        print(f'[CMD] Showing page: {page}')
+        await broadcast(json.dumps({
+            'type': 'navigate',
+            'data': {'page': page}
+        }))
+        return {'status': 'ok', 'page': page}
+
+    elif command == 'restart':
+        target = params.get('target', 'all')
+        print(f'[CMD] Restarting: {target}')
+        if target == 'system':
+            restart_service('reboot')
+        else:
+            restart_service('restart-all')
+        return {'status': 'ok', 'restart': target}
+
+    elif command == 'wake':
+        page = params.get('page', 'now_playing')
+        print(f'[CMD] Waking up and showing: {page}')
+        set_backlight(True)
+        await broadcast(json.dumps({
+            'type': 'navigate',
+            'data': {'page': page}
+        }))
+        return {'status': 'ok', 'screen': 'on', 'page': page}
+
+    elif command == 'status':
+        info = get_system_info()
+        info['screen'] = 'on' if is_backlight_on() else 'off'
+        return {'status': 'ok', **info}
+
+    elif command == 'next_screen':
+        print('[CMD] Next screen')
+        set_backlight(True)
+        await broadcast(json.dumps({
+            'type': 'navigate',
+            'data': {'page': 'next'}
+        }))
+        return {'status': 'ok', 'action': 'next_screen'}
+
+    elif command == 'prev_screen':
+        print('[CMD] Previous screen')
+        set_backlight(True)
+        await broadcast(json.dumps({
+            'type': 'navigate',
+            'data': {'page': 'previous'}
+        }))
+        return {'status': 'ok', 'action': 'prev_screen'}
+
+    elif command == 'show_camera':
+        title = params.get('title', 'Camera')
+        camera_entity = params.get('camera_entity', 'camera.doorbell_medium_resolution_channel')
+        camera_id = params.get('camera_id', 'doorbell')
+        actions = params.get('actions', {})
+
+        print(f'[CMD] Showing camera overlay: {title} ({camera_entity})')
+        set_backlight(True)
+        await broadcast(json.dumps({
+            'type': 'camera_overlay',
+            'data': {
+                'action': 'show',
+                'title': title,
+                'camera_entity': camera_entity,
+                'camera_id': camera_id,
+                'actions': actions
+            }
+        }))
+        return {'status': 'ok', 'command': 'show_camera', 'title': title}
+
+    elif command == 'dismiss_camera':
+        print('[CMD] Dismissing camera overlay')
+        await broadcast(json.dumps({
+            'type': 'camera_overlay',
+            'data': {
+                'action': 'hide'
+            }
+        }))
+        return {'status': 'ok', 'command': 'dismiss_camera'}
+
+    else:
+        return {'status': 'error', 'message': f'Unknown command: {command}'}
+
+
 async def handle_webhook(request):
-    """Handle incoming webhook requests from Home Assistant."""
+    """Handle incoming webhook requests from Home Assistant (HTTP)."""
     try:
         data = await request.json()
         print(f'[WEBHOOK] Received: {data}')
 
-        command = data.get('command', '')
-        params = data.get('params', {})
+        result = await process_command(data)
 
-        if command == 'screen_on':
-            print('[WEBHOOK] Turning screen ON')
-            set_backlight(True)
-            return web.json_response({'status': 'ok', 'screen': 'on'})
-
-        elif command == 'screen_off':
-            print('[WEBHOOK] Turning screen OFF')
-            set_backlight(False)
-            return web.json_response({'status': 'ok', 'screen': 'off'})
-
-        elif command == 'screen_toggle':
-            print('[WEBHOOK] Toggling screen')
-            toggle_backlight()
-            return web.json_response({'status': 'ok', 'screen': 'on' if is_backlight_on() else 'off'})
-
-        elif command == 'show_page':
-            page = params.get('page', 'now_playing')
-            print(f'[WEBHOOK] Showing page: {page}')
-            # Broadcast to all WebSocket clients to navigate
-            await broadcast(json.dumps({
-                'type': 'navigate',
-                'data': {'page': page}
-            }))
-            return web.json_response({'status': 'ok', 'page': page})
-
-        elif command == 'restart':
-            target = params.get('target', 'all')
-            print(f'[WEBHOOK] Restarting: {target}')
-            if target == 'system':
-                restart_service('reboot')
-            else:
-                restart_service('restart-all')
-            return web.json_response({'status': 'ok', 'restart': target})
-
-        elif command == 'wake':
-            # Combined: turn on screen and show a page
-            page = params.get('page', 'now_playing')
-            print(f'[WEBHOOK] Waking up and showing: {page}')
-            set_backlight(True)
-            await broadcast(json.dumps({
-                'type': 'navigate',
-                'data': {'page': page}
-            }))
-            return web.json_response({'status': 'ok', 'screen': 'on', 'page': page})
-
-        elif command == 'status':
-            info = get_system_info()
-            info['screen'] = 'on' if is_backlight_on() else 'off'
-            return web.json_response({'status': 'ok', **info})
-
-        elif command == 'next_screen':
-            print('[WEBHOOK] Next screen')
-            set_backlight(True)
-            await broadcast(json.dumps({
-                'type': 'navigate',
-                'data': {'page': 'next'}
-            }))
-            return web.json_response({'status': 'ok', 'action': 'next_screen'})
-
-        elif command == 'prev_screen':
-            print('[WEBHOOK] Previous screen')
-            set_backlight(True)
-            await broadcast(json.dumps({
-                'type': 'navigate',
-                'data': {'page': 'previous'}
-            }))
-            return web.json_response({'status': 'ok', 'action': 'prev_screen'})
-
-        elif command == 'show_camera':
-            # Show camera overlay (e.g., doorbell camera)
-            title = params.get('title', 'Camera')
-            camera_entity = params.get('camera_entity', 'camera.doorbell_medium_resolution_channel')
-            camera_id = params.get('camera_id', 'doorbell')
-            actions = params.get('actions', {})  # Optional custom action labels
-
-            print(f'[WEBHOOK] Showing camera overlay: {title} ({camera_entity})')
-
-            # Turn on screen if off
-            set_backlight(True)
-
-            # Broadcast camera overlay command to all clients
-            await broadcast(json.dumps({
-                'type': 'camera_overlay',
-                'data': {
-                    'action': 'show',
-                    'title': title,
-                    'camera_entity': camera_entity,
-                    'camera_id': camera_id,
-                    'actions': actions
-                }
-            }))
-            return web.json_response({'status': 'ok', 'command': 'show_camera', 'title': title})
-
-        elif command == 'dismiss_camera':
-            print('[WEBHOOK] Dismissing camera overlay')
-            await broadcast(json.dumps({
-                'type': 'camera_overlay',
-                'data': {
-                    'action': 'hide'
-                }
-            }))
-            return web.json_response({'status': 'ok', 'command': 'dismiss_camera'})
-
-        else:
-            return web.json_response({'status': 'error', 'message': f'Unknown command: {command}'}, status=400)
+        status_code = 400 if result.get('status') == 'error' else 200
+        return web.json_response(result, status=status_code)
 
     except json.JSONDecodeError:
         return web.json_response({'status': 'error', 'message': 'Invalid JSON'}, status=400)
     except Exception as e:
         print(f'[WEBHOOK ERROR] {e}')
         return web.json_response({'status': 'error', 'message': str(e)}, status=500)
+
+
+async def handle_mqtt_command(data: dict):
+    """Handle incoming commands via MQTT (fire-and-forget, no response needed)."""
+    print(f'[MQTT CMD] Received: {data}')
+    try:
+        await process_command(data)
+    except Exception as e:
+        print(f'[MQTT CMD ERROR] {e}')
 
 async def handle_health(request):
     """Health check endpoint."""
@@ -542,7 +559,7 @@ async def handle_led(request):
     return web.Response(text='ok')
 
 async def handle_forward(request):
-    """Forward webhook to Home Assistant."""
+    """Forward event to Home Assistant via configured transport (webhook/MQTT/both)."""
     # Handle CORS preflight
     if request.method == 'OPTIONS':
         return web.Response(headers={
@@ -553,16 +570,13 @@ async def handle_forward(request):
 
     try:
         data = await request.json()
-        print(f'[FORWARD] Received webhook to forward: {data}')
+        print(f'[FORWARD] Forwarding via transport ({transport.mode}): {data}')
 
-        ha_url = os.getenv('HA_WEBHOOK_URL', 'http://homeassistant.local:8123/api/webhook/beosound5c')
+        await transport.send_event(data)
 
-        async with ClientSession() as session:
-            async with session.post(ha_url, json=data) as resp:
-                print(f'[FORWARD] HA response status: {resp.status}')
-                response = web.json_response({'status': 'forwarded', 'ha_status': resp.status})
-                response.headers['Access-Control-Allow-Origin'] = '*'
-                return response
+        response = web.json_response({'status': 'forwarded', 'transport': transport.mode})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
 
     except json.JSONDecodeError:
         response = web.json_response({'status': 'error', 'message': 'Invalid JSON'}, status=400)
@@ -868,6 +882,11 @@ async def forward_to_media_server(message):
 # ——— Main & server start ———
 
 async def main():
+    # Start transport (webhook/MQTT/both for HA communication)
+    transport.set_command_handler(handle_mqtt_command)
+    await transport.start()
+    print(f"Transport started (mode: {transport.mode})")
+
     ws_srv = await websockets.serve(handler, '0.0.0.0', 8765)
     print("WebSocket server listening on ws://0.0.0.0:8765")
 
@@ -896,8 +915,11 @@ async def main():
     # Start media server connection task
     media_task = asyncio.create_task(connect_to_media_server())
 
-    # Wait for server to close
-    await ws_srv.wait_closed()
+    try:
+        # Wait for server to close
+        await ws_srv.wait_closed()
+    finally:
+        await transport.stop()
 
 if __name__ == '__main__':
     asyncio.run(main())

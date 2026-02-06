@@ -17,6 +17,29 @@ BS5C_BASE_PATH="${BS5C_BASE_PATH:-/home/pi/beosound5c}"
 # Home Assistant webhook (use environment variable)
 WEBHOOK="${HA_WEBHOOK_URL:-http://homeassistant.local:8123/api/webhook/beosound5c}"
 
+# Transport configuration
+TRANSPORT_MODE="${TRANSPORT_MODE:-webhook}"
+MQTT_BROKER="${MQTT_BROKER:-homeassistant.local}"
+MQTT_PORT="${MQTT_PORT:-1883}"
+MQTT_USER="${MQTT_USER:-}"
+MQTT_PASSWORD="${MQTT_PASSWORD:-}"
+MQTT_TOPIC_PREFIX="beosound5c"
+
+# Derive MQTT device slug from DEVICE_NAME (lowercase, MQTT-safe)
+MQTT_DEVICE_SLUG=$(echo "$DEVICE_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_]/_/g; s/__*/_/g; s/^_//; s/_$//')
+MQTT_DEVICE_SLUG="${MQTT_DEVICE_SLUG:-default}"
+MQTT_TOPIC_OUT="${MQTT_TOPIC_PREFIX}/${MQTT_DEVICE_SLUG}/out"
+
+# Check MQTT tools if MQTT transport is enabled
+if [[ "$TRANSPORT_MODE" == "mqtt" || "$TRANSPORT_MODE" == "both" ]]; then
+    if ! command -v mosquitto_pub &>/dev/null; then
+        echo "[WARN] mosquitto_pub not found but TRANSPORT_MODE=$TRANSPORT_MODE"
+        echo "[WARN] Install with: sudo apt install mosquitto-clients"
+        echo "[WARN] Falling back to webhook-only transport"
+        TRANSPORT_MODE="webhook"
+    fi
+fi
+
 # Set Bluetooth adapter name
 if command -v bluetoothctl &>/dev/null; then
     bluetoothctl system-alias "$BT_DEVICE_NAME" 2>/dev/null || true
@@ -107,25 +130,78 @@ pulse_led() {
   curl -s "http://localhost:8767/led?mode=pulse" --max-time 0.5 &>/dev/null &
 }
 
-# Send webhook with device_type (same JSON format as IR remote)
-# Fire-and-forget: runs in background for minimal latency
-send_webhook() {
+# Send event via HTTP webhook (fire-and-forget, runs in background)
+send_webhook_raw() {
+  local json="$1"
+
+  (curl -X POST "${WEBHOOK}" \
+    --silent --output /dev/null \
+    --connect-timeout 1 \
+    --max-time 2 \
+    -H "Content-Type: application/json" \
+    -d "$json" && log "[WEBHOOK] Success" \
+    || log "[WEBHOOK] Failed") &
+
+  return 0
+}
+
+# Send event via MQTT (fire-and-forget, runs in background)
+send_mqtt_raw() {
+  local json="$1"
+
+  local mqtt_auth=()
+  if [[ -n "$MQTT_USER" ]]; then
+    mqtt_auth=(-u "$MQTT_USER")
+    if [[ -n "$MQTT_PASSWORD" ]]; then
+      mqtt_auth+=(-P "$MQTT_PASSWORD")
+    fi
+  fi
+
+  (mosquitto_pub \
+    -h "$MQTT_BROKER" \
+    -p "$MQTT_PORT" \
+    "${mqtt_auth[@]}" \
+    -t "$MQTT_TOPIC_OUT" \
+    -m "$json" && log "[MQTT] Published" \
+    || log "[MQTT] Failed") &
+
+  return 0
+}
+
+# Send event with device_type via configured transport (webhook/mqtt/both)
+# This is the main function all button handlers should call.
+send_event() {
   local action="$1"
   local device_type="$2"
   local extra_fields="${3:-}"  # Optional extra JSON fields (without leading comma)
 
   local json="{\"device_name\":\"${DEVICE_NAME}\",\"source\":\"bluetooth\",\"action\":\"${action}\",\"device_type\":\"${device_type}\"${extra_fields:+,$extra_fields}}"
 
-  # Run curl in background for faster response
-  (curl -X POST "${WEBHOOK}" \
-    --silent --output /dev/null \
-    --connect-timeout 1 \
-    --max-time 2 \
-    -H "Content-Type: application/json" \
-    -d "$json" && log "[WEBHOOK] Success: action=$action device_type=$device_type" \
-    || log "[WEBHOOK] Failed: action=$action device_type=$device_type") &
+  log "[TRANSPORT] mode=$TRANSPORT_MODE action=$action device_type=$device_type"
+
+  case "$TRANSPORT_MODE" in
+    webhook)
+      send_webhook_raw "$json"
+      ;;
+    mqtt)
+      send_mqtt_raw "$json"
+      ;;
+    both)
+      send_webhook_raw "$json"
+      send_mqtt_raw "$json"
+      ;;
+    *)
+      log "[TRANSPORT] Unknown TRANSPORT_MODE=$TRANSPORT_MODE, using webhook"
+      send_webhook_raw "$json"
+      ;;
+  esac
 
   return 0
+}
+
+# Backwards-compatible alias
+send_webhook() {
+  send_event "$@"
 }
 
 # Get playlist URI by digit - uses shared Python module
@@ -140,7 +216,12 @@ log "=========================================="
 log "BeoRemote Bluetooth Service Starting"
 log "=========================================="
 log "MAC: $MAC"
+log "Transport: $TRANSPORT_MODE"
 log "Webhook: $WEBHOOK"
+if [[ "$TRANSPORT_MODE" == "mqtt" || "$TRANSPORT_MODE" == "both" ]]; then
+  log "MQTT Broker: $MQTT_BROKER:$MQTT_PORT"
+  log "MQTT Topic (out): $MQTT_TOPIC_OUT"
+fi
 log "PID: $$"
 log "=========================================="
 

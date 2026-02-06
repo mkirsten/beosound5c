@@ -13,3 +13,6 @@ aiohttp>=3.9.0
 # USB HID communication
 pyusb>=1.2.1
 hidapi>=0.14.0
+
+# MQTT transport (optional, for HA communication)
+aiomqtt>=2.0.0

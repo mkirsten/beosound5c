@@ -179,7 +179,8 @@ log_info "Installing utilities..."
 apt-get install -y \
     curl \
     git \
-    jq
+    jq \
+    mosquitto-clients
 
 log_success "System packages installed"
 
@@ -196,7 +197,8 @@ pip3 install --break-system-packages \
     'websockets>=12.0' \
     'websocket-client>=1.6.0' \
     'aiohttp>=3.9.0' \
-    'pyusb>=1.2.1'
+    'pyusb>=1.2.1' \
+    'aiomqtt>=2.0.0'
 
 log_success "Python packages installed"
 
@@ -905,6 +907,80 @@ if [ ! -f "$CONFIG_FILE" ]; then
     fi
 
     # -------------------------------------------------------------------------
+    # Transport Configuration (webhook / MQTT / both)
+    # -------------------------------------------------------------------------
+    echo ""
+    log_section "Transport Configuration"
+    echo ""
+    echo "BeoSound 5c can communicate with Home Assistant via:"
+    echo ""
+    echo "  1) Webhook  - HTTP POST requests (default, works out of the box)"
+    echo "  2) MQTT     - Persistent connection via MQTT broker (lower latency, bidirectional)"
+    echo "  3) Both     - Send events via both webhook AND MQTT"
+    echo ""
+    echo "MQTT requires the Mosquitto add-on or another MQTT broker running on your network."
+    echo ""
+
+    TRANSPORT_MODE="webhook"
+    MQTT_BROKER=""
+    MQTT_PORT="1883"
+    MQTT_USER=""
+    MQTT_PASSWORD=""
+
+    while true; do
+        read -p "Select transport mode [1-3, default 1]: " TRANSPORT_CHOICE
+        TRANSPORT_CHOICE="${TRANSPORT_CHOICE:-1}"
+        case "$TRANSPORT_CHOICE" in
+            1) TRANSPORT_MODE="webhook"; break ;;
+            2) TRANSPORT_MODE="mqtt"; break ;;
+            3) TRANSPORT_MODE="both"; break ;;
+            *) echo "Invalid selection. Please enter 1, 2, or 3." ;;
+        esac
+    done
+    log_success "Transport mode: $TRANSPORT_MODE"
+
+    if [[ "$TRANSPORT_MODE" == "mqtt" || "$TRANSPORT_MODE" == "both" ]]; then
+        echo ""
+        log_info "MQTT Broker Configuration"
+        echo ""
+
+        DEFAULT_MQTT_BROKER="homeassistant.local"
+        read -p "MQTT broker hostname [$DEFAULT_MQTT_BROKER]: " MQTT_BROKER
+        MQTT_BROKER="${MQTT_BROKER:-$DEFAULT_MQTT_BROKER}"
+
+        read -p "MQTT broker port [1883]: " MQTT_PORT
+        MQTT_PORT="${MQTT_PORT:-1883}"
+
+        read -p "MQTT username (press Enter if none): " MQTT_USER
+        if [[ -n "$MQTT_USER" ]]; then
+            read -s -p "MQTT password: " MQTT_PASSWORD
+            echo ""
+        fi
+
+        log_success "MQTT broker: $MQTT_BROKER:$MQTT_PORT"
+
+        # Test MQTT connectivity
+        if command -v mosquitto_pub &>/dev/null; then
+            echo -n "  Testing MQTT connection "
+            mqtt_auth=()
+            if [[ -n "$MQTT_USER" ]]; then
+                mqtt_auth=(-u "$MQTT_USER")
+                if [[ -n "$MQTT_PASSWORD" ]]; then
+                    mqtt_auth+=(-P "$MQTT_PASSWORD")
+                fi
+            fi
+            if mosquitto_pub -h "$MQTT_BROKER" -p "$MQTT_PORT" "${mqtt_auth[@]}" \
+                -t "beosound5c/test" -m "install_test" 2>/dev/null; then
+                echo ""
+                log_success "MQTT connection successful!"
+            else
+                echo ""
+                log_warn "Could not connect to MQTT broker - check settings later"
+            fi
+        fi
+    fi
+
+    # -------------------------------------------------------------------------
     # Write configuration file
     # -------------------------------------------------------------------------
     echo ""
@@ -955,6 +1031,19 @@ BT_DEVICE_NAME="$BT_DEVICE_NAME"
 
 # BeoRemote One Bluetooth MAC address
 BEOREMOTE_MAC="$BEOREMOTE_MAC"
+
+# =============================================================================
+# Transport Configuration
+# =============================================================================
+
+# Transport mode: webhook (HTTP POST), mqtt, or both
+TRANSPORT_MODE="$TRANSPORT_MODE"
+
+# MQTT broker settings (only used when TRANSPORT_MODE includes mqtt)
+MQTT_BROKER="$MQTT_BROKER"
+MQTT_PORT="$MQTT_PORT"
+MQTT_USER="$MQTT_USER"
+MQTT_PASSWORD="$MQTT_PASSWORD"
 
 # =============================================================================
 # Spotify Configuration
@@ -1110,6 +1199,13 @@ if [ -n "$HA_TOKEN" ] && [ "$HA_TOKEN" != "" ]; then
 echo -e "${CYAN}║${NC}  HA Token:         ${GREEN}Configured${NC}"
 else
 echo -e "${CYAN}║${NC}  HA Token:         ${YELLOW}Not configured${NC}"
+fi
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${YELLOW}Transport${NC}                                                  ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  Mode:             ${GREEN}${TRANSPORT_MODE:-webhook}${NC}"
+if [ -n "$MQTT_BROKER" ] && [[ "$TRANSPORT_MODE" == "mqtt" || "$TRANSPORT_MODE" == "both" ]]; then
+echo -e "${CYAN}║${NC}  MQTT Broker:      ${GREEN}${MQTT_BROKER}:${MQTT_PORT}${NC}"
 fi
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  ${YELLOW}Bluetooth Remote${NC}                                          ${CYAN}║${NC}"

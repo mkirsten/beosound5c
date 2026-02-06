@@ -15,6 +15,7 @@ from collections import defaultdict
 
 # Shared playlist lookup (single source of truth)
 from playlist_lookup import get_playlist_uri
+from transport import Transport
 
 # Configuration variables
 # Home Assistant webhook and WebSocket URLs
@@ -155,6 +156,7 @@ class PC2Device:
         self.ws = None
         self.session = None
         self.loop = None
+        self.transport = Transport()
 
     def open(self):
         """Find and open the PC2 device"""
@@ -282,30 +284,30 @@ class PC2Device:
             traceback.print_exc()
     
     async def _init_session(self):
-        """Initialize aiohttp session with optimized settings"""
-        print("🔍 DEBUG: Initializing aiohttp session")
+        """Initialize transport and aiohttp session for LED pulse."""
+        print("🔍 DEBUG: Initializing transport and session")
         try:
-            # Configure TCP connector with keepalive and limits
+            # Start the unified transport (handles webhook/MQTT/both)
+            await self.transport.start()
+            print(f"🔍 DEBUG: Transport started (mode: {self.transport.mode})")
+
+            # Keep a local aiohttp session only for LED pulse (localhost)
             connector = aiohttp.TCPConnector(
-                limit=10,  # Limit number of simultaneous connections
-                ttl_dns_cache=300,  # Cache DNS results for 5 minutes
-                keepalive_timeout=60,  # Keep connections alive for 60 seconds
-                force_close=False,  # Don't force close connections
+                limit=5,
+                keepalive_timeout=60,
+                force_close=False,
             )
-            
-            # Create session with the connector
             self.session = aiohttp.ClientSession(
                 connector=connector,
-                timeout=aiohttp.ClientTimeout(total=2.0),  # Increased default timeout
-                headers={"User-Agent": "Beosound5cSniffer/1.0"}
+                timeout=aiohttp.ClientTimeout(total=2.0),
             )
-            print("🔍 DEBUG: aiohttp session created successfully")
+            print("🔍 DEBUG: LED session created successfully")
         except Exception as e:
-            print(f"🔍 DEBUG: Error creating aiohttp session: {type(e).__name__}: {str(e)}")
+            print(f"🔍 DEBUG: Error in _init_session: {type(e).__name__}: {str(e)}")
             import traceback
             traceback.print_exc()
             raise
-        print("Initialized aiohttp session with optimized settings")
+        print("Initialized transport and session")
     
     async def _async_sender_loop(self):
         """Asynchronous background thread to process messages from the queue and send them"""
@@ -361,14 +363,14 @@ class PC2Device:
                 await asyncio.sleep(0.1)
     
     async def _send_webhook_async(self, message):
-        """Send a message via webhook asynchronously with retry logic"""
+        """Send a message via transport (webhook/MQTT/both)."""
         # Visual feedback: pulse LED on button press (fire-and-forget)
         try:
             asyncio.create_task(self._pulse_led())
         except:
             pass
 
-        # Prepare webhook payload for Home Assistant
+        # Prepare payload for Home Assistant
         webhook_data = {
             'device_name': BEOSOUND_DEVICE_NAME,
             'source': 'ir',
@@ -378,11 +380,8 @@ class PC2Device:
             'timestamp': datetime.now().isoformat()
         }
 
-        # Check if this is an Audio command that we should handle directly with Sonos
-        action = webhook_data['action']
-        device_type = webhook_data['device_type']
-
         # Handle digit buttons - look up playlist and send play_playlist action
+        action = webhook_data['action']
         if action in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
             digit = int(action)
             playlist_uri = get_playlist_uri(digit)
@@ -393,57 +392,9 @@ class PC2Device:
             else:
                 print(f"[PLAYLIST] No playlist found for digit {digit}")
 
-        # Otherwise, continue with sending the webhook
-        # DIAGNOSTIC: Print webhook attempt
-        print(f"🔍 DEBUG: Attempting to send webhook: {webhook_data['action']} to {WEBHOOK_URL}")
-
-        # Implement retry logic
-        retries = 0
-        while retries <= MAX_WEBHOOK_RETRIES:
-            try:
-                # Send the webhook asynchronously
-                if self.session:
-                    print(f"🔍 DEBUG: Session exists, sending POST request")
-                    async with self.session.post(
-                        WEBHOOK_URL, 
-                        json=webhook_data, 
-                        timeout=aiohttp.ClientTimeout(total=0.5),  # Increased timeout for more reliability
-                        raise_for_status=True  # Raise exception for non-2xx responses
-                    ) as response:
-                        # This will only execute if status is 2xx due to raise_for_status
-                        print(f"Webhook sent successfully: {webhook_data}")
-                        return True
-                else:
-                    print("🔍 DEBUG: No aiohttp session available - this is the problem!")
-                    # Try to recreate the session
-                    try:
-                        await self._init_session()
-                        print("🔍 DEBUG: Created new session")
-                    except Exception as se:
-                        print(f"🔍 DEBUG: Failed to create session: {se}")
-                    return False
-                
-            except asyncio.TimeoutError:
-                print(f"Webhook timeout (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1})")
-            except aiohttp.ClientResponseError as e:
-                print(f"Webhook response error (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): {e.status}")
-            except aiohttp.ClientError as e:
-                print(f"Webhook client error (attempt {retries+1}/{MAX_WEBHOOK_RETRIES+1}): {str(e)}")
-            except Exception as e:
-                print(f"🔍 DEBUG: Unexpected webhook error: {type(e).__name__}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-            
-            # If we get here, the request failed - increment retries and wait before trying again
-            retries += 1
-            if retries <= MAX_WEBHOOK_RETRIES:
-                await asyncio.sleep(WEBHOOK_RETRY_DELAY)  # Fixed delay, no exponential backoff
-            else:
-                # Only print failure message on final attempt
-                print(f"Failed to send webhook after {MAX_WEBHOOK_RETRIES+1} attempts: {webhook_data['action']}")
-                return False
-        
-        return False
+        print(f"🔍 DEBUG: Sending event via transport ({self.transport.mode}): {webhook_data['action']}")
+        await self.transport.send_event(webhook_data)
+        print(f"Event sent: {webhook_data}")
 
     async def _pulse_led(self):
         """Pulse LED for visual feedback (fire-and-forget)"""
@@ -615,11 +566,13 @@ class PC2Device:
     def stop_sniffing(self):
         """Stop the USB sniffer"""
         self.running = False
-        
-        # Close the aiohttp session
-        if self.session and self.loop:
-            asyncio.run_coroutine_threadsafe(self.session.close(), self.loop)
-        
+
+        # Close transport and aiohttp session
+        if self.loop:
+            asyncio.run_coroutine_threadsafe(self.transport.stop(), self.loop)
+            if self.session:
+                asyncio.run_coroutine_threadsafe(self.session.close(), self.loop)
+
         if self.sniffer_thread:
             self.sniffer_thread.join(timeout=1.0)
         if self.sender_thread:
