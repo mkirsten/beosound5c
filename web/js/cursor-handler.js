@@ -374,6 +374,67 @@ function shouldLogWebSocket() {
 // Global variables to prevent multiple connections
 let mediaWebSocketConnecting = false;
 let mainWebSocketConnecting = false;
+let hwReconnectTimer = null;
+const HW_RECONNECT_INTERVAL = 3000;
+
+function connectHardwareWebSocket() {
+    if (hwReconnectTimer) {
+        clearTimeout(hwReconnectTimer);
+        hwReconnectTimer = null;
+    }
+
+    try {
+        const ws = new WebSocket(AppConfig.websocket.input);
+        let wasConnected = false;
+
+        const connectionTimeout = setTimeout(() => {
+            ws.close();
+        }, 2000);
+
+        ws.onerror = () => {
+            clearTimeout(connectionTimeout);
+        };
+
+        ws.onopen = () => {
+            clearTimeout(connectionTimeout);
+            wasConnected = true;
+            console.log('[WS] Real hardware connected - switching from emulation mode');
+
+            if (window.dummyHardwareManager) {
+                window.dummyHardwareManager.stop();
+            }
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                processWebSocketEvent(msg);
+            } catch (error) {
+                console.error('[WS] Error parsing message:', error);
+            }
+        };
+
+        ws.onclose = () => {
+            clearTimeout(connectionTimeout);
+
+            if (wasConnected) {
+                console.log('[WS] Hardware disconnected - will reconnect');
+            }
+
+            // Re-enable dummy server while disconnected
+            if (window.dummyHardwareManager) {
+                window.dummyHardwareManager.start();
+            }
+
+            // Schedule reconnect
+            hwReconnectTimer = setTimeout(connectHardwareWebSocket, HW_RECONNECT_INTERVAL);
+        };
+
+    } catch (error) {
+        // Schedule reconnect on error
+        hwReconnectTimer = setTimeout(connectHardwareWebSocket, HW_RECONNECT_INTERVAL);
+    }
+}
 
 function initWebSocket() {
     // Always start dummy hardware server first - it will handle keyboard/scroll input
@@ -414,60 +475,9 @@ function initWebSocket() {
         return;
     }
 
-    // Try to connect to real hardware server (silent attempt)
-    try {
-        const ws = new WebSocket(AppConfig.websocket.input);
-        
-        // Set a short connection timeout
-        const connectionTimeout = setTimeout(() => {
-            ws.close();
-        }, 1000);
-        
-        // Prevent browser from logging WebSocket errors
-        ws.onerror = () => {
-            clearTimeout(connectionTimeout);
-            // Silent fallback - dummy server already running
-        };
-        
-        ws.onopen = () => {
-            clearTimeout(connectionTimeout);
-            console.log('[WS] ✅ Real hardware connected - switching from emulation mode');
-            
-            // Real hardware server is available, disable dummy server
-            if (window.dummyHardwareManager) {
-                window.dummyHardwareManager.stop();
-            }
-        };
-        
-        ws.onmessage = (event) => {
-            try {
-                const msg = JSON.parse(event.data);
-                processWebSocketEvent(msg);
-            } catch (error) {
-                console.error('[WS] Error parsing message:', error);
-            }
-        };
-        
-        ws.onclose = () => {
-            clearTimeout(connectionTimeout);
-            
-            // Only log if we were previously connected (not initial connection failure)
-            if (ws.readyState === WebSocket.CLOSED && ws.protocol !== undefined) {
-                console.log('[WS] ⚠️  Hardware disconnected - switching back to emulation mode');
-            }
-            
-            // Start dummy server if real one disconnects
-            setTimeout(() => {
-                if (window.dummyHardwareManager) {
-                    window.dummyHardwareManager.start();
-                }
-            }, 1000);
-        };
-        
-    } catch (error) {
-        // Silent fallback - dummy server already running
-    }
-    
+    // Connect to real hardware with auto-reconnect
+    connectHardwareWebSocket();
+
     // Also initialize media server connection
     initMediaWebSocket();
 }
