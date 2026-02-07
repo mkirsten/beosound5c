@@ -169,7 +169,46 @@ class ArcList {
             ];
         }
     }
-    
+
+    /**
+     * Reload data from source if at the parent/playlist level.
+     * Called when the main UI navigates to PLAYING, so playlist changes
+     * (additions/removals) are picked up without a full page reload.
+     */
+    async reloadData() {
+        // Only reload when viewing the parent list — don't yank data while browsing tracks
+        if (this.viewMode !== 'parent') {
+            console.log('[RELOAD] Skipped — currently in child view');
+            return;
+        }
+
+        const prevCount = this.items.length;
+        const prevIndex = Math.round(this.currentIndex);
+        const prevId = this.items[prevIndex]?.id;
+
+        await this.loadData();
+
+        // Try to keep the user's position on the same playlist
+        if (prevId) {
+            const newIndex = this.items.findIndex(item => item.id === prevId);
+            if (newIndex >= 0) {
+                this.currentIndex = newIndex;
+                this.targetIndex = newIndex;
+            }
+        }
+
+        // Clamp if the list shrank
+        if (this.currentIndex >= this.items.length) {
+            this.currentIndex = Math.max(0, this.items.length - 1);
+            this.targetIndex = this.currentIndex;
+        }
+
+        this.totalItemsDisplay.textContent = this.items.length;
+        this.updateCounter();
+        this.render();
+        console.log(`[RELOAD] Playlists refreshed: ${prevCount} → ${this.items.length}`);
+    }
+
     /**
      * Save current state to localStorage
      */
@@ -348,6 +387,8 @@ class ArcList {
                 this.handleNavFromParent(event.data.data);
             } else if (event.data && event.data.type === 'keyboard') {
                 this.handleKeyboardFromParent(event.data);
+            } else if (event.data && event.data.type === 'reload-data') {
+                this.reloadData();
             }
         });
     }

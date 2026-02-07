@@ -1141,7 +1141,7 @@
 
                 if (section === 'logs') {
                     const logOutput = document.getElementById('log-output');
-                    const scrollAmount = Math.min(speed * 30, 150);
+                    const scrollAmount = Math.min(speed * 15, 90);
                     if (direction === 'counter') {
                         logOutput.scrollTop -= scrollAmount;
                     } else if (direction === 'clock') {
@@ -1157,7 +1157,7 @@
                     this.updateServiceSelection();
                 } else if (section === 'debug') {
                     const debugSection = document.getElementById('debug');
-                    const scrollAmount = Math.min(speed * 30, 150);
+                    const scrollAmount = Math.min(speed * 15, 90);
                     if (direction === 'counter') {
                         debugSection.scrollTop -= scrollAmount;
                     } else if (direction === 'clock') {

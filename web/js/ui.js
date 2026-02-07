@@ -754,6 +754,15 @@ class UIStore {
         // For overlay transitions, update immediately to prevent content hiding
         const isOverlayTransition = path === 'menu/playing' || path === 'menu/showing';
 
+        // When arriving at PLAYING, tell the music iframe to reload its data so
+        // playlist additions/removals from the Spotify fetch are picked up.
+        if (path === 'menu/playing') {
+            const musicIframe = document.getElementById('preload-music');
+            if (musicIframe?.contentWindow) {
+                musicIframe.contentWindow.postMessage({ type: 'reload-data' }, '*');
+            }
+        }
+
         if (isOverlayTransition) {
             // Overlay transitions: update immediately and ensure content stays visible
             this.updateView();

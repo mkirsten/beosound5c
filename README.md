@@ -81,7 +81,7 @@ To reconfigure: `sudo nano /etc/beosound5c/config.env` then restart services.
 | `beo-input` | [`services/input.py`](services/input.py) | Python USB HID driver for BS5 rotary encoder, buttons, and laser pointer |
 | `beo-media` | [`services/media.py`](services/media.py) | Python WebSocket server for Sonos monitoring with artwork caching |
 | `beo-masterlink` | [`services/masterlink.py`](services/masterlink.py) | Python USB sniffer for B&O IR and MasterLink bus commands |
-| `beo-bluetooth` | [`services/bluetooth.sh`](services/bluetooth.sh) | Bash script for BeoRemote One wireless control with debouncing |
+| `beo-bluetooth` | [`services/bluetooth.py`](services/bluetooth.py) | Python HID service for BeoRemote One wireless control |
 | `beo-http` | — | Python simple HTTP server for static files |
 | `beo-ui` | [`services/ui.sh`](services/ui.sh) | Bash script launching Chromium in kiosk mode (1024×768) |
 

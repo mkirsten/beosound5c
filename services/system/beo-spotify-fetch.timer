@@ -1,10 +1,10 @@
 [Unit]
-Description=Nightly Spotify playlist fetch for BeoSound5c
+Description=Hourly Spotify playlist fetch for BeoSound5c
 
 [Timer]
-OnCalendar=*-*-* 03:00:00
+OnCalendar=*:00:00
 Persistent=true
-RandomizedDelaySec=300
+RandomizedDelaySec=60
 
 [Install]
 WantedBy=timers.target

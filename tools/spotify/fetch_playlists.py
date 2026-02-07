@@ -9,6 +9,7 @@ Run via cron to keep playlists updated.
 import json
 import os
 import re
+import sys
 import base64
 import urllib.request
 import urllib.error
@@ -120,7 +121,8 @@ def fetch_user_playlists(token):
                     'url': pl.get('external_urls', {}).get('spotify', ''),
                     'image': pl['images'][0]['url'] if pl.get('images') else None,
                     'owner': pl.get('owner', {}).get('id', ''),
-                    'public': pl.get('public', False)
+                    'public': pl.get('public', False),
+                    'snapshot_id': pl.get('snapshot_id', '')
                 })
 
             url = data.get('next')  # Pagination
@@ -139,7 +141,10 @@ def detect_digit_playlist(name):
     return None
 
 def main():
+    force = '--force' in sys.argv
     log("=== Spotify Playlist Fetch Starting ===")
+    if force:
+        log("Force mode: fetching all tracks regardless of snapshot")
 
     # Get access token
     try:
@@ -149,6 +154,21 @@ def main():
         log(f"ERROR: Failed to get access token: {e}")
         return 1
 
+    # Load cached data for incremental sync
+    cache = {}
+    if not force and os.path.exists(OUTPUT_FILE):
+        try:
+            with open(OUTPUT_FILE, 'r') as f:
+                cached_playlists = json.load(f)
+            for cp in cached_playlists:
+                cache[cp['id']] = {
+                    'snapshot_id': cp.get('snapshot_id', ''),
+                    'tracks': cp.get('tracks', [])
+                }
+            log(f"Loaded cache with {len(cache)} playlists")
+        except Exception as e:
+            log(f"Could not load cache: {e}")
+
     # Fetch all user's playlists
     log("Fetching playlists for authenticated user")
     all_playlists = fetch_user_playlists(token)
@@ -157,13 +177,23 @@ def main():
     # Fetch tracks for each playlist and detect digit playlists
     playlists_with_tracks = []
     digit_mapping = {}
+    fetched = 0
+    skipped = 0
 
     for pl in all_playlists:
-        log(f"Fetching tracks: {pl['name']}")
-        tracks = fetch_playlist_tracks(token, pl['id'])
-        pl['tracks'] = tracks
-        playlists_with_tracks.append(pl)
-        log(f"  Got {len(tracks)} tracks")
+        cached = cache.get(pl['id'])
+        if cached and cached['snapshot_id'] and cached['snapshot_id'] == pl.get('snapshot_id', ''):
+            pl['tracks'] = cached['tracks']
+            playlists_with_tracks.append(pl)
+            log(f"  {pl['name']} (unchanged)")
+            skipped += 1
+        else:
+            log(f"Fetching tracks: {pl['name']}")
+            tracks = fetch_playlist_tracks(token, pl['id'])
+            pl['tracks'] = tracks
+            playlists_with_tracks.append(pl)
+            log(f"  Got {len(tracks)} tracks")
+            fetched += 1
 
         # Check if this is a digit playlist
         digit = detect_digit_playlist(pl['name'])
@@ -174,6 +204,8 @@ def main():
                 'image': pl.get('image')
             }
             log(f"  -> Digit {digit} playlist")
+
+    log(f"Fetched {fetched}, skipped {skipped} unchanged")
 
     # Sort by name
     playlists_with_tracks.sort(key=lambda p: p['name'].lower())

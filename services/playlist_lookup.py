@@ -4,7 +4,7 @@ Shared playlist lookup utility for BeoSound 5c services.
 
 Used by:
   - masterlink.py (imported as module)
-  - bluetooth.sh (called as CLI)
+  - bluetooth.py (imported as module)
 
 Usage as CLI:
   python3 playlist_lookup.py <digit>
