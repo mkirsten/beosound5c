@@ -33,7 +33,7 @@ For Sonos integration in emulator mode, configure the Sonos IP in `services/conf
 
 ### Install on Raspberry Pi 5
 
-Tested on [Raspberry Pi 5 8GB](https://www.raspberrypi.com/products/raspberry-pi-5/), but lower RAM versions should work fine.
+Tested on [Raspberry Pi 5 4GB](https://www.raspberrypi.com/products/raspberry-pi-5/). 
 
 1. Flash **Raspberry Pi OS Lite (64-bit)** and enable SSH
 2. Clone and run the installer:
