@@ -374,6 +374,7 @@ class PC2Device:
         webhook_data = {
             'device_name': BEOSOUND_DEVICE_NAME,
             'source': 'ir',
+            'link': message.get('link', ''),
             'action': message.get('key_name', ''),
             'device_type': message.get('device_type', ''),
             'count': message.get('count', 1),
@@ -475,11 +476,19 @@ class PC2Device:
         """Process and display a received Beo4 keycode USB message"""
         hex_data = " ".join([f"{x:02X}" for x in data])
 
+        # Beo4 link/source mapping (data[3])
+        link_map = {
+            0x00: "Beo4",
+            0x05: "BeoSound 8",
+            0x80: "link",
+        }
+
         # Device type mapping
         device_type_map = {
             0x00: "Video",
             0x01: "Audio",
             0x05: "Vmem",
+            0x0F: "All",
             0x1B: "Light"
         }
 
@@ -504,26 +513,33 @@ class PC2Device:
             0x8A: "dtv",
             0x91: "amem",
             0x92: "cd",
+            0x94: "n.music",
+            0x9B: "light",
+            0xBF: "av",
+            0xC1: "random",
             0xD4: "yellow", 0xD5: "green", 0xD8: "blue", 0xD9: "red"
         }
 
-        # Parse mode and keycode
+        # Parse link, mode and keycode
+        link = data[3]
         mode = data[4]
         keycode = data[6]
 
+        link_name = link_map.get(link, f"Unknown(0x{link:02x})")
         device_type = device_type_map.get(mode, f"Unknown(0x{mode:02x})")
         key_name = key_map.get(keycode, f"Unknown(0x{keycode:02x})")
 
-        print(f"[{timestamp}] {device_type} → {key_name}")
-        print(f"Raw data: {hex_data} | Device: {device_type} | Keycode: 0x{keycode:02X}")
+        print(f"[{timestamp}] [{link_name}] {device_type} → {key_name}")
+        print(f"Raw data: {hex_data} | Link: {link_name} | Device: {device_type} | Keycode: 0x{keycode:02X}")
 
         # If the key is unknown, log the data for future mapping
         if key_name.startswith("Unknown("):
-            print(f"[MISSING BUTTON] Raw data: {hex_data} | Device: {device_type} | Keycode: 0x{keycode:02X}")
-        
+            print(f"[MISSING BUTTON] Raw data: {hex_data} | Link: {link_name} | Device: {device_type} | Keycode: 0x{keycode:02X}")
+
         # Create the processed message data
         msg_data = {
             'timestamp_str': timestamp,
+            'link': link_name,
             'device_type': device_type,
             'key_name': key_name,
             'keycode': f"0x{keycode:02X}",

@@ -146,7 +146,7 @@ BTN_KEYS = {
 # ---------------------------------------------------------------------------
 # Timing constants
 # ---------------------------------------------------------------------------
-REPEAT_ACTIONS = {"volup", "voldown", "chup", "chdown"}
+REPEAT_ACTIONS = {"volup", "voldown", "chup", "chdown", "up", "down", "left", "right"}
 REPEAT_DELAY = 0.4      # seconds before first repeat
 REPEAT_INTERVAL = 0.2   # seconds between repeats
 

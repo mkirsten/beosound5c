@@ -537,7 +537,23 @@ class ArcList {
             }
         }, this.SNAP_DELAY);
     }
-    
+
+    /**
+     * Immediately snap to the nearest whole item index.
+     * Called on button press so the action targets a concrete item
+     * and the list stops coasting.
+     */
+    snapToNearest() {
+        const nearest = Math.round(this.currentIndex);
+        const clamped = Math.max(0, Math.min(this.items.length - 1, nearest));
+        this.currentIndex = clamped;
+        this.targetIndex = clamped;
+        if (this.snapTimer) {
+            clearTimeout(this.snapTimer);
+            this.snapTimer = null;
+        }
+    }
+
     /**
      * Start the main animation loop
      * This runs continuously and smoothly moves items to their target positions
@@ -1369,8 +1385,9 @@ class ArcList {
      * Enter child view - show children from the selected parent
      */
     async enterChildView() {
+        this.snapToNearest();
         console.log('enterChildView called, selectedParent:', this.selectedParent);
-        
+
         // Check if we have a selected parent item
         if (!this.selectedParent) {
             console.log('No selected parent - finding current selection');
@@ -1707,7 +1724,9 @@ class ArcList {
             console.log('Not in child view - ignoring exitChildView call');
             return;
         }
-        
+
+        this.snapToNearest();
+
         // Prevent multiple simultaneous calls
         if (this.isAnimating) {
             console.log('Already animating - ignoring exitChildView call');
@@ -2126,7 +2145,9 @@ class ArcList {
             console.log(`🔴 [IFRAME-WEBHOOK] No items available - aborting webhook`);
             return;
         }
-        
+
+        this.snapToNearest();
+
         let id;
         let itemName;
         let webhookData;
@@ -2134,7 +2155,8 @@ class ArcList {
         // Get appropriate ID based on current mode
         if (this.viewMode === 'parent' || this.viewMode === 'single') {
             // Send parent item ID
-            const currentItem = this.parentData[this.currentIndex] || this.items[this.currentIndex];
+            const idx = Math.round(this.currentIndex);
+            const currentItem = this.parentData[idx] || this.items[idx];
             if (!currentItem) {
                 console.log(`🔴 [IFRAME-WEBHOOK] No current item found at index ${this.currentIndex}`);
                 return;
@@ -2161,7 +2183,8 @@ class ArcList {
             };
         } else if (this.viewMode === 'child') {
             // Send child item ID
-            const currentChild = this.selectedParent[this.config.parentKey][this.currentIndex];
+            const idx = Math.round(this.currentIndex);
+            const currentChild = this.selectedParent[this.config.parentKey][idx];
             if (!currentChild) {
                 console.log(`🔴 [IFRAME-WEBHOOK] No current child item found at index ${this.currentIndex}`);
                 return;

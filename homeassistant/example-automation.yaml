@@ -101,6 +101,7 @@
             - service: script.beosound_light
               data:
                 action: "{{ payload.action }}"
+                device_name: "{{ payload.device_name }}"
                 source: "{{ payload.source | default('unknown') }}"
 
 # =============================================================================
@@ -204,28 +205,44 @@
 #     mode: queued
 #     fields:
 #       action:
-#         description: "Button action"
+#         description: "Button action (green, red, yellow, blue, up, down, go)"
+#       device_name:
+#         description: "Source device name (Kitchen or Church)"
 #     sequence:
 #       - choose:
-#           - conditions: "{{ action == 'up' }}"
+#           # --- Color buttons: scene selection per device ---
+#           - conditions: "{{ action == 'green' }}"
 #             sequence:
-#               - service: light.turn_on
+#               - service: scene.turn_on
 #                 target:
-#                   entity_id: light.living_room
-#                 data:
-#                   brightness_step_pct: 10
-#           - conditions: "{{ action == 'down' }}"
+#                   entity_id: >-
+#                     {% if device_name == 'Church' %}scene.church_all_on
+#                     {% elif device_name == 'Kitchen' %}scene.kitchen_area_bright
+#                     {% endif %}
+#           - conditions: "{{ action == 'red' }}"
 #             sequence:
-#               - service: light.turn_on
+#               - service: scene.turn_on
 #                 target:
-#                   entity_id: light.living_room
-#                 data:
-#                   brightness_step_pct: -10
-#           - conditions: "{{ action == 'go' }}"
+#                   entity_id: >-
+#                     {% if device_name == 'Church' %}scene.church_off
+#                     {% elif device_name == 'Kitchen' %}scene.kitchen_area_off
+#                     {% endif %}
+#           - conditions: "{{ action == 'yellow' }}"
 #             sequence:
-#               - service: light.toggle
+#               - service: scene.turn_on
 #                 target:
-#                   entity_id: light.living_room
+#                   entity_id: >-
+#                     {% if device_name == 'Church' %}scene.church_cozy
+#                     {% elif device_name == 'Kitchen' %}scene.kitchen_area_cozy
+#                     {% endif %}
+#           - conditions: "{{ action == 'blue' }}"
+#             sequence:
+#               - service: scene.turn_on
+#                 target:
+#                   entity_id: >-
+#                     {% if device_name == 'Church' %}scene.church_dinner
+#                     {% elif device_name == 'Kitchen' %}scene.kitchen_area_dimmed
+#                     {% endif %}
 
 # =============================================================================
 # REST COMMANDS - Control BeoSound 5c from Home Assistant

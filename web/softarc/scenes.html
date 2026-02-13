@@ -44,8 +44,9 @@
                     : '../json/scenes.json';
                 console.log('Scenes: dataSource =', dataSource);
 
-                // Test fetch
-                const testFetch = await fetch(dataSource);
+                // Fetch scenes, falling back to example file if missing
+                const testFetch = await fetch(dataSource)
+                    .then(r => r.ok ? r : fetch('../json/scenes.example.json'));
                 const testData = await testFetch.json();
                 console.log('Scenes: Loaded', testData.length, 'items');
 
