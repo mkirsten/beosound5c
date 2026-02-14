@@ -157,7 +157,7 @@ def get_system_info() -> dict:
             info['git_tag'] = '--'
 
         # Service status
-        services = ['beo-http', 'beo-ui', 'beo-media', 'beo-input', 'beo-bluetooth', 'beo-masterlink', 'beo-spotify-fetch']
+        services = ['beo-http', 'beo-ui', 'beo-media', 'beo-input', 'beo-bluetooth', 'beo-masterlink', 'beo-cd', 'beo-spotify-fetch']
         info['services'] = {}
         for svc in services:
             # For timers, check the timer status
@@ -510,6 +510,41 @@ async def process_command(data: dict) -> dict:
             }
         }))
         return {'status': 'ok', 'command': 'dismiss_camera'}
+
+    elif command == 'add_menu_item':
+        preset = params.get('preset')
+        print(f'[CMD] Adding menu item (preset={preset})')
+        msg = {'type': 'menu_item', 'data': {'action': 'add'}}
+        if preset:
+            msg['data']['preset'] = preset
+        else:
+            msg['data'].update({
+                'title': params.get('title', 'Item'),
+                'path': params.get('path', 'menu/item'),
+                'after': params.get('after', 'menu/playing')
+            })
+        await broadcast(json.dumps(msg))
+        return {'status': 'ok', 'command': 'add_menu_item'}
+
+    elif command == 'remove_menu_item':
+        path = params.get('path')
+        preset = params.get('preset')
+        print(f'[CMD] Removing menu item (path={path}, preset={preset})')
+        msg = {'type': 'menu_item', 'data': {'action': 'remove'}}
+        if path:
+            msg['data']['path'] = path
+        if preset:
+            msg['data']['preset'] = preset
+        await broadcast(json.dumps(msg))
+        return {'status': 'ok', 'command': 'remove_menu_item'}
+
+    elif command == 'broadcast':
+        # Forward an arbitrary event to all WebSocket clients (used by cd.py etc.)
+        evt_type = params.get('type', 'unknown')
+        evt_data = params.get('data', {})
+        print(f'[CMD] Broadcasting event: {evt_type}')
+        await broadcast(json.dumps({'type': evt_type, 'data': evt_data}))
+        return {'status': 'ok', 'command': 'broadcast', 'event_type': evt_type}
 
     else:
         return {'status': 'error', 'message': f'Unknown command: {command}'}

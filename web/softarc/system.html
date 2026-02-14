@@ -643,6 +643,34 @@
                 </div>
 
                 <div class="debug-card">
+                    <h3>CD Drive</h3>
+                    <div class="debug-item">
+                        <span class="label">Drive</span>
+                        <span class="value" id="cd-drive">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Disc</span>
+                        <span class="value" id="cd-disc">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Album</span>
+                        <span class="value" id="cd-album">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">State</span>
+                        <span class="value" id="cd-state">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Track</span>
+                        <span class="value" id="cd-track">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">AirPlay</span>
+                        <span class="value" id="cd-airplay">--</span>
+                    </div>
+                </div>
+
+                <div class="debug-card">
                     <h3>Spotify</h3>
                     <div class="debug-item">
                         <span class="label">User ID</span>
@@ -677,6 +705,7 @@
                 <div class="log-service-btn" data-service="beo-media">media</div>
                 <div class="log-service-btn" data-service="beo-http">http</div>
                 <div class="log-service-btn" data-service="beo-ui">ui</div>
+                <div class="log-service-btn" data-service="beo-cd">cd</div>
                 <div class="log-service-btn" data-service="beo-spotify-fetch">spotify</div>
             </div>
             <div class="log-output" id="log-output">
@@ -711,6 +740,10 @@
                 <div class="service-item" data-service="beo-ui">
                     <span class="name">beo-ui</span>
                     <span class="status-dot" id="dot-ui"></span>
+                </div>
+                <div class="service-item" data-service="beo-cd">
+                    <span class="name">beo-cd</span>
+                    <span class="status-dot" id="dot-cd"></span>
                 </div>
                 <div class="service-item" data-service="beo-spotify-fetch">
                     <span class="name">beo-spotify-fetch (timer)</span>
@@ -751,7 +784,7 @@
             constructor() {
                 this.sections = ['info', 'debug', 'logs', 'services', 'people'];
                 this.currentSection = 0;
-                this.logServices = ['beo-masterlink', 'beo-bluetooth', 'beo-input', 'beo-media', 'beo-http', 'beo-ui', 'beo-spotify-fetch'];
+                this.logServices = ['beo-masterlink', 'beo-bluetooth', 'beo-input', 'beo-media', 'beo-http', 'beo-ui', 'beo-cd', 'beo-spotify-fetch'];
                 this.currentLogService = 0;
                 this.serviceItems = document.querySelectorAll('.service-item');
                 this.currentServiceItem = 0;
@@ -862,8 +895,17 @@
                 document.getElementById('spotify-digits').textContent = '—';
                 document.getElementById('spotify-fetch-time').textContent = '—';
 
+                // CD Drive info - dev mode
+                document.getElementById('cd-drive').textContent = 'Dev Mode';
+                document.getElementById('cd-drive').className = 'value status-warning';
+                document.getElementById('cd-disc').textContent = '—';
+                document.getElementById('cd-album').textContent = '—';
+                document.getElementById('cd-state').textContent = '—';
+                document.getElementById('cd-track').textContent = '—';
+                document.getElementById('cd-airplay').textContent = '—';
+
                 // Service status - dev mode shows warning
-                ['masterlink', 'bluetooth', 'input', 'media', 'http', 'ui', 'spotify-fetch'].forEach(svc => {
+                ['masterlink', 'bluetooth', 'input', 'media', 'http', 'ui', 'cd', 'spotify-fetch'].forEach(svc => {
                     const dot = document.getElementById(`dot-${svc}`);
                     if (dot) {
                         dot.className = 'status-dot warning';
@@ -962,8 +1004,10 @@
                 this.checkServiceStatus();
                 this.fetchSpotifyInfo();
                 this.fetchPeople();
+                this.fetchCDStatus();
                 setInterval(() => this.checkServiceStatus(), 10000);
                 setInterval(() => this.fetchPeople(), 30000);
+                setInterval(() => this.fetchCDStatus(), 5000);
 
                 // Spotify refresh button handler
                 document.getElementById('spotify-refresh-btn').addEventListener('click', () => {
@@ -1442,6 +1486,53 @@
                     if (grid.querySelector('.people-loading')) {
                         grid.innerHTML = '<span class="people-error">Unable to connect to Home Assistant</span>';
                     }
+                }
+            }
+
+            async fetchCDStatus() {
+                try {
+                    const resp = await fetch('http://localhost:8769/status');
+                    if (!resp.ok) throw new Error('CD service not available');
+                    const data = await resp.json();
+
+                    const driveEl = document.getElementById('cd-drive');
+                    driveEl.textContent = data.drive_connected ? 'Connected' : 'Not found';
+                    driveEl.className = data.drive_connected ? 'value status-ok' : 'value status-error';
+
+                    const discEl = document.getElementById('cd-disc');
+                    discEl.textContent = data.disc_inserted ? 'Inserted' : 'Empty';
+                    discEl.className = data.disc_inserted ? 'value status-ok' : 'value';
+
+                    if (data.metadata) {
+                        document.getElementById('cd-album').textContent =
+                            `${data.metadata.artist} — ${data.metadata.title}`.substring(0, 40);
+                    } else {
+                        document.getElementById('cd-album').textContent = '—';
+                    }
+
+                    if (data.playback) {
+                        document.getElementById('cd-state').textContent = data.playback.state;
+                        document.getElementById('cd-track').textContent =
+                            data.playback.current_track ? `${data.playback.current_track} / ${data.playback.total_tracks}` : '—';
+                    }
+
+                    const airplayEl = document.getElementById('cd-airplay');
+                    if (data.current_speaker) {
+                        airplayEl.textContent = data.current_speaker.name;
+                        airplayEl.className = 'value status-ok';
+                    } else {
+                        const speakerCount = data.airplay_speakers?.length || 0;
+                        airplayEl.textContent = speakerCount > 0 ? `${speakerCount} found` : 'None';
+                        airplayEl.className = 'value';
+                    }
+
+                    // Update service dot
+                    const dot = document.getElementById('dot-cd');
+                    if (dot) dot.className = 'status-dot running';
+                } catch (e) {
+                    // CD service not running — show as disconnected
+                    const dot = document.getElementById('dot-cd');
+                    if (dot) dot.className = 'status-dot stopped';
                 }
             }
 

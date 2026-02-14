@@ -23,7 +23,10 @@ const LASER_MAPPING_CONFIG = (function() {
             MAX_ANGLE: c.laser.maxAngle,
             TOP_OVERLAY_START: c.overlays.topOverlayStart,
             BOTTOM_OVERLAY_START: c.overlays.bottomOverlayStart,
-            MENU_ITEMS: c.menuItems,
+            // Dynamic getter: returns runtime override if set, otherwise Constants
+            get MENU_ITEMS() {
+                return window._dynamicMenuItems || c.menuItems;
+            },
             MENU_ANGLE_STEP: c.arc.menuAngleStep
         };
     }
@@ -49,6 +52,16 @@ const LASER_MAPPING_CONFIG = (function() {
         MENU_ANGLE_STEP: 5
     };
 })();
+
+/**
+ * Update the menu items used for laser position mapping at runtime.
+ * @param {Array} items - Array of {title, path} menu item objects
+ */
+function updateMenuItems(items) {
+    if (typeof window !== 'undefined') {
+        window._dynamicMenuItems = items.map(i => ({ title: i.title, path: i.path }));
+    }
+}
 
 /**
  * Convert laser position to angle using the current calibration
@@ -251,6 +264,7 @@ if (typeof module !== 'undefined' && module.exports) {
         findClosestMenuItem,
         getMenuItemAngle,
         getMenuStartAngle,
+        updateMenuItems,
         LASER_MAPPING_CONFIG
     };
 } else {
@@ -262,6 +276,7 @@ if (typeof module !== 'undefined' && module.exports) {
         findClosestMenuItem,
         getMenuItemAngle,
         getMenuStartAngle,
+        updateMenuItems,
         LASER_MAPPING_CONFIG
     };
 }

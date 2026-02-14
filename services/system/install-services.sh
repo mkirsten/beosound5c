@@ -19,6 +19,7 @@ SERVICES=(
     "beo-input.service"
     "beo-masterlink.service"
     "beo-bluetooth.service"
+    "beo-cd.service"
     "beo-ui.service"
     "beo-spotify-fetch.service"
     "beo-spotify-fetch.timer"
@@ -83,6 +84,59 @@ done
 
 echo ""
 
+# Enable Debian backports (for latest PipeWire)
+BACKPORTS_LIST="/etc/apt/sources.list.d/backports.list"
+if [ ! -f "$BACKPORTS_LIST" ]; then
+    echo "📋 Enabling Debian backports..."
+    echo "deb http://deb.debian.org/debian bookworm-backports main" > "$BACKPORTS_LIST"
+    apt update -qq 2>/dev/null
+    echo "  ✅ Backports enabled"
+fi
+
+# Upgrade PipeWire from backports
+echo "📋 Upgrading PipeWire from backports..."
+apt install -y -qq -t bookworm-backports pipewire pipewire-pulse pipewire-alsa libspa-0.2-bluetooth 2>/dev/null
+echo "  ✅ PipeWire upgraded"
+
+# Install PipeWire RAOP config (AirPlay speaker discovery)
+PIPEWIRE_CONF_DIR="/etc/pipewire/pipewire.conf.d"
+RAOP_CONF="$PIPEWIRE_CONF_DIR/raop-discover.conf"
+if [ ! -f "$RAOP_CONF" ]; then
+    echo "📋 Installing PipeWire RAOP discovery config..."
+    mkdir -p "$PIPEWIRE_CONF_DIR"
+    cat > "$RAOP_CONF" << 'RAOP_EOF'
+# Enable AirPlay (RAOP) speaker discovery
+# Discovered speakers appear as PipeWire sinks
+context.modules = [
+    { name = libpipewire-module-raop-discover }
+]
+RAOP_EOF
+    chmod 644 "$RAOP_CONF"
+    echo "  ✅ Installed $RAOP_CONF"
+else
+    echo "  ℹ️  RAOP config already exists at $RAOP_CONF"
+fi
+
+# Install CD service dependencies
+echo "📋 Installing CD service dependencies..."
+apt install -y -qq mpv cdparanoia libdiscid-dev 2>/dev/null
+pip3 install --break-system-packages -q discid musicbrainzngs 2>/dev/null
+echo "  ✅ CD dependencies installed"
+
+echo ""
+
+# Install Xorg config to prevent BeoRemote from generating mouse events
+XORG_CONF="/etc/X11/xorg.conf.d/20-beorc-no-pointer.conf"
+if [ -f "$SCRIPT_DIR/20-beorc-no-pointer.conf" ]; then
+    echo "📋 Installing Xorg config (BeoRemote pointer fix)..."
+    mkdir -p /etc/X11/xorg.conf.d
+    cp "$SCRIPT_DIR/20-beorc-no-pointer.conf" "$XORG_CONF"
+    chmod 644 "$XORG_CONF"
+    echo "  ✅ Installed $XORG_CONF"
+fi
+
+echo ""
+
 # Reload systemd daemon
 echo "🔄 Reloading systemd daemon..."
 systemctl daemon-reload
@@ -112,6 +166,10 @@ systemctl start beo-masterlink.service
 echo "  📱 Starting Bluetooth service..."
 systemctl enable beo-bluetooth.service
 systemctl start beo-bluetooth.service
+
+echo "  💿 Starting CD service..."
+systemctl enable beo-cd.service
+systemctl start beo-cd.service
 
 # Start UI service last (depends on HTTP)
 echo "  🖥️  Starting UI service..."

@@ -402,3 +402,309 @@ html, body {
   min-width: 28px;
   text-align: center;
 }
+
+/* ── CD View ── */
+
+/* Loading state */
+.cd-loading-state,
+.cd-album-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  transition: opacity 0.6s ease;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.cd-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Spinning disc — pure CSS */
+.cd-disc {
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, #111 18%, transparent 19%),
+    repeating-radial-gradient(circle at center, transparent 0px, transparent 3px, rgba(60,60,60,0.25) 3.5px, transparent 4px),
+    radial-gradient(circle at center, #1a1a1a 20%, #222 40%, #1a1a1a 60%, #222 80%, #1a1a1a 100%);
+  box-shadow: 0 0 30px rgba(0,0,0,0.6), inset 0 0 20px rgba(0,0,0,0.4);
+  animation: cd-spin 3s linear infinite;
+  position: relative;
+}
+
+.cd-disc::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #444 40%, #222 100%);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 4px rgba(0,0,0,0.8);
+}
+
+@keyframes cd-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Loading text with animated dots */
+.cd-loading-text {
+  margin-top: 24px;
+  font-size: 18px;
+  color: #888;
+  letter-spacing: 1px;
+}
+
+.cd-dots span {
+  animation: cd-dot-blink 1.4s infinite;
+  opacity: 0;
+}
+
+.cd-dots span:nth-child(1) { animation-delay: 0s; }
+.cd-dots span:nth-child(2) { animation-delay: 0.2s; }
+.cd-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes cd-dot-blink {
+  0%, 20%  { opacity: 0; }
+  40%      { opacity: 1; }
+  100%     { opacity: 0; }
+}
+
+/* Album state — doubles as 3D flip perspective container */
+.cd-artwork-container {
+  width: 60%;
+  aspect-ratio: 1;
+  margin: 20px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+  perspective: 800px;
+}
+
+.cd-artwork {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cd-media-info {
+  width: 80%;
+  padding: 10px;
+}
+
+.cd-media-title {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cd-media-artist {
+  font-size: 18px;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cd-media-album {
+  font-size: 16px;
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* CD Icon Bar — top-right overlay, ~3% screen estate */
+.cd-icon-bar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+  transition: opacity 0.4s ease;
+}
+
+.cd-icon-bar-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cd-icon-btn {
+  width: 28px;
+  height: 28px;
+  color: #666;
+  transition: color 0.2s ease, transform 0.15s ease;
+  cursor: pointer;
+}
+
+.cd-icon-btn svg {
+  width: 100%;
+  height: 100%;
+}
+
+.cd-icon-selected {
+  color: #fff;
+  transform: scale(1.15);
+}
+
+.cd-icon-flash {
+  color: rgba(102, 153, 255, 1) !important;
+  transform: scale(1.3) !important;
+}
+
+.cd-icon-toggled {
+  color: rgba(102, 153, 255, 1);
+}
+
+/* ── 3D Jewel Case Flip ── */
+
+.cd-flipper {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cd-flipper.cd-flipped {
+  transform: rotateY(180deg);
+}
+
+.cd-flip-face {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.cd-flip-front {
+  z-index: 2;
+}
+
+.cd-flip-back {
+  transform: rotateY(180deg);
+}
+
+/* ── Track List ── */
+
+.cd-track-list {
+  width: 70%;
+  max-height: 60%;
+  overflow-y: auto;
+  scrollbar-width: none;
+  text-align: left;
+  transition: opacity 0.4s ease;
+}
+.cd-track-list::-webkit-scrollbar { display: none; }
+
+.cd-track-list-title {
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.15);
+}
+
+.cd-track-list-items {
+  display: flex;
+  flex-direction: column;
+}
+
+.cd-track-item {
+  display: flex;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 15px;
+  color: #ccc;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.cd-track-num {
+  width: 24px;
+  text-align: right;
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.cd-track-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cd-track-dur {
+  opacity: 0.4;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+/* ── Sub-Panel Overlay ── */
+
+.cd-sub-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  transition: opacity 0.3s ease;
+}
+
+.cd-panel-title {
+  font-size: 18px;
+  font-weight: bold;
+  margin-bottom: 16px;
+  opacity: 0.7;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.cd-panel-items {
+  width: 70%;
+  max-height: 60%;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.cd-panel-items::-webkit-scrollbar { display: none; }
+
+.cd-panel-item {
+  padding: 10px 14px;
+  font-size: 16px;
+  color: #888;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.cd-panel-item-selected {
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+}
+
+.cd-panel-item-active {
+  color: rgba(102, 153, 255, 1);
+}

@@ -406,15 +406,16 @@ class UIStore {
     renderMenuItems() {
         const menuContainer = document.getElementById('menuItems');
         menuContainer.innerHTML = '';
-        
+
         this.menuItems.forEach((item, index) => {
             const itemElement = document.createElement('div');
             itemElement.className = 'list-item';
+            itemElement.dataset.path = item.path;
             itemElement.textContent = item.title;
-            
+
             const itemAngle = this.getStartItemAngle() + index * this.angleStep;
             const position = arcs.getArcPoint(this.radius, 20, itemAngle);
-            
+
             Object.assign(itemElement.style, {
                 position: 'absolute',
                 left: `${position.x - 100}px`,
@@ -834,7 +835,16 @@ class UIStore {
         }
         
         this.setupContentScroll();
-        
+
+        // Fire onMount for dynamic menu presets (e.g. CD loading sequence)
+        if (window.MenuPresets) {
+            for (const preset of Object.values(window.MenuPresets)) {
+                if (preset.item.path === this.currentRoute && preset.onMount) {
+                    preset.onMount();
+                }
+            }
+        }
+
         // Fade the content back in (but not for overlay transitions where we want it always visible)
         const isOverlayView = this.currentRoute === 'menu/playing' || this.currentRoute === 'menu/showing';
         if (isOverlayView) {
@@ -931,6 +941,169 @@ class UIStore {
         if (window.IframeMessenger) {
             window.IframeMessenger.sendKeyboardEvent(this.currentRoute, event);
         }
+    }
+
+    /**
+     * Add a menu item dynamically at runtime.
+     * @param {object} item - {title, path} for the new menu item
+     * @param {string} afterPath - Insert after this path (e.g. 'menu/music')
+     * @param {object} [viewDef] - Optional view definition {title, content}
+     */
+    addMenuItem(item, afterPath, viewDef) {
+        // Don't add duplicates
+        if (this.menuItems.some(m => m.path === item.path)) {
+            console.log(`[MENU] Item ${item.path} already exists`);
+            return;
+        }
+
+        // Find insertion point
+        const afterIndex = this.menuItems.findIndex(m => m.path === afterPath);
+        const insertAt = afterIndex !== -1 ? afterIndex + 1 : this.menuItems.length;
+        this.menuItems.splice(insertAt, 0, { title: item.title, path: item.path });
+
+        // Register view content
+        if (viewDef) {
+            this.views[item.path] = viewDef;
+        }
+
+        // Sync to laser position mapper
+        if (window.LaserPositionMapper?.updateMenuItems) {
+            window.LaserPositionMapper.updateMenuItems(this.menuItems);
+        }
+
+        console.log(`[MENU] Added "${item.title}" after ${afterPath} (now ${this.menuItems.length} items)`);
+        this.renderMenuItemsAnimated();
+    }
+
+    /**
+     * Remove a menu item dynamically at runtime.
+     * @param {string} path - Path of the item to remove (e.g. 'menu/cd')
+     */
+    removeMenuItem(path) {
+        const index = this.menuItems.findIndex(m => m.path === path);
+        if (index === -1) {
+            console.log(`[MENU] Item ${path} not found`);
+            return;
+        }
+
+        // If currently viewing the removed item, navigate to adjacent
+        if (this.currentRoute === path) {
+            const adjacentPath = this.menuItems[index - 1]?.path || this.menuItems[index + 1]?.path || 'menu/playing';
+            this.navigateToView(adjacentPath);
+        }
+
+        this.menuItems.splice(index, 1);
+        delete this.views[path];
+
+        // Sync to laser position mapper
+        if (window.LaserPositionMapper?.updateMenuItems) {
+            window.LaserPositionMapper.updateMenuItems(this.menuItems);
+        }
+
+        console.log(`[MENU] Removed "${path}" (now ${this.menuItems.length} items)`);
+        this.renderMenuItemsAnimated();
+    }
+
+    /**
+     * Re-render menu items with FLIP animation.
+     * Existing items slide to their new positions, new items fade in.
+     */
+    renderMenuItemsAnimated() {
+        const menuContainer = document.getElementById('menuItems');
+        if (!menuContainer) return;
+
+        // --- FIRST: record old positions keyed by data-path ---
+        const oldPositions = {};
+        menuContainer.querySelectorAll('.list-item[data-path]').forEach(el => {
+            const rect = el.getBoundingClientRect();
+            oldPositions[el.dataset.path] = { left: rect.left, top: rect.top };
+        });
+
+        // --- Rebuild DOM ---
+        menuContainer.innerHTML = '';
+        this.menuItems.forEach((item, index) => {
+            const itemElement = document.createElement('div');
+            itemElement.className = 'list-item';
+            itemElement.dataset.path = item.path;
+            itemElement.textContent = item.title;
+
+            const itemAngle = this.getStartItemAngle() + index * this.angleStep;
+            const position = arcs.getArcPoint(this.radius, 20, itemAngle);
+
+            Object.assign(itemElement.style, {
+                position: 'absolute',
+                left: `${position.x - 100}px`,
+                top: `${position.y - 25}px`,
+                width: '100px',
+                height: '50px',
+                cursor: 'pointer'
+            });
+
+            itemElement.addEventListener('mouseenter', () => {
+                this.wheelPointerAngle = itemAngle;
+                this.handleWheelChange();
+            });
+
+            if (this.isSelectedItemForLaserPosition(index)) {
+                itemElement.classList.add('selectedItem');
+            }
+
+            menuContainer.appendChild(itemElement);
+        });
+
+        // --- LAST + INVERT + PLAY ---
+        menuContainer.querySelectorAll('.list-item[data-path]').forEach(el => {
+            const path = el.dataset.path;
+            const newRect = el.getBoundingClientRect();
+
+            if (oldPositions[path]) {
+                // Existing item that moved — animate from old to new position
+                const dx = oldPositions[path].left - newRect.left;
+                const dy = oldPositions[path].top - newRect.top;
+                if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+                    el.animate([
+                        { transform: `translate(${dx}px, ${dy}px)` },
+                        { transform: 'translate(0, 0)' }
+                    ], { duration: 300, easing: 'ease-out' });
+                }
+            } else {
+                // New item — fade in with delay
+                el.animate([
+                    { opacity: 0, transform: 'translateX(-20px)' },
+                    { opacity: 1, transform: 'translateX(0)' }
+                ], { duration: 300, delay: 150, easing: 'ease-out', fill: 'backwards' });
+            }
+        });
+    }
+
+    /**
+     * Test helper: add CD menu item (for console testing without MQTT)
+     */
+    testAddCD() {
+        if (!window.MenuPresets?.cd) {
+            console.error('MenuPresets.cd not loaded');
+            return;
+        }
+        const preset = window.MenuPresets.cd;
+        this.addMenuItem(preset.item, preset.after, preset.view);
+        // Fire onAdd after DOM is ready
+        setTimeout(() => {
+            const container = document.getElementById('contentArea');
+            if (preset.onAdd) preset.onAdd(container);
+        }, 50);
+    }
+
+    /**
+     * Test helper: remove CD menu item
+     */
+    testRemoveCD() {
+        if (!window.MenuPresets?.cd) {
+            console.error('MenuPresets.cd not loaded');
+            return;
+        }
+        const preset = window.MenuPresets.cd;
+        if (preset.onRemove) preset.onRemove();
+        this.removeMenuItem(preset.item.path);
     }
 }
 

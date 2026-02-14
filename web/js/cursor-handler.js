@@ -265,19 +265,19 @@ function processWebSocketEvent(message) {
         case 'laser':
             processLaserEvent(data);
             break;
-            
+
         case 'nav':
             handleNavEvent(uiStore, data);
             break;
-            
+
         case 'volume':
             handleVolumeEvent(uiStore, data);
             break;
-            
+
         case 'button':
             handleButtonEvent(uiStore, data);
             break;
-            
+
         case 'media_update':
             if (uiStore.handleMediaUpdate) {
                 uiStore.handleMediaUpdate(data.data, data.reason);
@@ -292,6 +292,15 @@ function processWebSocketEvent(message) {
         case 'camera_overlay':
             // Handle camera overlay commands (from HA webhook)
             handleCameraOverlayEvent(data);
+            break;
+
+        case 'menu_item':
+            handleMenuItemEvent(uiStore, data);
+            break;
+
+        case 'cd_update':
+            // CD metadata update from cd.py via input.py broadcast
+            if (window.CDView) window.CDView.updateMetadata(data);
             break;
 
         default:
@@ -560,6 +569,11 @@ function initMediaWebSocket() {
 function handleNavEvent(uiStore, data) {
     const currentPage = uiStore.currentRoute || 'unknown';
 
+    // Route nav events to CD view icon bar when active
+    if (currentPage === 'menu/cd' && window.CDView?.isActive) {
+        if (window.CDView.handleNavEvent(data)) return;
+    }
+
     // Forward nav events to iframe pages that handle their own navigation
     if (window.IframeMessenger && window.IframeMessenger.routeHasIframe(currentPage)) {
         window.IframeMessenger.sendNavEvent(currentPage, data);
@@ -596,8 +610,7 @@ function handleExternalNavigation(uiStore, data) {
 
     // Handle next/previous cycling through menu items
     if (page === 'next' || page === 'previous') {
-        // Menu order: SHOWING, SYSTEM, SECURITY, SCENES, MUSIC, PLAYING
-        const menuOrder = ['menu/showing', 'menu/system', 'menu/security', 'menu/scenes', 'menu/music', 'menu/playing'];
+        const menuOrder = uiStore.menuItems.map(m => m.path);
         const currentRoute = uiStore.currentRoute || 'menu/playing';
         let currentIndex = menuOrder.indexOf(currentRoute);
         if (currentIndex === -1) currentIndex = 5; // default to playing
@@ -652,10 +665,51 @@ function handleCameraOverlayEvent(data) {
     }
 }
 
+// Handle dynamic menu item add/remove events
+function handleMenuItemEvent(uiStore, data) {
+    const action = data.action;
+    console.log(`[MENU_ITEM] ${action}`, data);
+
+    if (action === 'add') {
+        const preset = data.preset && window.MenuPresets?.[data.preset];
+        if (preset) {
+            uiStore.addMenuItem(preset.item, preset.after, preset.view);
+            setTimeout(() => {
+                if (preset.onAdd) preset.onAdd(document.getElementById('contentArea'));
+            }, 50);
+        } else if (data.title && data.path) {
+            // Non-preset: raw item definition
+            uiStore.addMenuItem(
+                { title: data.title, path: data.path },
+                data.after || 'menu/playing',
+                data.view || { title: data.title, content: `<div style="color:white;display:flex;align-items:center;justify-content:center;height:100%">${data.title}</div>` }
+            );
+        } else {
+            console.warn('[MENU_ITEM] add requires preset or title+path');
+        }
+    } else if (action === 'remove') {
+        const path = data.path || (data.preset && window.MenuPresets?.[data.preset]?.item.path);
+        if (path) {
+            const preset = data.preset && window.MenuPresets?.[data.preset];
+            if (preset?.onRemove) preset.onRemove();
+            uiStore.removeMenuItem(path);
+        } else {
+            console.warn('[MENU_ITEM] remove requires path or preset');
+        }
+    }
+}
+
 // Handle button press events
 function handleButtonEvent(uiStore, data) {
     const currentPage = uiStore.currentRoute || 'unknown';
     console.log(`[BUTTON] ${data.button} on ${currentPage}`);
+
+    // CD view button handling (LEFT=prev, RIGHT=next, GO=play/pause)
+    if (currentPage === 'menu/cd' && window.CDView?.isActive) {
+        if (window.CDView.handleButton(data.button.toLowerCase())) return;
+    }
+    // Never send webhooks from CD view — all buttons are handled above
+    if (currentPage === 'menu/cd') return;
 
     // Check if camera overlay is active - intercept GO, LEFT, RIGHT buttons
     if (window.CameraOverlayManager && window.CameraOverlayManager.isActive) {
