@@ -565,10 +565,6 @@
                         <span class="value" id="cfg-device-name">--</span>
                     </div>
                     <div class="debug-item">
-                        <span class="label">Sonos IP</span>
-                        <span class="value" id="cfg-sonos-ip">--</span>
-                    </div>
-                    <div class="debug-item">
                         <span class="label">HA URL</span>
                         <span class="value" id="cfg-ha-url">--</span>
                     </div>
@@ -665,8 +661,8 @@
                         <span class="value" id="cd-track">--</span>
                     </div>
                     <div class="debug-item">
-                        <span class="label">AirPlay</span>
-                        <span class="value" id="cd-airplay">--</span>
+                        <span class="label">Audio Output</span>
+                        <span class="value" id="cd-output">--</span>
                     </div>
                 </div>
 
@@ -878,7 +874,6 @@
                 // Config data from AppConfig
                 const deviceName = window.top?.AppConfig?.deviceName || 'Development';
                 document.getElementById('cfg-device-name').textContent = deviceName;
-                document.getElementById('cfg-sonos-ip').textContent = '—';
                 document.getElementById('cfg-ha-url').textContent = window.top?.AppConfig?.homeAssistant?.url?.replace('http://', '') || '—';
                 document.getElementById('cfg-beoremote-mac').textContent = '—';
                 document.getElementById('cfg-bt-name').textContent = '—';
@@ -902,7 +897,7 @@
                 document.getElementById('cd-album').textContent = '—';
                 document.getElementById('cd-state').textContent = '—';
                 document.getElementById('cd-track').textContent = '—';
-                document.getElementById('cd-airplay').textContent = '—';
+                document.getElementById('cd-output').textContent = '—';
 
                 // Service status - dev mode shows warning
                 ['masterlink', 'bluetooth', 'input', 'media', 'http', 'ui', 'cd', 'spotify-fetch'].forEach(svc => {
@@ -1295,7 +1290,6 @@
                 if (data.config) {
                     const cfg = data.config;
                     if (cfg.DEVICE_NAME) document.getElementById('cfg-device-name').textContent = cfg.DEVICE_NAME;
-                    if (cfg.SONOS_IP) document.getElementById('cfg-sonos-ip').textContent = cfg.SONOS_IP;
                     if (cfg.HA_URL) document.getElementById('cfg-ha-url').textContent = cfg.HA_URL.replace('http://', '');
                     if (cfg.BEOREMOTE_MAC) document.getElementById('cfg-beoremote-mac').textContent = cfg.BEOREMOTE_MAC;
                     if (cfg.BT_DEVICE_NAME) document.getElementById('cfg-bt-name').textContent = cfg.BT_DEVICE_NAME;
@@ -1516,14 +1510,16 @@
                             data.playback.current_track ? `${data.playback.current_track} / ${data.playback.total_tracks}` : '—';
                     }
 
-                    const airplayEl = document.getElementById('cd-airplay');
-                    if (data.current_speaker) {
-                        airplayEl.textContent = data.current_speaker.name;
-                        airplayEl.className = 'value status-ok';
+                    const outputEl = document.getElementById('cd-output');
+                    if (data.current_sink) {
+                        // Show friendly name from audio_outputs if available
+                        const active = data.audio_outputs?.find(o => o.name === data.current_sink);
+                        outputEl.textContent = active?.label || data.current_sink;
+                        outputEl.className = 'value status-ok';
                     } else {
-                        const speakerCount = data.airplay_speakers?.length || 0;
-                        airplayEl.textContent = speakerCount > 0 ? `${speakerCount} found` : 'None';
-                        airplayEl.className = 'value';
+                        const outputCount = data.audio_outputs?.length || 0;
+                        outputEl.textContent = outputCount > 0 ? `${outputCount} sinks` : 'None';
+                        outputEl.className = 'value';
                     }
 
                     // Update service dot
