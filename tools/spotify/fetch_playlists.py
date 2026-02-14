@@ -207,6 +207,12 @@ def main():
 
     log(f"Fetched {fetched}, skipped {skipped} unchanged")
 
+    # Filter out empty playlists (no tracks)
+    before = len(playlists_with_tracks)
+    playlists_with_tracks = [p for p in playlists_with_tracks if p.get('tracks')]
+    if before != len(playlists_with_tracks):
+        log(f"Filtered out {before - len(playlists_with_tracks)} empty playlists")
+
     # Sort by name
     playlists_with_tracks.sort(key=lambda p: p['name'].lower())
 

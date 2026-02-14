@@ -131,17 +131,6 @@ class ArcList {
                 this.items = this.config.itemMapper(this.parentData);
             } else if (this.config.dataType === 'parent_child') {
                 // Default parent/child format - preserve child data for hierarchical navigation
-                // Filter out empty playlists (those with no tracks)
-                const nonEmptyParents = this.parentData.filter(parent => {
-                    const children = parent[this.config.parentKey];
-                    return children && Array.isArray(children) && children.length > 0;
-                });
-                
-                console.log(`Filtered out ${this.parentData.length - nonEmptyParents.length} empty playlists`);
-                
-                // Update parentData to only include non-empty playlists
-                this.parentData = nonEmptyParents;
-                
                 this.items = this.parentData.map((parent, index) => ({
                     id: parent.id,
                     name: parent[this.config.parentNameKey] || `Item ${index + 1}`,

@@ -49,6 +49,17 @@ xinit /bin/bash -c '
   # Hide cursor
   unclutter -idle 0.1 -root &
 
+  # Disable BeoRemote pointer devices - they generate unwanted mouse events
+  # that make the cursor flash visible. Keyboard devices are separate and
+  # remain active. The xorg rule (20-beorc-no-pointer.conf) handles this
+  # permanently, but this catches cases where the rule is missing.
+  (
+    sleep 3  # Wait for X input devices to register
+    for id in $(xinput list 2>/dev/null | grep -i "BEORC" | grep "slave  pointer" | grep -oP "id=\K\d+"); do
+      xinput float "$id" 2>/dev/null && echo "Floated BEORC pointer device id=$id"
+    done
+  ) &
+
   # Disable screen blanking within X session
   xset s off
   xset s noblank
