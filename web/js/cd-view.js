@@ -39,7 +39,8 @@ window.CDView = (() => {
     };
 
     // ── State ──
-    const NAV_COOLDOWN = 150;        // ms between nav actions
+    const NAV_COOLDOWN_ICONS = 280;  // ms between nav actions on icon bar
+    const NAV_COOLDOWN_PANEL = 120;  // ms between nav actions in panels
     let initialized = false;
     let iconBarEl = null;
     let hideTimer = null;
@@ -196,7 +197,8 @@ window.CDView = (() => {
         if (direction === 'clock') {
             panelSelected = Math.min(panelSelected + 1, panelItems.length - 1);
         } else {
-            panelSelected = Math.max(panelSelected - 1, 0);
+            if (panelSelected <= 0) { closePanel(); return; }
+            panelSelected--;
         }
         const panel = document.getElementById('cd-sub-panel');
         if (!panel) return;
@@ -378,8 +380,9 @@ window.CDView = (() => {
         if (!initialized) return false;
 
         // Debounce — nav wheel fires very fast on real hardware
+        const cooldown = activePanel ? NAV_COOLDOWN_PANEL : NAV_COOLDOWN_ICONS;
         const now = Date.now();
-        if (now - lastNavTime < NAV_COOLDOWN) return true;
+        if (now - lastNavTime < cooldown) return true;
         lastNavTime = now;
 
         // Layer 3: sub-panel open → scroll panel
@@ -445,16 +448,14 @@ window.CDView = (() => {
     // ── Metadata ──
 
     function updateMetadata(data) {
+        const prevArtwork = metadata?.artwork;
         metadata = data;
         hasBackCover = !!data.back_artwork;
         hasExternalDrive = !!data.has_external_drive;
 
-        // Crossfade from loading to album
-        const loading = document.getElementById('cd-loading');
-        const album = document.getElementById('cd-album');
-        if (loading && album) {
-            loading.classList.add('cd-hidden');
-            album.classList.remove('cd-hidden');
+        // Reset to front cover when artwork changes (new disc or database selection)
+        if (data.artwork !== prevArtwork) {
+            setRotatePhase(0);
         }
 
         // Front artwork

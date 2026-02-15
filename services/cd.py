@@ -517,8 +517,9 @@ class CDService:
 
     async def _on_disc_change(self, inserted):
         if inserted:
-            # Show CD menu item immediately (spinning disc)
+            # Show CD menu item (disc image + "Loading"), wake screen, navigate to it
             await self._send_input_command('add_menu_item', {'preset': 'cd'})
+            await self._send_input_command('wake', {'page': 'menu/cd'})
             # Fetch metadata in background
             asyncio.create_task(self._fetch_and_update_metadata())
         else:
@@ -531,6 +532,7 @@ class CDService:
         if self.metadata:
             self.player.total_tracks = self.metadata.get('track_count', 0)
             await self._broadcast_cd_update()
+            await self.player.play_track(1)
 
     async def _broadcast_cd_update(self):
         if not self.metadata:
