@@ -591,12 +591,34 @@ function handleNavEvent(uiStore, data) {
 
 // Handle volume wheel events
 // Currently just logs the event - volume control implementation pending
+// Volume state
+let currentVolume = 50;
+let volumeHideTimer = null;
+
 function handleVolumeEvent(uiStore, data) {
     if (!uiStore) return;
 
-    // Log volume event for debugging (implementation pending)
-    const direction = data.direction === 'clock' ? 'up' : 'down';
-    console.log(`[VOLUME] ${direction} (speed: ${data.speed})`);
+    const direction = data.direction === 'clock' ? 1 : -1;
+    const step = Math.max(1, Math.round((data.speed || 10) / 10));
+
+    currentVolume = Math.max(0, Math.min(100, currentVolume + direction * step));
+
+    // Show overlay
+    const overlay = document.getElementById('volume-overlay');
+    const valueEl = document.getElementById('volume-value');
+    if (overlay && valueEl) {
+        valueEl.textContent = currentVolume;
+        overlay.classList.add('visible');
+
+        // Reset hide timer
+        if (volumeHideTimer) clearTimeout(volumeHideTimer);
+        volumeHideTimer = setTimeout(() => {
+            overlay.classList.remove('visible');
+            volumeHideTimer = null;
+        }, 500);
+    }
+
+    console.log(`[VOLUME] ${currentVolume}`);
 }
 
 // Handle external navigation commands (from HA webhook via input.py)

@@ -708,3 +708,31 @@ html, body {
 .cd-panel-item-active {
   color: rgba(102, 153, 255, 1);
 }
+
+/* Volume Overlay */
+#volume-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1024px;
+  height: 768px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99990;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+}
+
+#volume-overlay.visible {
+  opacity: 1;
+}
+
+#volume-value {
+  font-size: 180px;
+  font-weight: 200;
+  color: white;
+  letter-spacing: -5px;
+  text-shadow: 0 0 60px rgba(255, 255, 255, 0.3);
+}
