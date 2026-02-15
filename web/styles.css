@@ -127,35 +127,79 @@ html, body {
   color: rgba(102,153,255,1);
 }
 
-/* Now Playing View Styles */
-#now-playing {
-  background: black;
+/* ── Shared media view (PLAYING + CD) ── */
+.media-view {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  text-align: center;
   overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-  transition: opacity 0.3s ease-in-out;
 }
 
-#artwork-container {
-  transition: all 0.3s ease-in-out;
+.media-view-artwork {
+  width: 60%;
+  aspect-ratio: 1;
+  margin: 20px;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
   border-radius: 10px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+  transition: all 0.3s ease-in-out;
 }
 
-#artwork-container:hover {
-  transform: scale(1.02);
-  box-shadow: 0 15px 30px rgba(0,0,0,0.5);
-}
-
-#now-playing-artwork {
+.media-view-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   border-radius: 8px;
   transition: opacity 0.6s ease-in-out;
 }
 
-#media-info {
+.media-view-info {
+  width: 80%;
+  padding: 15px;
   background: rgba(0,0,0,0.2);
   border-radius: 8px;
-  padding: 15px;
-  margin-top: 20px;
   transition: all 0.3s ease-in-out;
+}
+
+.media-view-title {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.media-view-artist {
+  font-size: 18px;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.media-view-album {
+  font-size: 16px;
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* PLAYING + CD view backgrounds */
+#now-playing,
+#cd-view {
+  background: black;
 }
 
 .slide-up-enter {
@@ -406,8 +450,7 @@ html, body {
 /* ── CD View ── */
 
 /* Loading state */
-.cd-loading-state,
-.cd-album-state {
+.cd-loading-state {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -423,6 +466,8 @@ html, body {
 .cd-hidden {
   opacity: 0;
   pointer-events: none;
+  position: absolute;
+  visibility: hidden;
 }
 
 /* Spinning disc — pure CSS */
@@ -480,52 +525,10 @@ html, body {
   100%     { opacity: 0; }
 }
 
-/* Album state — doubles as 3D flip perspective container */
+/* CD-specific: add 3D perspective for flip animation, allow overflow for rotation */
 .cd-artwork-container {
-  width: 60%;
-  aspect-ratio: 1;
-  margin: 20px;
-  position: relative;
-  overflow: hidden;
-  border-radius: 8px;
-  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
   perspective: 800px;
-}
-
-.cd-artwork {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.cd-media-info {
-  width: 80%;
-  padding: 10px;
-}
-
-.cd-media-title {
-  font-size: 24px;
-  font-weight: bold;
-  margin-bottom: 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.cd-media-artist {
-  font-size: 18px;
-  margin-bottom: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.cd-media-album {
-  font-size: 16px;
-  opacity: 0.8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
 }
 
 /* CD Icon Bar — top-right overlay, ~3% screen estate */
@@ -658,6 +661,26 @@ html, body {
   font-size: 13px;
 }
 
+.cd-track-item-playing {
+  color: rgba(102, 153, 255, 1);
+}
+.cd-track-item-playing .cd-track-num {
+  opacity: 1;
+}
+
+/* Track change text transitions */
+.cd-track-transition {
+  transition: opacity 250ms ease, transform 250ms ease;
+}
+.cd-track-exit {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+.cd-track-enter {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
 /* ── Sub-Panel Overlay ── */
 
 .cd-sub-panel {
@@ -729,10 +752,18 @@ html, body {
   opacity: 1;
 }
 
-#volume-value {
-  font-size: 180px;
-  font-weight: 200;
-  color: white;
-  letter-spacing: -5px;
-  text-shadow: 0 0 60px rgba(255, 255, 255, 0.3);
+#volume-arc-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+#volume-device {
+  position: absolute;
+  bottom: 80px;
+  right: 60px;
+  font-size: 13px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.6);
+  letter-spacing: 1px;
 }

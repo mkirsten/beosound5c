@@ -591,26 +591,81 @@ function handleNavEvent(uiStore, data) {
 
 // Handle volume wheel events
 // Currently just logs the event - volume control implementation pending
-// Volume state
+// Volume state — single source of truth is the router (0-100)
 let currentVolume = 50;
+let volumeOutputDevice = '';
 let volumeHideTimer = null;
+let volumeSendTimer = null;
+const VOLUME_ARC_LENGTH = Math.PI * 274;
+
+function initVolumeArc() {
+    const arcPath = document.getElementById('volume-arc-path');
+    if (arcPath) {
+        arcPath.style.strokeDasharray = VOLUME_ARC_LENGTH;
+        arcPath.style.strokeDashoffset = VOLUME_ARC_LENGTH;
+    }
+    // Fetch initial state from router
+    fetchVolumeFromRouter();
+}
+
+async function fetchVolumeFromRouter() {
+    try {
+        const resp = await fetch(`${AppConfig.routerUrl}/router/status`);
+        const data = await resp.json();
+        currentVolume = data.volume || 0;
+        volumeOutputDevice = data.output_device || '';
+        const deviceEl = document.getElementById('volume-device');
+        if (deviceEl) deviceEl.textContent = volumeOutputDevice;
+        updateVolumeArc(currentVolume);
+        console.log(`[VOLUME] Synced from router: ${currentVolume}% (${volumeOutputDevice})`);
+    } catch (e) {
+        console.warn('[VOLUME] Could not fetch router status:', e);
+    }
+}
+
+function sendVolumeToRouter(volume) {
+    // Debounce: only send after 50ms of no new events
+    if (volumeSendTimer) clearTimeout(volumeSendTimer);
+    volumeSendTimer = setTimeout(() => {
+        fetch(`${AppConfig.routerUrl}/router/volume`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({volume: Math.round(volume)})
+        }).catch(e => console.warn('[VOLUME] Router send failed:', e));
+        volumeSendTimer = null;
+    }, 50);
+}
+
+function updateVolumeArc(volume) {
+    const arcPath = document.getElementById('volume-arc-path');
+    if (!arcPath) return;
+    // Map volume 0-100 to arc fill 18%-82% (visible portion not hidden by wheel)
+    const arcFraction = 0.18 + (volume / 100) * (0.82 - 0.18);
+    arcPath.style.strokeDashoffset = VOLUME_ARC_LENGTH * (1 - arcFraction);
+}
 
 function handleVolumeEvent(uiStore, data) {
     if (!uiStore) return;
 
+    const speed = data.speed || 10;
     const direction = data.direction === 'clock' ? 1 : -1;
-    const step = Math.max(1, Math.round((data.speed || 10) / 10));
 
-    currentVolume = Math.max(0, Math.min(100, currentVolume + direction * step));
+    // Fast spin down → snap to 0
+    if (direction === -1 && speed > 25) {
+        currentVolume = 0;
+    } else {
+        // Non-linear: faster at low volumes, slower at high volumes
+        // Scale factor: 1.5x at vol 0, 0.6x at vol 100
+        const scale = 1.5 - (currentVolume / 100) * 0.9;
+        const step = (speed / 14) * scale;
+        currentVolume = Math.max(0, Math.min(100, currentVolume + direction * step));
+    }
 
-    // Show overlay
     const overlay = document.getElementById('volume-overlay');
-    const valueEl = document.getElementById('volume-value');
-    if (overlay && valueEl) {
-        valueEl.textContent = currentVolume;
+    if (overlay) {
+        updateVolumeArc(currentVolume);
         overlay.classList.add('visible');
 
-        // Reset hide timer
         if (volumeHideTimer) clearTimeout(volumeHideTimer);
         volumeHideTimer = setTimeout(() => {
             overlay.classList.remove('visible');
@@ -618,8 +673,11 @@ function handleVolumeEvent(uiStore, data) {
         }, 500);
     }
 
-    console.log(`[VOLUME] ${currentVolume}`);
+    sendVolumeToRouter(currentVolume);
+    console.log(`[VOLUME] ${Math.round(currentVolume)}%`);
 }
+
+document.addEventListener('DOMContentLoaded', initVolumeArc);
 
 // Handle external navigation commands (from HA webhook via input.py)
 function handleExternalNavigation(uiStore, data) {
@@ -717,6 +775,11 @@ function handleMenuItemEvent(uiStore, data) {
             uiStore.removeMenuItem(path);
         } else {
             console.warn('[MENU_ITEM] remove requires path or preset');
+        }
+    } else if (action === 'hide' || action === 'show') {
+        const path = data.path;
+        if (path && uiStore.hideMenuItem) {
+            uiStore.hideMenuItem(path, action === 'hide');
         }
     }
 }

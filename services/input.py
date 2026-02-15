@@ -621,6 +621,16 @@ async def process_command(data: dict) -> dict:
         await broadcast(json.dumps(msg))
         return {'status': 'ok', 'command': 'remove_menu_item'}
 
+    elif command in ('hide_menu_item', 'show_menu_item'):
+        path = params.get('path')
+        action = 'hide' if command == 'hide_menu_item' else 'show'
+        logger.info('%s menu item: %s', action.capitalize(), path)
+        await broadcast(json.dumps({
+            'type': 'menu_item',
+            'data': {'action': action, 'path': path}
+        }))
+        return {'status': 'ok', 'command': command}
+
     elif command == 'broadcast':
         # Forward an arbitrary event to all WebSocket clients (used by cd.py etc.)
         evt_type = params.get('type', 'unknown')
@@ -817,6 +827,8 @@ async def handle_bt_remotes(request):
 
 async def handler(ws, path=None):
     clients.add(ws)
+    # Notify CD service so it can resync menu items / metadata for this new client
+    asyncio.create_task(_notify_cd_resync())
     recv_task = asyncio.create_task(receive_commands(ws))
     try:
         await ws.wait_closed()
@@ -824,6 +836,19 @@ async def handler(ws, path=None):
         recv_task.cancel()
         clients.remove(ws)
         await stop_log_stream(ws)  # Clean up any active log streams
+
+
+async def _notify_cd_resync():
+    """Ask beo-cd to re-send its menu item and metadata (if a disc is in)."""
+    try:
+        async with ClientSession() as session:
+            async with session.get('http://localhost:8769/resync', timeout=3) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get('resynced'):
+                        logger.info('CD resync triggered for new client')
+    except Exception:
+        pass  # beo-cd not running — that's fine
 
 async def broadcast(msg: str):
     if not clients:

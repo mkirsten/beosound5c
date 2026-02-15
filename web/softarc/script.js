@@ -122,7 +122,8 @@ class ArcList {
      */
     async loadData() {
         try {
-            const response = await fetch(this.config.dataSource);
+            const cacheBust = `${this.config.dataSource}${this.config.dataSource.includes('?') ? '&' : '?'}_=${Date.now()}`;
+            const response = await fetch(cacheBust);
             this.parentData = await response.json();
             
             // Convert data to our items format based on configuration

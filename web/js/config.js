@@ -17,6 +17,12 @@ const AppConfig = {
     // Webhook forwarding endpoint (backend forwards to HA)
     webhookUrl: 'http://localhost:8767/forward',
 
+    // Router service
+    routerUrl: 'http://localhost:8770',
+
+    // CD service
+    cdServiceUrl: 'http://localhost:8769',
+
     // WebSocket endpoints (browser connects to same host as web UI)
     websocket: {
         input: 'ws://localhost:8765',

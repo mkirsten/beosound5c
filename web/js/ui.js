@@ -106,14 +106,16 @@ class UIStore {
             'menu/playing': {
                 title: 'PLAYING',
                 content: `
-                    <div id="now-playing" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; text-align: center;">
-                        <div id="artwork-container" style="width: 60%; aspect-ratio: 1; margin: 20px; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
-                            <img id="now-playing-artwork" src="" alt="Album Art" style="width: 100%; height: 100%; object-fit: cover; transition: opacity 0.6s ease;">
+                    <div id="now-playing" class="media-view">
+                        <div class="media-view-artwork cd-artwork-container">
+                            <div class="cd-flipper">
+                                <img id="now-playing-artwork" class="cd-flip-face cd-flip-front" src="" alt="Album Art">
+                            </div>
                         </div>
-                        <div id="media-info" style="width: 80%; padding: 10px;">
-                            <div id="media-title" style="font-size: 24px; font-weight: bold; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
-                            <div id="media-artist" style="font-size: 18px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
-                            <div id="media-album" style="font-size: 16px; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
+                        <div class="media-view-info">
+                            <div id="media-title" class="media-view-title">—</div>
+                            <div id="media-artist" class="media-view-artist">—</div>
+                            <div id="media-album" class="media-view-album">—</div>
                         </div>
                     </div>`
             },
@@ -407,7 +409,8 @@ class UIStore {
         const menuContainer = document.getElementById('menuItems');
         menuContainer.innerHTML = '';
 
-        this.menuItems.forEach((item, index) => {
+        const visibleItems = this.menuItems.filter(m => !m.hidden);
+        visibleItems.forEach((item, index) => {
             const itemElement = document.createElement('div');
             itemElement.className = 'list-item';
             itemElement.dataset.path = item.path;
@@ -434,7 +437,7 @@ class UIStore {
             });
 
             // Check if this item should be selected based on laser position
-            if (this.isSelectedItemForLaserPosition(index)) {
+            if (this.isSelectedItemForLaserPosition(index, visibleItems)) {
                 itemElement.classList.add('selectedItem');
             }
 
@@ -443,27 +446,29 @@ class UIStore {
     }
 
     getStartItemAngle() {
-        const totalSpan = this.angleStep * (this.menuItems.length - 1);
+        const visibleCount = this.menuItems.filter(m => !m.hidden).length;
+        const totalSpan = this.angleStep * (visibleCount - 1);
         return 180 - totalSpan / 2;
     }
 
     
-    isSelectedItemForLaserPosition(index) {
+    isSelectedItemForLaserPosition(index, items) {
         // Use laser position mapper to determine if this menu item should be highlighted
         if (!this.laserPosition || !window.LaserPositionMapper) {
             return false;
         }
-        
+
         const { getViewForLaserPosition } = window.LaserPositionMapper;
         const viewInfo = getViewForLaserPosition(this.laserPosition);
-        
+
         // Only highlight if we're in a menu view (not overlay) and this is the selected item
         if (viewInfo.isOverlay) {
             return false;
         }
-        
+
         // Check if this menu item matches the current view
-        const expectedPath = this.menuItems[index].path;
+        const list = items || this.menuItems;
+        const expectedPath = list[index].path;
         return viewInfo.path === expectedPath;
     }
     
@@ -471,11 +476,12 @@ class UIStore {
         // Efficiently update menu item highlighting without recreating DOM elements
         const menuContainer = document.getElementById('menuItems');
         if (!menuContainer) return;
-        
-        const menuItems = menuContainer.querySelectorAll('.list-item');
-        
-        menuItems.forEach((itemElement, index) => {
-            if (this.isSelectedItemForLaserPosition(index)) {
+
+        const visibleItems = this.menuItems.filter(m => !m.hidden);
+        const menuElements = menuContainer.querySelectorAll('.list-item');
+
+        menuElements.forEach((itemElement, index) => {
+            if (this.isSelectedItemForLaserPosition(index, visibleItems)) {
                 itemElement.classList.add('selectedItem');
             } else {
                 itemElement.classList.remove('selectedItem');
@@ -968,7 +974,7 @@ class UIStore {
 
         // Sync to laser position mapper
         if (window.LaserPositionMapper?.updateMenuItems) {
-            window.LaserPositionMapper.updateMenuItems(this.menuItems);
+            window.LaserPositionMapper.updateMenuItems(this.menuItems.filter(m => !m.hidden));
         }
 
         console.log(`[MENU] Added "${item.title}" after ${afterPath} (now ${this.menuItems.length} items)`);
@@ -997,11 +1003,38 @@ class UIStore {
 
         // Sync to laser position mapper
         if (window.LaserPositionMapper?.updateMenuItems) {
-            window.LaserPositionMapper.updateMenuItems(this.menuItems);
+            window.LaserPositionMapper.updateMenuItems(this.menuItems.filter(m => !m.hidden));
         }
 
         console.log(`[MENU] Removed "${path}" (now ${this.menuItems.length} items)`);
         this.renderMenuItemsAnimated();
+    }
+
+    /**
+     * Hide or show a menu item without removing it.
+     * @param {string} path - Path of the item (e.g. 'menu/playing')
+     * @param {boolean} hidden - true to hide, false to show
+     */
+    hideMenuItem(path, hidden) {
+        const item = this.menuItems.find(m => m.path === path);
+        if (!item) return;
+        item.hidden = hidden;
+
+        // If currently viewing hidden item, navigate away
+        if (hidden && this.currentRoute === path) {
+            const visible = this.menuItems.find(m => !m.hidden && m.path !== path);
+            if (visible) this.navigateToView(visible.path);
+        }
+
+        // Sync visible items to laser position mapper
+        if (window.LaserPositionMapper?.updateMenuItems) {
+            window.LaserPositionMapper.updateMenuItems(this.menuItems.filter(m => !m.hidden));
+        }
+
+        // Re-render the arc menu (skips hidden items)
+        this.renderMenuItemsAnimated();
+
+        console.log(`[MENU] ${hidden ? 'Hidden' : 'Shown'} "${path}"`);
     }
 
     /**
@@ -1019,9 +1052,10 @@ class UIStore {
             oldPositions[el.dataset.path] = { left: rect.left, top: rect.top };
         });
 
-        // --- Rebuild DOM ---
+        // --- Rebuild DOM (skip hidden items) ---
         menuContainer.innerHTML = '';
-        this.menuItems.forEach((item, index) => {
+        const visibleItems = this.menuItems.filter(m => !m.hidden);
+        visibleItems.forEach((item, index) => {
             const itemElement = document.createElement('div');
             itemElement.className = 'list-item';
             itemElement.dataset.path = item.path;
@@ -1044,7 +1078,7 @@ class UIStore {
                 this.handleWheelChange();
             });
 
-            if (this.isSelectedItemForLaserPosition(index)) {
+            if (this.isSelectedItemForLaserPosition(index, visibleItems)) {
                 itemElement.classList.add('selectedItem');
             }
 
@@ -1157,4 +1191,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Fallback: hide splash after max wait time regardless
     setTimeout(hideSplash, 3000);
-}); 
+
+    // Relay messages from child iframes (e.g. system panel requesting music reload)
+    window.addEventListener('message', (event) => {
+        if (event.data?.type === 'reload-playlists') {
+            const musicIframe = document.getElementById('preload-music');
+            if (musicIframe?.contentWindow) {
+                musicIframe.contentWindow.postMessage({ type: 'reload-data' }, '*');
+            }
+        }
+    });
+});

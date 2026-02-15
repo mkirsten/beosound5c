@@ -1446,6 +1446,12 @@
                 selectedItem.style.background = '#332200';
                 setTimeout(() => { selectedItem.style.background = ''; }, 400);
 
+                // Spotify fetch: refresh playlists instead of restarting the timer
+                if (service === 'beo-spotify-fetch') {
+                    this.refreshSpotifyPlaylists();
+                    return;
+                }
+
                 if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
                     let action = '';
                     if (service === 'all') {
@@ -1623,11 +1629,12 @@
                         command: 'refresh_playlists'
                     }));
 
-                    // Re-enable button after delay and refresh info
+                    // Re-enable button after delay, refresh info, and notify music iframe
                     setTimeout(() => {
                         btn.disabled = false;
                         btn.textContent = 'Refresh Playlists';
                         this.fetchSpotifyInfo();
+                        window.parent.postMessage({ type: 'reload-playlists' }, '*');
                     }, 30000);  // 30s timeout for playlist fetch
                 } else {
                     btn.disabled = false;

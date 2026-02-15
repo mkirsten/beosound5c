@@ -25,7 +25,20 @@
 
     <!-- Volume overlay -->
     <div id="volume-overlay">
-        <span id="volume-value">50</span>
+        <svg id="volume-arc-svg" width="1024" height="768" style="overflow: visible;">
+            <defs>
+                <linearGradient id="volArcGradient" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="0%" stop-color="rgba(102,153,255,0.2)"/>
+                    <stop offset="100%" stop-color="rgba(102,153,255,1)"/>
+                </linearGradient>
+            </defs>
+            <!-- Arc following wheel curvature: center (1024,384), radius 252, left semicircle -->
+            <path id="volume-arc-path"
+                  d="M 1146 658 A 274 274 0 0 1 1146 110"
+                  fill="none" stroke="url(#volArcGradient)"
+                  stroke-width="6" stroke-linecap="round"/>
+        </svg>
+        <span id="volume-device"></span>
     </div>
 
     <div id="app" class="container">
