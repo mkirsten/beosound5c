@@ -15,7 +15,7 @@ import json
 import os
 import sys
 
-BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/pi/beosound5c')
+BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/kirsten/beosound5c')
 DIGIT_PLAYLISTS_FILE = os.path.join(BS5C_BASE_PATH, "web/json/digit_playlists.json")
 
 

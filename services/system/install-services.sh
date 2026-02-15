@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # BeoSound 5C Service Installation Script
 # This script installs, enables, and starts all BeoSound 5C services
@@ -122,6 +123,43 @@ echo "📋 Installing CD service dependencies..."
 apt install -y -qq mpv cdparanoia libdiscid-dev 2>/dev/null
 pip3 install --break-system-packages -q discid musicbrainzngs 2>/dev/null
 echo "  ✅ CD dependencies installed"
+
+echo ""
+
+# Install USB music auto-mount (NTFS drives exposed via Samba for Sonos)
+echo "📋 Setting up USB music auto-mount..."
+if [ -f "$SCRIPT_DIR/usb-music-mount.sh" ] && [ -f "$SCRIPT_DIR/99-usb-music.rules" ]; then
+    mkdir -p /mnt/usb-music
+    cp "$SCRIPT_DIR/usb-music-mount.sh" /usr/local/bin/usb-music-mount.sh
+    chmod +x /usr/local/bin/usb-music-mount.sh
+    cp "$SCRIPT_DIR/99-usb-music.rules" /etc/udev/rules.d/99-usb-music.rules
+    chmod 644 /etc/udev/rules.d/99-usb-music.rules
+    udevadm control --reload-rules
+    echo "  ✅ Udev rule and mount script installed"
+else
+    echo "  ⚠️  USB music files not found in $SCRIPT_DIR, skipping"
+fi
+
+# Install Samba config for USB music shares
+if ! grep -q "USB-Music" /etc/samba/smb.conf 2>/dev/null; then
+    echo "📋 Adding USB-Music Samba share..."
+    apt install -y -qq samba 2>/dev/null
+    cat >> /etc/samba/smb.conf << 'SAMBA_EOF'
+
+[USB-Music]
+    comment = Auto-mounted USB music drives
+    path = /mnt/usb-music
+    read only = yes
+    guest ok = yes
+    browseable = yes
+    follow symlinks = yes
+    wide links = yes
+SAMBA_EOF
+    systemctl restart smbd 2>/dev/null
+    echo "  ✅ Samba share configured"
+else
+    echo "  ℹ️  USB-Music Samba share already configured"
+fi
 
 echo ""
 

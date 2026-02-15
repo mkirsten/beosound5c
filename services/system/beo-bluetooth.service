@@ -6,9 +6,10 @@ Requires=bluetooth.target
 
 [Service]
 Type=simple
-# Root needed for /dev/input access and EVIOCGRAB.
-# Alternative: add service user to 'input' group.
-User=root
+# Requires user to be in the 'input' group for /dev/input access.
+# install.sh adds kirsten to the input group automatically.
+User=kirsten
+SupplementaryGroups=input
 WorkingDirectory=/home/kirsten/beosound5c/services
 EnvironmentFile=-/etc/beosound5c/config.env
 Environment=PYTHONUNBUFFERED=1

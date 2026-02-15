@@ -13,7 +13,9 @@ SERVICES=(
     "beo-input.service"
     "beo-masterlink.service"
     "beo-bluetooth.service"
+    "beo-cd.service"
     "beo-ui.service"
+    "beo-spotify-fetch.timer"
 )
 
 # Service descriptions
@@ -23,7 +25,9 @@ SERVICE_DESC["beo-media.service"]="Media/Sonos Server (Port 8766)"
 SERVICE_DESC["beo-input.service"]="Hardware Input Server (Port 8765)"
 SERVICE_DESC["beo-masterlink.service"]="MasterLink Sniffer"
 SERVICE_DESC["beo-bluetooth.service"]="Bluetooth Remote Service"
+SERVICE_DESC["beo-cd.service"]="CD Drive Service (Port 8769)"
 SERVICE_DESC["beo-ui.service"]="Chromium UI Kiosk"
+SERVICE_DESC["beo-spotify-fetch.timer"]="Spotify Playlist Fetch (Hourly)"
 
 echo ""
 echo "📊 Service Overview:"

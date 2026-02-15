@@ -471,7 +471,7 @@ class MediaServer:
                             # If position jumped more than expected + tolerance
                             if abs(new_seconds - expected_seconds) > 5:
                                 position_jumped = True
-                        except:
+                        except (ValueError, TypeError):
                             pass
 
                     # Only broadcast if there are actual changes AND we have connected clients
@@ -554,13 +554,13 @@ class MediaServer:
                     state = 'paused'
                 else:
                     state = 'stopped'
-            except:
+            except Exception:
                 state = 'unknown'
 
             # Get volume
             try:
                 volume = coordinator.volume if coordinator else 0
-            except:
+            except Exception:
                 volume = 0
 
             # Build media data
@@ -631,7 +631,7 @@ class MediaServer:
                 return int(parts[0]) * 60 + int(parts[1])
             elif len(parts) == 3:
                 return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-        except:
+        except (ValueError, TypeError, IndexError):
             pass
         return 0
 

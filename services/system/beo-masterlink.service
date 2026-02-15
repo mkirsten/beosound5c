@@ -5,12 +5,12 @@ Wants=network.target
 
 [Service]
 Type=simple
-User=pi
-Group=pi
-WorkingDirectory=/home/pi/beosound5c/services
+User=kirsten
+Group=kirsten
+WorkingDirectory=/home/kirsten/beosound5c/services
 EnvironmentFile=-/etc/beosound5c/config.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /home/pi/beosound5c/services/masterlink.py
+ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/masterlink.py
 Restart=always
 RestartSec=5
 StandardOutput=journal

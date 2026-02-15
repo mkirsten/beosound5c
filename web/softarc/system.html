@@ -430,6 +430,58 @@
             font-size: 13px;
         }
 
+        /* Remotes section */
+        .remotes-section .remotes-content {
+            max-width: 500px;
+        }
+
+        .remotes-section h3 {
+            font-size: 13px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+
+        .supported-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 4px 30px;
+            margin-bottom: 25px;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .supported-list li {
+            list-style: none;
+            padding: 3px 0;
+        }
+
+        .supported-list li::before {
+            content: "- ";
+            color: #444;
+        }
+
+        .remote-item .mac {
+            font-size: 11px;
+            color: #555;
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
+
+        .remote-item .remote-meta {
+            display: flex;
+            gap: 12px;
+            font-size: 11px;
+            color: #555;
+        }
+
+        .pairing-status {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #0af;
+            min-height: 18px;
+        }
+
         /* Section hint */
         .section-hint {
             margin-top: 15px;
@@ -496,6 +548,7 @@
             <div class="section-tab" data-section="debug">Debug</div>
             <div class="section-tab" data-section="logs">Logs</div>
             <div class="section-tab" data-section="services">Services</div>
+            <div class="section-tab" data-section="remotes">Remotes</div>
             <div class="section-tab" data-section="people">People</div>
         </nav>
 
@@ -522,6 +575,70 @@
         <!-- Debug Section -->
         <div class="section-content debug-section" id="debug">
             <div class="debug-grid">
+                <div class="debug-card">
+                    <h3>System</h3>
+                    <div class="debug-item">
+                        <span class="label">Hostname</span>
+                        <span class="value" id="sys-hostname">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">IP Address</span>
+                        <span class="value" id="sys-ip">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Uptime</span>
+                        <span class="value" id="sys-uptime">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">CPU Temp</span>
+                        <span class="value" id="sys-temp">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Memory</span>
+                        <span class="value" id="sys-memory">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Git Version</span>
+                        <span class="value" id="sys-git">--</span>
+                    </div>
+                </div>
+
+                <div class="debug-card">
+                    <h3>Device Config</h3>
+                    <div class="debug-item">
+                        <span class="label">Device Name</span>
+                        <span class="value" id="cfg-device-name">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">HA URL</span>
+                        <span class="value" id="cfg-ha-url">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">BeoRemote MAC</span>
+                        <span class="value" id="cfg-beoremote-mac">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">BT Name</span>
+                        <span class="value" id="cfg-bt-name">--</span>
+                    </div>
+                </div>
+
+                <div class="debug-card">
+                    <h3>Connections</h3>
+                    <div class="debug-item">
+                        <span class="label">Input WS</span>
+                        <span class="value" id="conn-input">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Media WS</span>
+                        <span class="value" id="conn-media">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Home Assistant</span>
+                        <span class="value" id="conn-ha">--</span>
+                    </div>
+                </div>
+
                 <div class="debug-card">
                     <h3>Sonos</h3>
                     <div class="debug-item">
@@ -555,86 +672,6 @@
                     <div class="debug-item">
                         <span class="label">Album</span>
                         <span class="value" id="sonos-album">--</span>
-                    </div>
-                </div>
-
-                <div class="debug-card">
-                    <h3>Device Config</h3>
-                    <div class="debug-item">
-                        <span class="label">Device Name</span>
-                        <span class="value" id="cfg-device-name">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">HA URL</span>
-                        <span class="value" id="cfg-ha-url">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">BeoRemote MAC</span>
-                        <span class="value" id="cfg-beoremote-mac">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">BT Name</span>
-                        <span class="value" id="cfg-bt-name">--</span>
-                    </div>
-                </div>
-
-                <div class="debug-card">
-                    <h3>System</h3>
-                    <div class="debug-item">
-                        <span class="label">Hostname</span>
-                        <span class="value" id="sys-hostname">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">IP Address</span>
-                        <span class="value" id="sys-ip">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Uptime</span>
-                        <span class="value" id="sys-uptime">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">CPU Temp</span>
-                        <span class="value" id="sys-temp">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Memory</span>
-                        <span class="value" id="sys-memory">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Git Version</span>
-                        <span class="value" id="sys-git">--</span>
-                    </div>
-                </div>
-
-                <div class="debug-card">
-                    <h3>Connections</h3>
-                    <div class="debug-item">
-                        <span class="label">Input WS</span>
-                        <span class="value" id="conn-input">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Media WS</span>
-                        <span class="value" id="conn-media">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Home Assistant</span>
-                        <span class="value" id="conn-ha">--</span>
-                    </div>
-                </div>
-
-                <div class="debug-card">
-                    <h3>Hardware</h3>
-                    <div class="debug-item">
-                        <span class="label">Laser Position</span>
-                        <span class="value" id="hw-laser">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Last Button</span>
-                        <span class="value" id="hw-button">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Backlight</span>
-                        <span class="value" id="hw-backlight">--</span>
                     </div>
                 </div>
 
@@ -762,6 +799,32 @@
             <div class="section-hint"><span class="key">GO</span> Restart selected</div>
         </div>
 
+        <!-- Remotes Section -->
+        <div class="section-content remotes-section" id="remotes">
+            <div class="remotes-content">
+                <h3>Supported IR Remotes</h3>
+                <ul class="supported-list">
+                    <li>Beo4 (all versions)</li>
+                    <li>BeoLink 1000</li>
+                    <li>BeoLink 5000</li>
+                    <li>BeoLink 7000</li>
+                    <li>BeoTime</li>
+                    <li>Beo1</li>
+                    <li>BeoSound 8 remote</li>
+                    <li>AV Terminal</li>
+                    <li>B&O KeyChain</li>
+                    <li>BeoWatch</li>
+                </ul>
+                <div class="separator" style="border-top: 1px solid #333; margin-bottom: 20px;"></div>
+                <h3>BeoRemote One (Bluetooth)</h3>
+                <div class="services-list" id="remotes-list">
+                    <span class="people-loading">Loading remotes...</span>
+                </div>
+                <div class="pairing-status" id="pairing-status"></div>
+            </div>
+            <div class="section-hint"><span class="key">GO</span> Pair new remote</div>
+        </div>
+
         <!-- People Section -->
         <div class="section-content people-section" id="people">
             <div class="people-grid" id="people-grid">
@@ -778,14 +841,18 @@
     <script>
         class SystemPanel {
             constructor() {
-                this.sections = ['info', 'debug', 'logs', 'services', 'people'];
+                this.sections = ['info', 'debug', 'logs', 'services', 'remotes', 'people'];
                 this.currentSection = 0;
                 this.logServices = ['beo-masterlink', 'beo-bluetooth', 'beo-input', 'beo-media', 'beo-http', 'beo-ui', 'beo-cd', 'beo-spotify-fetch'];
                 this.currentLogService = 0;
-                this.serviceItems = document.querySelectorAll('.service-item');
+                this.serviceItems = document.querySelectorAll('#services .service-item');
                 this.currentServiceItem = 0;
                 this.inputWs = null;
                 this.serviceStatus = {};
+                this.remoteItems = [];
+                this.currentRemoteItem = 0;
+                this.btRemotes = [];
+                this.remotesRefreshInterval = null;
                 this.isStreaming = false;
                 this.isDemoMode = false;
 
@@ -878,12 +945,6 @@
                 document.getElementById('cfg-beoremote-mac').textContent = '—';
                 document.getElementById('cfg-bt-name').textContent = '—';
 
-                // Mock hardware data
-                document.getElementById('hw-laser').textContent = '93';
-                document.getElementById('hw-button').textContent = '—';
-                document.getElementById('hw-backlight').textContent = 'Simulated';
-                document.getElementById('hw-backlight').className = 'value status-warning';
-
                 // Spotify data - will be updated by fetchSpotifyInfo
                 document.getElementById('spotify-user').textContent = 'mkirsten';
                 document.getElementById('spotify-playlists').textContent = '—';
@@ -912,6 +973,9 @@
 
                 // Mock people
                 this.loadMockPeople();
+
+                // Mock remotes
+                this.loadMockRemotes();
 
                 // Still try to connect to media server (it might be running locally)
                 this.connectMediaWebSocketDev();
@@ -989,9 +1053,121 @@
                 }).join('');
             }
 
+            loadMockRemotes() {
+                this.btRemotes = [
+                    { mac: '48:D0:CF:BD:34:BA', name: 'BEORC', connected: true, rssi: -52, battery: 85, icon: 'input-gaming' },
+                    { mac: '48:D0:CF:BD:CE:35', name: 'BEORC', connected: false, rssi: null, battery: 60, icon: 'input-gaming' }
+                ];
+                this.renderRemotesList(this.btRemotes);
+            }
+
+            async fetchBTRemotes() {
+                if (this.isDemoMode) {
+                    this.loadMockRemotes();
+                    return;
+                }
+                try {
+                    const resp = await fetch('http://localhost:8767/bt/remotes');
+                    if (resp.ok) {
+                        const remotes = await resp.json();
+                        this.btRemotes = remotes;
+                        this.renderRemotesList(remotes);
+                        return;
+                    }
+                } catch (e) {}
+
+                // Fallback: try WebSocket command
+                if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
+                    this.inputWs.send(JSON.stringify({ type: 'command', command: 'get_bt_remotes' }));
+                }
+            }
+
+            renderRemotesList(remotes) {
+                const list = document.getElementById('remotes-list');
+                if (!remotes || remotes.length === 0) {
+                    list.innerHTML = '<span class="people-loading">No paired BeoRemote devices</span>';
+                    this.remoteItems = [];
+                    this.currentRemoteItem = 0;
+                    return;
+                }
+
+                let html = remotes.map((r, i) => {
+                    const statusClass = r.connected ? 'running' : 'stopped';
+                    const rssiText = r.rssi != null ? `${r.rssi} dBm` : '—';
+                    const batteryText = r.battery != null ? `${r.battery}%` : '—';
+                    const selected = i === this.currentRemoteItem ? ' selected' : '';
+                    const displayName = r.name === 'BEORC' ? 'BeoRemote One Bluetooth' : r.name;
+                    return `
+                        <div class="service-item remote-item${selected}" data-mac="${r.mac}">
+                            <div>
+                                <span class="name">${displayName}</span>
+                                <div class="mac">${r.mac}</div>
+                                <div class="remote-meta">
+                                    <span>RSSI: ${rssiText}</span>
+                                    <span>Battery: ${batteryText}</span>
+                                </div>
+                            </div>
+                            <span class="status-dot ${statusClass}"></span>
+                        </div>
+                    `;
+                }).join('');
+
+                // Add "Pair New Remote" action
+                const pairSelected = remotes.length === this.currentRemoteItem ? ' selected' : '';
+                html += `
+                    <div class="service-item separator${pairSelected}" data-action="pair">
+                        <span class="name">Pair New Remote</span>
+                        <span class="status-dot"></span>
+                    </div>
+                `;
+
+                list.innerHTML = html;
+                this.remoteItems = list.querySelectorAll('.service-item');
+            }
+
+            updateRemoteSelection() {
+                this.remoteItems.forEach((item, index) => {
+                    item.classList.toggle('selected', index === this.currentRemoteItem);
+                });
+            }
+
+            startBTPairing() {
+                const statusEl = document.getElementById('pairing-status');
+                statusEl.textContent = 'Scanning for remotes... (60s)';
+
+                if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
+                    this.inputWs.send(JSON.stringify({ type: 'command', command: 'start_bt_pairing' }));
+                } else if (!this.isDemoMode) {
+                    fetch('http://localhost:8767/bt/remotes', { method: 'POST' })
+                        .catch(() => {});
+                }
+
+                // Auto-clear status and refresh after 60s
+                setTimeout(() => {
+                    statusEl.textContent = '';
+                    this.fetchBTRemotes();
+                }, 60000);
+            }
+
             init() {
                 window.addEventListener('message', (event) => {
                     this.handleMessage(event.data);
+                });
+
+                // Direct keyboard support for standalone use (dev mode)
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'ArrowLeft') {
+                        this.handleButton('left');
+                    } else if (e.key === 'ArrowRight') {
+                        this.handleButton('right');
+                    } else if (e.key === 'ArrowUp') {
+                        this.handleNav('counter', 1);
+                    } else if (e.key === 'ArrowDown') {
+                        this.handleNav('clock', 1);
+                    } else if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        this.handleButton('go');
+                    }
                 });
 
                 this.connectInputWebSocket();
@@ -1037,14 +1213,21 @@
                                 this.appendLogLine(data.line);
                             } else if (data.type === 'system_info') {
                                 this.updateSystemInfo(data);
-                            } else if (data.type === 'laser') {
-                                document.getElementById('hw-laser').textContent = data.data?.position ?? '--';
-                            } else if (data.type === 'button') {
-                                document.getElementById('hw-button').textContent = data.data?.button ?? data.button ?? '--';
-                            } else if (data.type === 'backlight') {
-                                const el = document.getElementById('hw-backlight');
-                                el.textContent = data.data?.state ?? (data.on ? 'On' : 'Off');
-                                el.className = data.on ? 'value status-ok' : 'value';
+                            } else if (data.type === 'bt_remotes') {
+                                this.btRemotes = data.remotes || [];
+                                this.renderRemotesList(this.btRemotes);
+                            } else if (data.type === 'bt_pairing') {
+                                const statusEl = document.getElementById('pairing-status');
+                                if (data.status === 'started') {
+                                    statusEl.textContent = data.message || 'Scanning...';
+                                } else if (data.status === 'completed') {
+                                    statusEl.textContent = data.message || 'Pairing complete';
+                                    this.fetchBTRemotes();
+                                    setTimeout(() => { statusEl.textContent = ''; }, 5000);
+                                } else if (data.status === 'error') {
+                                    statusEl.textContent = data.message || 'Pairing failed';
+                                    setTimeout(() => { statusEl.textContent = ''; }, 5000);
+                                }
                             }
                         } catch (e) {}
                     };
@@ -1167,6 +1350,11 @@
                     } else if (section === 'logs') {
                         this.currentLogService = (this.currentLogService + 1) % this.logServices.length;
                         this.startLogStream(this.logServices[this.currentLogService]);
+                    } else if (section === 'remotes') {
+                        const selected = this.remoteItems[this.currentRemoteItem];
+                        if (selected && selected.dataset.action === 'pair') {
+                            this.startBTPairing();
+                        }
                     }
                 }
             }
@@ -1194,6 +1382,15 @@
                         this.currentServiceItem = Math.min(this.serviceItems.length - 1, this.currentServiceItem + 1);
                     }
                     this.updateServiceSelection();
+                } else if (section === 'remotes') {
+                    if (this.remoteItems.length > 0) {
+                        if (direction === 'counter') {
+                            this.currentRemoteItem = Math.max(0, this.currentRemoteItem - 1);
+                        } else if (direction === 'clock') {
+                            this.currentRemoteItem = Math.min(this.remoteItems.length - 1, this.currentRemoteItem + 1);
+                        }
+                        this.updateRemoteSelection();
+                    }
                 } else if (section === 'debug') {
                     const debugSection = document.getElementById('debug');
                     const scrollAmount = Math.min(speed * 15, 90);
@@ -1217,6 +1414,17 @@
                 // Start log stream when entering logs section
                 if (this.sections[this.currentSection] === 'logs' && !this.isStreaming) {
                     this.startLogStream(this.logServices[this.currentLogService]);
+                }
+
+                // Fetch remotes when entering remotes section, stop refresh when leaving
+                if (this.sections[this.currentSection] === 'remotes') {
+                    this.fetchBTRemotes();
+                    this.remotesRefreshInterval = setInterval(() => this.fetchBTRemotes(), 10000);
+                } else {
+                    if (this.remotesRefreshInterval) {
+                        clearInterval(this.remotesRefreshInterval);
+                        this.remotesRefreshInterval = null;
+                    }
                 }
 
                 // Refresh people when entering people section
@@ -1277,13 +1485,6 @@
                 if (data.git_tag) {
                     document.getElementById('sys-git').textContent = data.git_tag;
                     document.getElementById('git-tag').textContent = data.git_tag;
-                }
-
-                // Backlight status
-                if (data.backlight) {
-                    const el = document.getElementById('hw-backlight');
-                    el.textContent = data.backlight;
-                    el.className = data.backlight === 'On' ? 'value status-ok' : 'value';
                 }
 
                 // Config from ENV file

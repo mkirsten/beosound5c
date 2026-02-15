@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 import asyncio, threading, json, time, sys
 import hid, websockets
-import subprocess  # Add subprocess for xset commands
-import os  # For path operations
-import logging  # For media server communication logging
-from aiohttp import web, ClientSession  # For HTTP webhook server and forwarding
-from lib.transport import Transport  # Unified HA transport
+import subprocess
+import os
+import logging
+from aiohttp import web, ClientSession
+from lib.transport import Transport
+
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger('beo-input')
 
 VID, PID = 0x0cd4, 0x1112
 BTN_MAP = {0x20:'left', 0x10:'right', 0x40:'go', 0x80:'power'}
@@ -15,7 +22,7 @@ clients = set()
 transport = Transport()
 
 # Base path for BeoSound 5c installation (from env or default)
-BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/pi/beosound5c')
+BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/kirsten/beosound5c')
 
 # Media server connection
 MEDIA_SERVER_URL = 'ws://localhost:8766'
@@ -36,7 +43,7 @@ def bs5_send(data: bytes):
     try:
         dev.write(data)
     except Exception as e:
-        print("HID write failed:", e)
+        logger.error("HID write failed: %s", e)
 
 def bs5_send_cmd(byte1, byte2=0x00):
     """Build & send HID report."""
@@ -88,7 +95,7 @@ def toggle_backlight():
     """Toggle backlight state."""
     current = is_backlight_on()
     new_state = not current
-    print(f"[BACKLIGHT] Toggling from {current} to {new_state}")
+    logger.info("Toggling backlight from %s to %s", current, new_state)
     set_backlight(new_state)
 
 def get_service_logs(service: str, lines: int = 100) -> list:
@@ -115,7 +122,7 @@ def get_system_info() -> dict:
             with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
                 temp = int(f.read().strip()) / 1000
                 info['cpu_temp'] = f'{temp:.1f}C'
-        except:
+        except Exception:
             info['cpu_temp'] = '--'
 
         # Memory usage
@@ -132,14 +139,14 @@ def get_system_info() -> dict:
             result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=2)
             if result.stdout:
                 info['ip_address'] = result.stdout.strip().split()[0]
-        except:
+        except Exception:
             info['ip_address'] = '--'
 
         # Hostname
         try:
             result = subprocess.run(['hostname'], capture_output=True, text=True, timeout=2)
             info['hostname'] = result.stdout.strip() if result.stdout else '--'
-        except:
+        except Exception:
             info['hostname'] = '--'
 
         # Backlight status
@@ -153,7 +160,7 @@ def get_system_info() -> dict:
                 cwd=BS5C_BASE_PATH
             )
             info['git_tag'] = result.stdout.strip() if result.stdout else '--'
-        except:
+        except Exception:
             info['git_tag'] = '--'
 
         # Service status
@@ -183,11 +190,87 @@ def get_system_info() -> dict:
                             value = value.strip().strip('"').strip("'")
                             info['config'][key] = value
         except Exception as e:
-            print(f'[CONFIG READ ERROR] {e}')
+            logger.error('Config read error: %s', e)
 
     except Exception as e:
-        print(f'[SYSTEM INFO ERROR] {e}')
+        logger.error('System info error: %s', e)
     return info
+
+def get_bt_remotes() -> list:
+    """Get paired Bluetooth devices with connection info."""
+    remotes = []
+    try:
+        # Get paired devices
+        result = subprocess.run(
+            ['bluetoothctl', 'paired-devices'],
+            capture_output=True, text=True, timeout=5
+        )
+        if not result.stdout:
+            return remotes
+
+        for line in result.stdout.strip().split('\n'):
+            # Format: "Device XX:XX:XX:XX:XX:XX Name"
+            parts = line.strip().split(' ', 2)
+            if len(parts) < 3 or parts[0] != 'Device':
+                continue
+            mac = parts[1]
+            name = parts[2]
+
+            remote = {'mac': mac, 'name': name, 'connected': False, 'rssi': None, 'battery': None, 'icon': 'input-gaming'}
+
+            # Get detailed info for each device
+            try:
+                info_result = subprocess.run(
+                    ['bluetoothctl', 'info', mac],
+                    capture_output=True, text=True, timeout=3
+                )
+                if info_result.stdout:
+                    for info_line in info_result.stdout.split('\n'):
+                        info_line = info_line.strip()
+                        if info_line.startswith('Connected:'):
+                            remote['connected'] = 'yes' in info_line.lower()
+                        elif info_line.startswith('RSSI:'):
+                            try:
+                                # Format: "RSSI: 0xffffffcc" or "RSSI: -52"
+                                val = info_line.split(':', 1)[1].strip()
+                                if val.startswith('0x'):
+                                    rssi = int(val, 16)
+                                    if rssi > 0x7FFFFFFF:
+                                        rssi -= 0x100000000
+                                    remote['rssi'] = rssi
+                                else:
+                                    remote['rssi'] = int(val)
+                            except (ValueError, IndexError):
+                                pass
+                        elif info_line.startswith('Battery Percentage:'):
+                            try:
+                                # Format: "Battery Percentage: 0x55 (85)"
+                                val = info_line.split('(')[1].rstrip(')')
+                                remote['battery'] = int(val)
+                            except (ValueError, IndexError):
+                                pass
+                        elif info_line.startswith('Icon:'):
+                            remote['icon'] = info_line.split(':', 1)[1].strip()
+            except Exception as e:
+                logger.error('BT info error for %s: %s', mac, e)
+
+            remotes.append(remote)
+    except Exception as e:
+        logger.error('BT remotes error: %s', e)
+    return remotes
+
+
+async def start_bt_pairing() -> dict:
+    """Start Bluetooth discoverable + scanning mode for pairing."""
+    try:
+        subprocess.run(['bluetoothctl', 'discoverable', 'on'], capture_output=True, timeout=3)
+        subprocess.run(['bluetoothctl', 'scan', 'on'], capture_output=True, timeout=3)
+        logger.info('BT pairing mode started')
+        return {'status': 'started', 'message': 'Scanning for remotes... Press pairing button on remote.'}
+    except Exception as e:
+        logger.error('BT pairing error: %s', e)
+        return {'status': 'error', 'message': str(e)}
+
 
 # Live log streaming
 log_stream_processes = {}
@@ -207,7 +290,7 @@ async def start_log_stream(ws, service: str):
             text=True
         )
         log_stream_processes[id(ws)] = process
-        print(f'[LOG STREAM] Started for {service}')
+        logger.info('Log stream started for %s', service)
 
         # Read and send log lines in background
         async def stream_logs():
@@ -223,15 +306,15 @@ async def start_log_stream(ws, service: str):
                                 'service': service,
                                 'line': line.rstrip()
                             }))
-                        except:
+                        except Exception:
                             break
                     await asyncio.sleep(0.01)
             except Exception as e:
-                print(f'[LOG STREAM ERROR] {e}')
+                logger.error('Log stream error: %s', e)
 
         asyncio.create_task(stream_logs())
     except Exception as e:
-        print(f'[LOG STREAM] Failed to start: {e}')
+        logger.error('Log stream failed to start: %s', e)
 
 async def stop_log_stream(ws):
     """Stop log streaming for a websocket."""
@@ -241,11 +324,11 @@ async def stop_log_stream(ws):
         process = log_stream_processes[ws_id]
         process.terminate()
         del log_stream_processes[ws_id]
-        print('[LOG STREAM] Stopped')
+        logger.info('Log stream stopped')
 
 def restart_service(action: str):
     """Restart a service or reboot the system."""
-    print(f'[RESTART] Executing action: {action}')
+    logger.info('Executing restart action: %s', action)
     try:
         if action == 'reboot':
             subprocess.Popen(['sudo', 'reboot'])
@@ -255,11 +338,11 @@ def restart_service(action: str):
             service = 'beo-' + action.replace('restart-', '')
             subprocess.Popen(['sudo', 'systemctl', 'restart', service])
     except Exception as e:
-        print(f'[RESTART ERROR] {e}')
+        logger.error('Restart error: %s', e)
 
 async def refresh_spotify_playlists(ws):
     """Run the Spotify playlist fetch script."""
-    print('[SPOTIFY] Starting playlist refresh')
+    logger.info('Starting Spotify playlist refresh')
     try:
         # Run fetch_playlists.py in background
         spotify_dir = os.path.join(BS5C_BASE_PATH, 'tools/spotify')
@@ -288,14 +371,14 @@ async def refresh_spotify_playlists(ws):
         )
 
         if returncode == 0:
-            print('[SPOTIFY] Playlist refresh completed successfully')
+            logger.info('Spotify playlist refresh completed')
             await ws.send(json.dumps({
                 'type': 'spotify_refresh',
                 'status': 'completed',
                 'message': 'Playlists updated successfully'
             }))
         else:
-            print(f'[SPOTIFY] Playlist refresh failed: {stderr}')
+            logger.error('Spotify playlist refresh failed: %s', stderr)
             await ws.send(json.dumps({
                 'type': 'spotify_refresh',
                 'status': 'error',
@@ -304,14 +387,14 @@ async def refresh_spotify_playlists(ws):
 
     except subprocess.TimeoutExpired:
         process.kill()
-        print('[SPOTIFY] Playlist refresh timed out')
+        logger.warning('Spotify playlist refresh timed out')
         await ws.send(json.dumps({
             'type': 'spotify_refresh',
             'status': 'error',
             'message': 'Refresh timed out after 2 minutes'
         }))
     except Exception as e:
-        print(f'[SPOTIFY ERROR] {e}')
+        logger.error('Spotify error: %s', e)
         await ws.send(json.dumps({
             'type': 'spotify_refresh',
             'status': 'error',
@@ -334,7 +417,7 @@ async def handle_camera_stream(request):
 
             # Get camera stream URL from HA
             camera_url = f'{ha_url}/api/camera_proxy_stream/{entity}'
-            print(f'[CAMERA] Proxying stream from: {camera_url}')
+            logger.info('Proxying camera stream from: %s', camera_url)
 
             async with session.get(camera_url, headers=headers) as resp:
                 if resp.status == 200:
@@ -354,14 +437,14 @@ async def handle_camera_stream(request):
 
                     return response
                 else:
-                    print(f'[CAMERA] HA returned status: {resp.status}')
+                    logger.warning('Camera HA returned status: %s', resp.status)
                     return web.json_response(
                         {'error': f'Camera unavailable: HTTP {resp.status}'},
                         status=resp.status,
                         headers={'Access-Control-Allow-Origin': '*'}
                     )
     except Exception as e:
-        print(f'[CAMERA ERROR] {e}')
+        logger.error('Camera error: %s', e)
         return web.json_response(
             {'error': str(e)},
             status=500,
@@ -382,7 +465,7 @@ async def handle_camera_snapshot(request):
 
             # Get camera snapshot from HA
             camera_url = f'{ha_url}/api/camera_proxy/{entity}'
-            print(f'[CAMERA] Getting snapshot from: {camera_url}')
+            logger.info('Getting camera snapshot from: %s', camera_url)
 
             async with session.get(camera_url, headers=headers) as resp:
                 if resp.status == 200:
@@ -393,14 +476,14 @@ async def handle_camera_snapshot(request):
                         headers={'Access-Control-Allow-Origin': '*'}
                     )
                 else:
-                    print(f'[CAMERA] HA returned status: {resp.status}')
+                    logger.warning('Camera HA returned status: %s', resp.status)
                     return web.json_response(
                         {'error': f'Camera unavailable: HTTP {resp.status}'},
                         status=resp.status,
                         headers={'Access-Control-Allow-Origin': '*'}
                     )
     except Exception as e:
-        print(f'[CAMERA ERROR] {e}')
+        logger.error('Camera error: %s', e)
         return web.json_response(
             {'error': str(e)},
             status=500,
@@ -416,23 +499,23 @@ async def process_command(data: dict) -> dict:
     params = data.get('params', {})
 
     if command == 'screen_on':
-        print('[CMD] Turning screen ON')
+        logger.info('Turning screen ON')
         set_backlight(True)
         return {'status': 'ok', 'screen': 'on'}
 
     elif command == 'screen_off':
-        print('[CMD] Turning screen OFF')
+        logger.info('Turning screen OFF')
         set_backlight(False)
         return {'status': 'ok', 'screen': 'off'}
 
     elif command == 'screen_toggle':
-        print('[CMD] Toggling screen')
+        logger.info('Toggling screen')
         toggle_backlight()
         return {'status': 'ok', 'screen': 'on' if is_backlight_on() else 'off'}
 
     elif command == 'show_page':
         page = params.get('page', 'now_playing')
-        print(f'[CMD] Showing page: {page}')
+        logger.info('Showing page: %s', page)
         await broadcast(json.dumps({
             'type': 'navigate',
             'data': {'page': page}
@@ -441,7 +524,7 @@ async def process_command(data: dict) -> dict:
 
     elif command == 'restart':
         target = params.get('target', 'all')
-        print(f'[CMD] Restarting: {target}')
+        logger.info('Restarting: %s', target)
         if target == 'system':
             restart_service('reboot')
         else:
@@ -450,7 +533,7 @@ async def process_command(data: dict) -> dict:
 
     elif command == 'wake':
         page = params.get('page', 'now_playing')
-        print(f'[CMD] Waking up and showing: {page}')
+        logger.info('Waking up and showing: %s', page)
         set_backlight(True)
         await broadcast(json.dumps({
             'type': 'navigate',
@@ -464,7 +547,7 @@ async def process_command(data: dict) -> dict:
         return {'status': 'ok', **info}
 
     elif command == 'next_screen':
-        print('[CMD] Next screen')
+        logger.info('Next screen')
         set_backlight(True)
         await broadcast(json.dumps({
             'type': 'navigate',
@@ -473,7 +556,7 @@ async def process_command(data: dict) -> dict:
         return {'status': 'ok', 'action': 'next_screen'}
 
     elif command == 'prev_screen':
-        print('[CMD] Previous screen')
+        logger.info('Previous screen')
         set_backlight(True)
         await broadcast(json.dumps({
             'type': 'navigate',
@@ -487,7 +570,7 @@ async def process_command(data: dict) -> dict:
         camera_id = params.get('camera_id', 'doorbell')
         actions = params.get('actions', {})
 
-        print(f'[CMD] Showing camera overlay: {title} ({camera_entity})')
+        logger.info('Showing camera overlay: %s (%s)', title, camera_entity)
         set_backlight(True)
         await broadcast(json.dumps({
             'type': 'camera_overlay',
@@ -502,7 +585,7 @@ async def process_command(data: dict) -> dict:
         return {'status': 'ok', 'command': 'show_camera', 'title': title}
 
     elif command == 'dismiss_camera':
-        print('[CMD] Dismissing camera overlay')
+        logger.info('Dismissing camera overlay')
         await broadcast(json.dumps({
             'type': 'camera_overlay',
             'data': {
@@ -513,7 +596,7 @@ async def process_command(data: dict) -> dict:
 
     elif command == 'add_menu_item':
         preset = params.get('preset')
-        print(f'[CMD] Adding menu item (preset={preset})')
+        logger.info('Adding menu item (preset=%s)', preset)
         msg = {'type': 'menu_item', 'data': {'action': 'add'}}
         if preset:
             msg['data']['preset'] = preset
@@ -529,7 +612,7 @@ async def process_command(data: dict) -> dict:
     elif command == 'remove_menu_item':
         path = params.get('path')
         preset = params.get('preset')
-        print(f'[CMD] Removing menu item (path={path}, preset={preset})')
+        logger.info('Removing menu item (path=%s, preset=%s)', path, preset)
         msg = {'type': 'menu_item', 'data': {'action': 'remove'}}
         if path:
             msg['data']['path'] = path
@@ -542,7 +625,7 @@ async def process_command(data: dict) -> dict:
         # Forward an arbitrary event to all WebSocket clients (used by cd.py etc.)
         evt_type = params.get('type', 'unknown')
         evt_data = params.get('data', {})
-        print(f'[CMD] Broadcasting event: {evt_type}')
+        logger.info('Broadcasting event: %s', evt_type)
         await broadcast(json.dumps({'type': evt_type, 'data': evt_data}))
         return {'status': 'ok', 'command': 'broadcast', 'event_type': evt_type}
 
@@ -554,7 +637,7 @@ async def handle_webhook(request):
     """Handle incoming webhook requests from Home Assistant (HTTP)."""
     try:
         data = await request.json()
-        print(f'[WEBHOOK] Received: {data}')
+        logger.info('Webhook received: %s', data)
 
         result = await process_command(data)
 
@@ -564,17 +647,17 @@ async def handle_webhook(request):
     except json.JSONDecodeError:
         return web.json_response({'status': 'error', 'message': 'Invalid JSON'}, status=400)
     except Exception as e:
-        print(f'[WEBHOOK ERROR] {e}')
+        logger.error('Webhook error: %s', e)
         return web.json_response({'status': 'error', 'message': str(e)}, status=500)
 
 
 async def handle_mqtt_command(data: dict):
     """Handle incoming commands via MQTT (fire-and-forget, no response needed)."""
-    print(f'[MQTT CMD] Received: {data}')
+    logger.info('MQTT command received: %s', data)
     try:
         await process_command(data)
     except Exception as e:
-        print(f'[MQTT CMD ERROR] {e}')
+        logger.error('MQTT command error: %s', e)
 
 async def handle_health(request):
     """Health check endpoint."""
@@ -605,7 +688,7 @@ async def handle_forward(request):
 
     try:
         data = await request.json()
-        print(f'[FORWARD] Forwarding via transport ({transport.mode}): {data}')
+        logger.info('Forwarding via transport (%s): %s', transport.mode, data)
 
         await transport.send_event(data)
 
@@ -618,7 +701,7 @@ async def handle_forward(request):
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
     except Exception as e:
-        print(f'[FORWARD ERROR] {e}')
+        logger.error('Forward error: %s', e)
         response = web.json_response({'status': 'error', 'message': str(e)}, status=500)
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
@@ -659,7 +742,7 @@ async def handle_appletv(request):
                 response.headers['Access-Control-Allow-Origin'] = '*'
                 return response
     except Exception as e:
-        print(f'[APPLETV ERROR] {e}')
+        logger.error('Apple TV error: %s', e)
         response = web.json_response({'error': str(e), 'title': '—', 'app_name': '—', 'friendly_name': '—', 'artwork': '', 'state': 'error'})
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
@@ -706,8 +789,29 @@ async def handle_people(request):
                 response.headers['Access-Control-Allow-Origin'] = '*'
                 return response
     except Exception as e:
-        print(f'[PEOPLE ERROR] {e}')
+        logger.error('People error: %s', e)
         response = web.json_response({'error': str(e)})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+
+async def handle_bt_remotes(request):
+    """Get paired Bluetooth remotes."""
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        return web.Response(headers={
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+        })
+
+    try:
+        remotes = await asyncio.get_event_loop().run_in_executor(None, get_bt_remotes)
+        response = web.json_response(remotes)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+    except Exception as e:
+        logger.error('BT remotes error: %s', e)
+        response = web.json_response({'error': str(e)}, status=500)
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
 
@@ -733,7 +837,7 @@ async def receive_commands(ws):
     async for raw in ws:
         try:
             msg = json.loads(raw)
-            print('[WS RECEIVED]', msg)  # Log every received message
+            logger.debug('WS received: %s', msg)
 
             # Handle media requests by forwarding to media server
             if msg.get('type') == 'media_request':
@@ -766,8 +870,14 @@ async def receive_commands(ws):
                 restart_service(params.get('action', ''))
             elif cmd == 'refresh_playlists':
                 await refresh_spotify_playlists(ws)
+            elif cmd == 'get_bt_remotes':
+                remotes = await asyncio.get_event_loop().run_in_executor(None, get_bt_remotes)
+                await ws.send(json.dumps({'type': 'bt_remotes', 'remotes': remotes}))
+            elif cmd == 'start_bt_pairing':
+                result = await start_bt_pairing()
+                await ws.send(json.dumps({'type': 'bt_pairing', **result}))
         except Exception as e:
-            print(f'[WS ERROR] {e}')
+            logger.error('WebSocket error: %s', e)
 
 # ——— HID parse & broadcast loop ———
 
@@ -802,24 +912,24 @@ def parse_report(rep: list):
         # Button is pressed
         if power_button_state == 0:  # Was released before
             power_button_state = 1  # Now pressed
-            print("[BUTTON] Power button pressed")
+            logger.info("Power button pressed")
     else:
         # Button is released
         if power_button_state == 1:  # Was pressed before
             power_button_state = 0  # Now released
-            print("[BUTTON] Power button released")
+            logger.info("Power button released")
             
             # Check debounce time
             current_time = time.time()
             if current_time - last_power_press_time > POWER_DEBOUNCE_TIME:
-                print("[BUTTON] Power button action triggered")
+                logger.info("Power button action triggered")
                 toggle_backlight()
                 do_click()
                 last_power_press_time = current_time
                 # Create button event for power button release
                 btn_evt = {'button': 'power'}
             else:
-                print(f"[BUTTON] Power button debounced (pressed too soon)")
+                logger.debug("Power button debounced (pressed too soon)")
 
     return nav_evt, vol_evt, btn_evt, laser_pos
 
@@ -827,13 +937,13 @@ def scan_loop(loop):
     global dev
     devices = hid.enumerate(VID, PID)
     if not devices:
-        print("BS5 not found (no HID device)")
+        logger.warning("BS5 not found (no HID device)")
         sys.exit(1)
 
     dev = hid.device()
     dev.open(VID, PID)
     dev.set_nonblocking(True)
-    print(f"[HID] Opened BS5 @ VID:PID={VID:04x}:{PID:04x}")
+    logger.info("Opened BS5 @ VID:PID=%04x:%04x", VID, PID)
 
     last_laser = None
     first = True
@@ -875,31 +985,31 @@ async def connect_to_media_server():
     
     while True:
         try:
-            print(f"[MEDIA] Connecting to media server at {MEDIA_SERVER_URL}")
+            logger.info("Connecting to media server at %s", MEDIA_SERVER_URL)
             media_server_ws = await websockets.connect(MEDIA_SERVER_URL)
-            print("[MEDIA] Connected to media server")
+            logger.info("Connected to media server")
             
             # Listen for messages from media server
             async for message in media_server_ws:
                 try:
                     data = json.loads(message)
-                    print(f"[MEDIA] Received from media server: {data.get('type', 'unknown')}")
+                    logger.debug("Received from media server: %s", data.get('type', 'unknown'))
                     
                     # Forward media updates to web clients
                     if data.get('type') == 'media_update':
                         await broadcast(message)
                         
                 except json.JSONDecodeError:
-                    print(f"[MEDIA] Invalid JSON from media server: {message}")
+                    logger.warning("Invalid JSON from media server: %s", message)
                 except Exception as e:
-                    print(f"[MEDIA] Error processing media server message: {e}")
+                    logger.error("Error processing media server message: %s", e)
                     
         except websockets.exceptions.ConnectionClosed:
-            print("[MEDIA] Media server connection closed, reconnecting in 5s...")
+            logger.warning("Media server connection closed, reconnecting in 5s...")
             media_server_ws = None
             await asyncio.sleep(5)
         except Exception as e:
-            print(f"[MEDIA] Error connecting to media server: {e}, retrying in 5s...")
+            logger.error("Error connecting to media server: %s, retrying in 5s...", e)
             media_server_ws = None
             await asyncio.sleep(5)
 
@@ -908,11 +1018,11 @@ async def forward_to_media_server(message):
     if media_server_ws and not media_server_ws.closed:
         try:
             await media_server_ws.send(message)
-            print(f"[MEDIA] Forwarded to media server: {json.loads(message).get('type', 'unknown')}")
+            logger.debug("Forwarded to media server: %s", json.loads(message).get('type', 'unknown'))
         except Exception as e:
-            print(f"[MEDIA] Error forwarding to media server: {e}")
+            logger.error("Error forwarding to media server: %s", e)
     else:
-        print("[MEDIA] Media server not connected, cannot forward message")
+        logger.warning("Media server not connected, cannot forward message")
 
 # ——— Main & server start ———
 
@@ -920,10 +1030,10 @@ async def main():
     # Start transport (webhook/MQTT/both for HA communication)
     transport.set_command_handler(handle_mqtt_command)
     await transport.start()
-    print(f"Transport started (mode: {transport.mode})")
+    logger.info("Transport started (mode: %s)", transport.mode)
 
     ws_srv = await websockets.serve(handler, '0.0.0.0', 8765)
-    print("WebSocket server listening on ws://0.0.0.0:8765")
+    logger.info("WebSocket server listening on ws://0.0.0.0:8765")
 
     # Start HTTP webhook server
     app = web.Application()
@@ -936,13 +1046,15 @@ async def main():
     app.router.add_options('/people', handle_people)  # CORS preflight
     app.router.add_get('/health', handle_health)
     app.router.add_get('/led', handle_led)
+    app.router.add_get('/bt/remotes', handle_bt_remotes)
+    app.router.add_options('/bt/remotes', handle_bt_remotes)  # CORS preflight
     app.router.add_get('/camera/stream', handle_camera_stream)
     app.router.add_get('/camera/snapshot', handle_camera_snapshot)
     runner = web.AppRunner(app)
     await runner.setup()
     http_site = web.TCPSite(runner, '0.0.0.0', 8767)
     await http_site.start()
-    print("HTTP webhook server listening on http://0.0.0.0:8767")
+    logger.info("HTTP webhook server listening on http://0.0.0.0:8767")
 
     # Start HID scanning thread
     threading.Thread(target=scan_loop, args=(asyncio.get_event_loop(),), daemon=True).start()

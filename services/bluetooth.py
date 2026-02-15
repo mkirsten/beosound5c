@@ -597,9 +597,13 @@ class BluetoothHIDService:
 # Entry point
 # ---------------------------------------------------------------------------
 def main():
-    if os.geteuid() != 0:
+    # Check /dev/input access (requires 'input' group membership or root)
+    import glob as _glob
+    input_devs = _glob.glob('/dev/input/event*')
+    if input_devs and not os.access(input_devs[0], os.R_OK):
         print(
-            f"Need root for /dev/input access. Run with: sudo python3 {sys.argv[0]}"
+            f"No read access to /dev/input devices. "
+            f"Ensure user is in the 'input' group: sudo usermod -aG input $USER"
         )
         sys.exit(1)
 
