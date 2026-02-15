@@ -1,0 +1,18 @@
+[Unit]
+Description=BeoSound5c Event Router service
+After=network.target
+
+[Service]
+Type=simple
+User=kirsten
+WorkingDirectory=/home/kirsten/beosound5c/services
+EnvironmentFile=-/etc/beosound5c/config.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/router.py
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

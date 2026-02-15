@@ -35,7 +35,6 @@ import aiohttp
 
 # Ensure services/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lib.transport import Transport
 from playlist_lookup import get_playlist_uri
 
 # ---------------------------------------------------------------------------
@@ -75,6 +74,7 @@ load_config()
 DEVICE_NAME = os.getenv("DEVICE_NAME", "BeoSound5c")
 BEOREMOTE_MAC = os.getenv("BEOREMOTE_MAC", "")
 DRY_RUN = "--dry-run" in sys.argv
+ROUTER_URL = "http://localhost:8770/router/event"
 
 # ---------------------------------------------------------------------------
 # Linux input constants
@@ -189,7 +189,7 @@ def find_beorc_devices():
 class BluetoothHIDService:
 
     def __init__(self):
-        self.transport = Transport()
+        self.router_session: aiohttp.ClientSession | None = None
         self.led_session: aiohttp.ClientSession | None = None
         self.current_mode = "Video"
         self.event_queue: asyncio.Queue = asyncio.Queue()
@@ -210,12 +210,14 @@ class BluetoothHIDService:
 
     async def start(self):
         if not DRY_RUN:
-            await self.transport.start()
+            self.router_session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=2.0),
+            )
             self.led_session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=0.5),
             )
         logger.info("Service started (%s)",
-                     "DRY RUN" if DRY_RUN else f"transport: {self.transport.mode}")
+                     "DRY RUN" if DRY_RUN else f"router: {ROUTER_URL}")
 
     async def stop(self):
         self._running = False
@@ -226,7 +228,9 @@ class BluetoothHIDService:
             task.cancel()
         self._hold_tasks.clear()
         if not DRY_RUN:
-            await self.transport.stop()
+            if self.router_session:
+                await self.router_session.close()
+                self.router_session = None
             if self.led_session:
                 await self.led_session.close()
                 self.led_session = None
@@ -429,6 +433,7 @@ class BluetoothHIDService:
 
         # Digit buttons → playlist lookup (matches masterlink.py behaviour)
         if action in ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9"):
+            payload["digit"] = int(action)
             uri = get_playlist_uri(int(action))
             if uri:
                 logger.info("[PLAYLIST] Digit %s -> %s", action, uri)
@@ -439,7 +444,21 @@ class BluetoothHIDService:
         et = f" [{extra['event_type']}]" if "event_type" in extra else ""
         logger.info("-> %s (%s)%s", payload["action"], payload["device_type"], et)
         if not DRY_RUN:
-            await self.transport.send_event(payload)
+            await self._send_to_router(payload)
+
+    async def _send_to_router(self, payload):
+        """POST event to the router service."""
+        if not self.router_session:
+            return
+        try:
+            async with self.router_session.post(
+                ROUTER_URL, json=payload,
+                timeout=aiohttp.ClientTimeout(total=1.0),
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning("Router returned HTTP %d", resp.status)
+        except Exception as e:
+            logger.warning("Router unreachable: %s", e)
 
     async def _pulse_led(self):
         if DRY_RUN or not self.led_session:
@@ -505,9 +524,9 @@ class BluetoothHIDService:
         logger.info("==========================================")
         logger.info("Device name: %s", DEVICE_NAME)
         if DRY_RUN:
-            logger.info("Transport:   DISABLED (dry run)")
+            logger.info("Router:      DISABLED (dry run)")
         else:
-            logger.info("Transport:   %s", self.transport.mode)
+            logger.info("Router:      %s", ROUTER_URL)
         logger.info("==========================================")
         logger.info("Remote must be paired via BlueZ.")
         logger.info("Waiting for BEORC input devices...")

@@ -18,6 +18,7 @@ SERVICES=(
     "beo-http.service"
     "beo-media.service"
     "beo-input.service"
+    "beo-router.service"
     "beo-masterlink.service"
     "beo-bluetooth.service"
     "beo-cd.service"
@@ -196,6 +197,10 @@ systemctl start beo-media.service
 echo "  🎮 Starting input server..."
 systemctl enable beo-input.service
 systemctl start beo-input.service
+
+echo "  🔀 Starting Event Router..."
+systemctl enable beo-router.service
+systemctl start beo-router.service
 
 echo "  🔗 Starting MasterLink sniffer..."
 systemctl enable beo-masterlink.service

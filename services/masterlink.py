@@ -13,7 +13,6 @@ from collections import defaultdict
 
 # Shared playlist lookup (single source of truth)
 from playlist_lookup import get_playlist_uri
-from lib.transport import Transport
 
 # Logging setup
 logging.basicConfig(
@@ -24,6 +23,7 @@ logger = logging.getLogger('beo-masterlink')
 
 # Configuration variables
 BEOSOUND_DEVICE_NAME = os.getenv('DEVICE_NAME', 'BeoSound5c')
+ROUTER_URL = "http://localhost:8770/router/event"
 
 # Message processing settings
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
@@ -149,7 +149,6 @@ class PC2Device:
         self.sender_thread = None
         self.session = None
         self.loop = None
-        self.transport = Transport()
         self.mixer_state = {
             'speakers_on': False,
             'muted': False,
@@ -257,11 +256,8 @@ class PC2Device:
             logger.error("Sender loop failed: %s", e, exc_info=True)
 
     async def _init_session(self):
-        """Initialize transport and aiohttp session for LED pulse."""
+        """Initialize aiohttp session for router and LED pulse."""
         try:
-            await self.transport.start()
-            logger.info("Transport started (mode: %s)", self.transport.mode)
-
             connector = aiohttp.TCPConnector(
                 limit=5,
                 keepalive_timeout=60,
@@ -271,7 +267,7 @@ class PC2Device:
                 connector=connector,
                 timeout=aiohttp.ClientTimeout(total=2.0),
             )
-            logger.info("Initialized transport and session")
+            logger.info("Initialized session (router: %s)", ROUTER_URL)
         except Exception as e:
             logger.error("Failed to initialize session: %s", e, exc_info=True)
             raise
@@ -293,14 +289,14 @@ class PC2Device:
                 await asyncio.sleep(0.1)
 
     async def _send_webhook_async(self, message):
-        """Send a message via transport (webhook/MQTT/both)."""
+        """Send a message to the router service."""
         # Visual feedback: pulse LED on button press (fire-and-forget)
         try:
             asyncio.create_task(self._pulse_led())
         except Exception:
             pass
 
-        # Prepare payload for Home Assistant
+        # Prepare payload
         webhook_data = {
             'device_name': BEOSOUND_DEVICE_NAME,
             'source': 'ir',
@@ -315,6 +311,7 @@ class PC2Device:
         action = webhook_data['action']
         if action in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
             digit = int(action)
+            webhook_data['digit'] = digit
             playlist_uri = get_playlist_uri(digit)
             if playlist_uri:
                 logger.info("Digit %d -> %s", digit, playlist_uri)
@@ -323,7 +320,15 @@ class PC2Device:
             else:
                 logger.info("No playlist found for digit %d", digit)
 
-        await self.transport.send_event(webhook_data)
+        try:
+            async with self.session.post(
+                ROUTER_URL, json=webhook_data,
+                timeout=aiohttp.ClientTimeout(total=1.0),
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning("Router returned HTTP %d", resp.status)
+        except Exception as e:
+            logger.warning("Router unreachable: %s", e)
         logger.info("Event sent: %s", webhook_data['action'])
 
     async def _pulse_led(self):
@@ -362,6 +367,7 @@ class PC2Device:
             0x0D: "mute",
             0x0F: "alloff",
             0x5C: "menu", # Display on Beo1
+            0x20: "track",
             0x1E: "up", 0x1F: "down",
             0x32: "left", 0x34: "right",
             0x35: "go", 0x36: "stop", 0x7F: "back",
@@ -487,11 +493,9 @@ class PC2Device:
         """Stop the USB sniffer"""
         self.running = False
 
-        # Close transport and aiohttp session
-        if self.loop:
-            asyncio.run_coroutine_threadsafe(self.transport.stop(), self.loop)
-            if self.session:
-                asyncio.run_coroutine_threadsafe(self.session.close(), self.loop)
+        # Close aiohttp session
+        if self.loop and self.session:
+            asyncio.run_coroutine_threadsafe(self.session.close(), self.loop)
 
         if self.sniffer_thread:
             self.sniffer_thread.join(timeout=1.0)
