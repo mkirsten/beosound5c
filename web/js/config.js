@@ -2,11 +2,11 @@
 // All HA communication goes through the backend - no credentials needed here
 
 const AppConfig = {
-    // Device identification
-    deviceName: 'church',  // 'church' (5c) or 'kitchen' (5d)
+    // Device identification (overridden by json/config.json on deployed devices)
+    deviceName: 'development',
 
-    // Device-specific data files
-    scenesFile: '../json/scenes.json',  // Override per device: '../json/scenes_kitchen.json'
+    // Device-specific data files (overridden by json/config.json on deployed devices)
+    scenesFile: '../json/scenes.json',
 
     // Home Assistant configuration
     homeAssistant: {
@@ -41,6 +41,22 @@ const AppConfig = {
         autoDetect: false    // Disabled on real hardware - don't activate emulator on service failure
     }
 };
+
+// Load device-specific overrides from config.json (deployed per-device)
+(function() {
+    try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', 'json/config.json', false);
+        xhr.send();
+        if (xhr.status === 200) {
+            const overrides = JSON.parse(xhr.responseText);
+            Object.assign(AppConfig, overrides);
+            console.log('[CONFIG] Loaded config.json, deviceName:', AppConfig.deviceName);
+        }
+    } catch (e) {
+        console.warn('[CONFIG] No config.json found, using defaults');
+    }
+})();
 
 // Early emulator mode detection (before other scripts load)
 (function() {
