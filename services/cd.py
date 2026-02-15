@@ -35,12 +35,19 @@ try:
 except ImportError:
     HAS_ZEROCONF = False
 
+try:
+    import edge_tts
+    HAS_EDGE_TTS = True
+except ImportError:
+    HAS_EDGE_TTS = False
+
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger('beo-cd')
 
 # Configuration
 CDROM_DEVICE = os.getenv('CDROM_DEVICE', '/dev/sr0')
 INPUT_WEBHOOK_URL = 'http://localhost:8767/webhook'
+ROUTER_SOURCE_URL = 'http://localhost:8770/router/source'
 BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/kirsten/beosound5c')
 CD_CACHE_DIR = os.path.join(BS5C_BASE_PATH, 'web/assets/cd-cache')
 HTTP_PORT = 8769
@@ -102,10 +109,12 @@ class CDDrive:
 
             await asyncio.sleep(POLL_INTERVAL)
 
-    def eject(self):
+    async def eject(self):
         """Eject the disc."""
         try:
-            subprocess.run(['eject', self.device_path], timeout=5)
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda: subprocess.run(['eject', self.device_path], timeout=5)
+            )
             log.info("Disc ejected")
         except Exception as e:
             log.error(f"Eject failed: {e}")
@@ -346,6 +355,8 @@ class AudioOutputs:
 class CDPlayer:
     """Controls CD playback via mpv."""
 
+    PAUSE_TIMEOUT = 300  # 5 minutes
+
     def __init__(self, device_path=CDROM_DEVICE):
         self.device_path = device_path
         self.process = None
@@ -356,10 +367,19 @@ class CDPlayer:
         self.repeat = False
         self._ipc_socket = '/tmp/beo-cd-mpv.sock'
         self._play_order = []  # shuffled track order
+        self._watcher_task = None
+        self._stopped_explicitly = False
+        self._pause_timer = None
+        # Callbacks — set by CDService
+        self._on_track_end = None
+        self._on_pause_timeout = None
 
     async def play_track(self, track_num):
+        self._stopped_explicitly = True  # stop() during play_track is not end-of-track
         await self.stop()
+        self._stopped_explicitly = False
         self.current_track = track_num
+        self._cancel_pause_timer()
         try:
             env = os.environ.copy()
             env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
@@ -374,13 +394,29 @@ class CDPlayer:
                 f'--input-ipc-server={self._ipc_socket}',
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
             self.state = 'playing'
+            self._watcher_task = asyncio.create_task(self._watch_process())
             log.info(f"Playing track {track_num}")
         except Exception as e:
             log.error(f"Playback failed: {e}")
             self.state = 'stopped'
 
+    async def _watch_process(self):
+        """Poll mpv process; when it exits naturally, fire track-end callback."""
+        try:
+            while self.process and self.process.poll() is None:
+                await asyncio.sleep(0.25)
+            if not self._stopped_explicitly and self.state == 'playing':
+                self.process = None
+                self.state = 'stopped'
+                log.info(f"Track {self.current_track} ended naturally")
+                if self._on_track_end:
+                    await self._on_track_end()
+        except asyncio.CancelledError:
+            pass
+
     async def play(self):
         if self.state == 'paused':
+            self._cancel_pause_timer()
             self._mpv_command('cycle', 'pause')
             self.state = 'playing'
         elif self.state == 'stopped':
@@ -390,12 +426,31 @@ class CDPlayer:
         if self.state == 'playing':
             self._mpv_command('cycle', 'pause')
             self.state = 'paused'
+            self._start_pause_timer()
 
     async def toggle_playback(self):
         if self.state == 'playing':
             await self.pause()
         else:
             await self.play()
+
+    def _start_pause_timer(self):
+        self._cancel_pause_timer()
+        loop = asyncio.get_event_loop()
+        self._pause_timer = loop.call_later(
+            self.PAUSE_TIMEOUT, lambda: asyncio.ensure_future(self._pause_timeout()))
+
+    def _cancel_pause_timer(self):
+        if self._pause_timer:
+            self._pause_timer.cancel()
+            self._pause_timer = None
+
+    async def _pause_timeout(self):
+        """Called when paused too long — stop playback to release the drive."""
+        log.info("Pause timeout — stopping playback")
+        await self.stop()
+        if self._on_pause_timeout:
+            await self._on_pause_timeout()
 
     async def next_track(self):
         if self.shuffle and self._play_order:
@@ -439,6 +494,10 @@ class CDPlayer:
             self._play_order.insert(0, self.current_track)
 
     async def stop(self):
+        self._cancel_pause_timer()
+        if self._watcher_task:
+            self._watcher_task.cancel()
+            self._watcher_task = None
         if self.process:
             self.process.terminate()
             try:
@@ -481,9 +540,14 @@ class CDService:
         self._all_releases = []  # full release list from MusicBrainz
         self._http_session = None
         self._rip_process = None
+        self._is_first_detection = True  # skip autoplay on startup with disc already in
 
     async def start(self):
         log.info("Starting CD service...")
+
+        # Wire player callbacks for auto-advance and pause timeout
+        self.player._on_track_end = self._on_track_end
+        self.player._on_pause_timeout = self._on_pause_timeout
 
         await self.drive.start_polling(
             on_drive_change=self._on_drive_change,
@@ -496,6 +560,7 @@ class CDService:
         app.router.add_post('/command', self._handle_command)
         app.router.add_options('/command', self._handle_cors)
         app.router.add_get('/speakers', self._handle_speakers)
+        app.router.add_get('/resync', self._handle_resync)
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, '0.0.0.0', HTTP_PORT)
@@ -503,6 +568,35 @@ class CDService:
         log.info(f"HTTP API on port {HTTP_PORT}")
 
         self._http_session = ClientSession()
+        asyncio.create_task(self._set_default_airplay())
+
+    async def _set_default_airplay(self):
+        """Set the default audio output to the local Sonos AirPlay sink."""
+        sonos_ip = os.getenv('SONOS_IP', '')
+        if not sonos_ip:
+            return
+        # Wait for PipeWire to discover AirPlay sinks
+        for _ in range(15):
+            await asyncio.sleep(2)
+            outputs = self.audio.get_outputs()
+            for out in outputs:
+                if sonos_ip in out['name']:
+                    await self.audio.set_output(out['name'])
+                    log.info(f"Default AirPlay → {out['label']}")
+                    return
+        log.warning(f"Sonos AirPlay sink for {sonos_ip} not found")
+
+    async def _handle_resync(self, request):
+        """Re-send CD menu item and metadata. Called by input.py on new WebSocket client."""
+        if self.drive.disc_inserted and self.metadata:
+            await self._send_input_command('add_menu_item', {'preset': 'cd'})
+            await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
+            await self._broadcast_cd_update()
+            log.info("Resync: sent menu item + metadata")
+            return web.json_response({'status': 'ok', 'resynced': True},
+                                     headers=self._cors_headers())
+        return web.json_response({'status': 'ok', 'resynced': False},
+                                 headers=self._cors_headers())
 
     async def stop(self):
         await self.player.stop()
@@ -517,22 +611,52 @@ class CDService:
 
     async def _on_disc_change(self, inserted):
         if inserted:
-            # Show CD menu item (disc image + "Loading"), wake screen, navigate to it
+            is_startup = self._is_first_detection
+            self._is_first_detection = False
+            # Show CD menu item, hide PLAYING (CD replaces it)
             await self._send_input_command('add_menu_item', {'preset': 'cd'})
-            await self._send_input_command('wake', {'page': 'menu/cd'})
-            # Fetch metadata in background
-            asyncio.create_task(self._fetch_and_update_metadata())
+            await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
+            if not is_startup:
+                # Only wake/navigate on real disc insertion, not on service startup
+                await self._send_input_command('wake', {'page': 'menu/cd'})
+            # Fetch metadata in background (autoplay only on real insertion)
+            asyncio.create_task(self._fetch_and_update_metadata(autoplay=not is_startup))
         else:
             await self.player.stop()
             self.metadata = None
+            await self._set_router_source('sonos')
             await self._send_input_command('remove_menu_item', {'path': 'menu/cd'})
+            await self._send_input_command('show_menu_item', {'path': 'menu/playing'})
 
-    async def _fetch_and_update_metadata(self):
+    async def _on_track_end(self):
+        """Called when mpv finishes a track naturally — auto-advance."""
+        old_track = self.player.current_track
+        await self.player.next_track()
+        if self.player.state == 'playing':
+            log.info(f"Auto-advance: track {old_track} → {self.player.current_track}")
+            await self._broadcast_cd_update()
+        else:
+            # No more tracks — return to Sonos
+            log.info("Reached end of disc, returning to Sonos")
+            await self._set_router_source('sonos')
+            await self._broadcast_cd_update()
+
+    async def _on_pause_timeout(self):
+        """Called when paused too long — release drive, return to Sonos."""
+        log.info("Pause timeout — returning to Sonos")
+        await self._set_router_source('sonos')
+        await self._broadcast_cd_update()
+
+    async def _fetch_and_update_metadata(self, autoplay=True):
         self.metadata = await self.metadata_lookup.lookup()
         if self.metadata:
             self.player.total_tracks = self.metadata.get('track_count', 0)
             await self._broadcast_cd_update()
-            await self.player.play_track(1)
+            if autoplay:
+                await self.player.play_track(1)
+                await self._set_router_source('cd')
+                await self._announce_track()
+                await self._broadcast_cd_update()
 
     async def _broadcast_cd_update(self):
         if not self.metadata:
@@ -547,12 +671,63 @@ class CDService:
                 'back_artwork': self.metadata.get('back_artwork'),
                 'tracks': self.metadata.get('tracks', []),
                 'track_count': self.metadata.get('track_count', 0),
+                'current_track': self.player.current_track,
+                'state': self.player.state,
                 'alternatives': self.metadata.get('alternatives', []),
                 'shuffle': self.player.shuffle,
                 'repeat': self.player.repeat,
                 'has_external_drive': self._detect_external_drive()
             }
         })
+
+    async def _announce_track(self):
+        """Speak the current track name over the CD audio via TTS overlay."""
+        if not self.metadata or self.player.state != 'playing':
+            log.info("Announce skipped — no metadata or not playing")
+            return
+
+        track_num = self.player.current_track
+        tracks = self.metadata.get('tracks', [])
+        artist = self.metadata.get('artist', 'Unknown Artist')
+
+        if tracks and 1 <= track_num <= len(tracks):
+            title = tracks[track_num - 1].get('title', f'Track {track_num}')
+        else:
+            title = f'Track {track_num}'
+
+        text = f"{title}, by {artist}"
+        log.info(f"Announcing: {text}")
+
+        tts_file = '/tmp/beo-tts.mp3'
+        env = os.environ.copy()
+        env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
+
+        # Try edge-tts first (natural-sounding, requires internet)
+        if HAS_EDGE_TTS:
+            try:
+                communicate = edge_tts.Communicate(text, voice="en-US-AndrewNeural")
+                await communicate.save(tts_file)
+                subprocess.Popen(
+                    ['mpv', '--ao=pulse', '--volume=85', '--no-video', '--no-terminal', tts_file],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env
+                )
+                return
+            except Exception as e:
+                log.warning(f"edge-tts failed, trying espeak-ng: {e}")
+
+        # Fallback: espeak-ng (offline, robotic but reliable)
+        # Pipe espeak output through mpv for pulse audio routing
+        try:
+            espeak = subprocess.Popen(
+                ['espeak-ng', '-v', 'en-us', '-s', '160', '--stdout', text],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env
+            )
+            subprocess.Popen(
+                ['mpv', '--ao=pulse', '--volume=85', '--no-video', '--no-terminal', '-'],
+                stdin=espeak.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env
+            )
+        except Exception as e:
+            log.error(f"TTS announce failed: {e}")
 
     def _detect_external_drive(self):
         """Check if an external USB drive is mounted (for ripping)."""
@@ -581,6 +756,18 @@ class CDService:
                 log.info(f"→ input.py: {command} (HTTP {resp.status})")
         except Exception as e:
             log.error(f"Failed to send {command}: {e}")
+
+    async def _set_router_source(self, source):
+        """Tell the router which source is active ('cd' or 'sonos')."""
+        try:
+            async with self._http_session.post(
+                ROUTER_SOURCE_URL,
+                json={'source': source},
+                timeout=5
+            ) as resp:
+                log.info(f"Router source -> {source} (HTTP {resp.status})")
+        except Exception as e:
+            log.warning(f"Router unreachable for source change: {e}")
 
     # ── HTTP API handlers ──
 
@@ -617,21 +804,32 @@ class CDService:
 
             if cmd == 'play':
                 await self.player.play()
+                await self._set_router_source('cd')
+                await self._broadcast_cd_update()
             elif cmd == 'pause':
                 await self.player.pause()
+                await self._broadcast_cd_update()
             elif cmd == 'toggle':
                 await self.player.toggle_playback()
+                await self._broadcast_cd_update()
             elif cmd == 'next':
                 await self.player.next_track()
+                await self._broadcast_cd_update()
             elif cmd == 'prev':
                 await self.player.prev_track()
+                await self._broadcast_cd_update()
             elif cmd == 'stop':
                 await self.player.stop()
+                await self._set_router_source('sonos')
+                await self._broadcast_cd_update()
             elif cmd == 'play_track':
                 await self.player.play_track(data.get('track', 1))
+                await self._set_router_source('cd')
+                await self._broadcast_cd_update()
             elif cmd == 'eject':
                 await self.player.stop()
-                self.drive.eject()
+                await self._set_router_source('sonos')
+                await self.drive.eject()
             elif cmd == 'set_speaker':
                 await self.audio.set_output(data.get('sink', ''))
             elif cmd == 'toggle_shuffle':
@@ -644,6 +842,8 @@ class CDService:
                 await self._use_alternative_release(data.get('release_id', ''))
             elif cmd == 'import':
                 await self._start_rip()
+            elif cmd == 'announce':
+                await self._announce_track()
             else:
                 return web.json_response(
                     {'status': 'error', 'message': f'Unknown: {cmd}'},

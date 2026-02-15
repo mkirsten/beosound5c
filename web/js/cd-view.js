@@ -15,7 +15,7 @@
  */
 window.CDView = (() => {
     const HIDE_DELAY = 3000;
-    const CD_SERVICE_URL = 'http://localhost:8769';
+    const CD_SERVICE_URL = window.AppConfig?.cdServiceUrl || 'http://localhost:8769';
 
     // Icon definitions
     const ICON_DEFS = [
@@ -67,6 +67,10 @@ window.CDView = (() => {
         rebuildVisibleIcons();
         buildIconBar();
         initialized = true;
+        // Re-apply metadata if we already have it (e.g. returning from another view)
+        if (metadata) {
+            applyMetadataToDOM(metadata);
+        }
         console.log('[CD] View initialized');
     }
 
@@ -271,7 +275,7 @@ window.CDView = (() => {
         const items = metadata.tracks.map(t => ({
             label: `${t.num}. ${t.title}${t.duration ? '  ' + t.duration : ''}`,
             value: t.num,
-            active: false
+            active: t.num === metadata.current_track
         }));
         openPanel('tracks', items, metadata.title || 'Tracks');
     }
@@ -285,13 +289,14 @@ window.CDView = (() => {
 
         const itemsEl = el.querySelector('.cd-track-list-items');
         if (!itemsEl) return;
-        itemsEl.innerHTML = metadata.tracks.map(t =>
-            `<div class="cd-track-item">`
-            + `<span class="cd-track-num">${t.num}</span>`
-            + `<span class="cd-track-name">${t.title}</span>`
-            + `<span class="cd-track-dur">${t.duration || ''}</span>`
-            + `</div>`
-        ).join('');
+        itemsEl.innerHTML = metadata.tracks.map(t => {
+            const playing = t.num === metadata.current_track ? ' cd-track-item-playing' : '';
+            return `<div class="cd-track-item${playing}">`
+                + `<span class="cd-track-num">${t.num}</span>`
+                + `<span class="cd-track-name">${t.title}</span>`
+                + `<span class="cd-track-dur">${t.duration || ''}</span>`
+                + `</div>`;
+        }).join('');
     }
 
     // ── Icon Activation ──
@@ -447,21 +452,64 @@ window.CDView = (() => {
 
     // ── Metadata ──
 
+    /**
+     * Called from cursor-handler on cd_update WebSocket events.
+     * Detects changes, stores metadata, and applies to DOM with transitions.
+     */
     function updateMetadata(data) {
         const prevArtwork = metadata?.artwork;
+        const prevTrack = metadata?.current_track;
         metadata = data;
         hasBackCover = !!data.back_artwork;
         hasExternalDrive = !!data.has_external_drive;
+
+        if (!initialized) return; // DOM not mounted yet — stored for init()
+
+        // Hide loading, show content on first metadata update
+        const loadingEl = document.getElementById('cd-loading');
+        if (loadingEl && !loadingEl.classList.contains('cd-hidden')) {
+            loadingEl.classList.add('cd-hidden');
+        }
 
         // Reset to front cover when artwork changes (new disc or database selection)
         if (data.artwork !== prevArtwork) {
             setRotatePhase(0);
         }
 
+        // Apply everything to DOM (with track-change animation)
+        applyMetadataToDOM(data, prevTrack);
+    }
+
+    /**
+     * Apply stored metadata directly to DOM elements.
+     * Called from init() on re-mount and from updateMetadata() on new data.
+     * @param {object} data - metadata object
+     * @param {number|null} prevTrack - previous track number (for animation), null to skip animation
+     */
+    function applyMetadataToDOM(data, prevTrack) {
+        // Show content areas (hide loading)
+        const loadingEl = document.getElementById('cd-loading');
+        const artworkArea = document.getElementById('cd-artwork-area');
+        const infoEl = document.getElementById('cd-info');
+        if (loadingEl) loadingEl.classList.add('cd-hidden');
+        if (artworkArea && rotatePhase !== 2) {
+            artworkArea.classList.remove('cd-hidden');
+        }
+        if (infoEl) infoEl.classList.remove('cd-hidden');
+
         // Front artwork
-        if (data.artwork) {
-            const front = document.getElementById('cd-artwork-front');
-            if (front) front.src = data.artwork;
+        const front = document.getElementById('cd-artwork-front');
+        if (front) {
+            if (data.artwork) {
+                front.onerror = () => {
+                    front.onerror = null;
+                    front.src = 'assets/cd-disc.png';
+                    console.warn('[CD] Artwork load failed:', data.artwork);
+                };
+                front.src = data.artwork;
+            } else {
+                front.src = 'assets/cd-disc.png';
+            }
         }
 
         // Back artwork
@@ -475,19 +523,36 @@ window.CDView = (() => {
             }
         }
 
-        // Text
-        const titleEl = document.querySelector('.cd-media-title');
-        const artistEl = document.querySelector('.cd-media-artist');
-        const albumEl = document.querySelector('.cd-media-album');
-        if (titleEl && data.title) titleEl.textContent = data.title;
-        if (artistEl && data.artist) artistEl.textContent = data.artist;
-        if (albumEl && data.album) albumEl.textContent = data.album;
+        // Text: "Track N" as title, song name as artist, "Artist — Album (Year)" as album
+        const titleEl = document.querySelector('#cd-view .media-view-title');
+        const artistEl = document.querySelector('#cd-view .media-view-artist');
+        const albumEl = document.querySelector('#cd-view .media-view-album');
 
-        // Current track
+        let newTitle = '';
+        let newArtist = '';
+        let newAlbum = '';
+
         if (data.current_track && data.tracks?.length) {
             const track = data.tracks.find(t => t.num === data.current_track);
-            if (track && titleEl) titleEl.textContent = track.title;
+            newTitle = `Track ${data.current_track}`;
+            newArtist = track ? track.title : '';
+            newAlbum = data.year
+                ? `${data.artist} — ${data.title} (${data.year})`
+                : `${data.artist} — ${data.title}`;
+        } else {
+            newTitle = data.title || '';
+            newArtist = data.artist || '';
+            newAlbum = data.album || '';
         }
+
+        // Animate track change if track number changed (only when prevTrack is provided)
+        if (prevTrack && data.current_track && prevTrack !== data.current_track && titleEl) {
+            animateTrackChange(titleEl, artistEl, newTitle, newArtist);
+        } else {
+            if (titleEl) titleEl.textContent = newTitle;
+            if (artistEl) artistEl.textContent = newArtist;
+        }
+        if (albumEl) albumEl.textContent = newAlbum;
 
         // Update toggle states from backend
         if (data.shuffle !== undefined) {
@@ -506,7 +571,49 @@ window.CDView = (() => {
         // Render track list
         renderTrackList();
 
-        console.log(`[CD] Metadata: ${data.artist} — ${data.title}`);
+        console.log(`[CD] Metadata: ${data.artist} — ${data.title}, track ${data.current_track}, state ${data.state}`);
+    }
+
+    function animateTrackChange(titleEl, artistEl, newTitle, newArtist) {
+        // Phase 1: exit — slide up + fade out
+        [titleEl, artistEl].forEach(el => {
+            if (el) {
+                el.classList.add('cd-track-transition');
+                el.classList.add('cd-track-exit');
+            }
+        });
+
+        setTimeout(() => {
+            // Swap text while invisible
+            if (titleEl) titleEl.textContent = newTitle;
+            if (artistEl) artistEl.textContent = newArtist;
+
+            // Phase 2: prepare enter position
+            [titleEl, artistEl].forEach(el => {
+                if (el) {
+                    el.classList.remove('cd-track-exit');
+                    el.classList.add('cd-track-enter');
+                }
+            });
+
+            // Force reflow so the enter position takes effect
+            void titleEl?.offsetHeight;
+
+            // Phase 3: animate to final position
+            requestAnimationFrame(() => {
+                [titleEl, artistEl].forEach(el => {
+                    if (el) {
+                        el.classList.remove('cd-track-enter');
+                    }
+                });
+                // Clean up transition class after animation
+                setTimeout(() => {
+                    [titleEl, artistEl].forEach(el => {
+                        if (el) el.classList.remove('cd-track-transition');
+                    });
+                }, 260);
+            });
+        }, 250); // matches exit transition duration
     }
 
     // ── Commands ──

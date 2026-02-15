@@ -175,6 +175,10 @@ apt-get install -y \
     plymouth \
     plymouth-themes
 
+log_info "Installing audio/TTS packages..."
+apt-get install -y \
+    espeak-ng
+
 log_info "Installing utilities..."
 apt-get install -y \
     curl \
@@ -198,7 +202,8 @@ pip3 install --break-system-packages \
     'websocket-client>=1.6.0' \
     'aiohttp>=3.9.0' \
     'pyusb>=1.2.1' \
-    'aiomqtt>=2.0.0'
+    'aiomqtt>=2.0.0' \
+    'edge-tts>=6.1.0'
 
 log_success "Python packages installed"
 
