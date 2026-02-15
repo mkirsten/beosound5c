@@ -75,18 +75,14 @@ class CDDrive:
                 drive_present = Path(self.device_path).exists()
                 disc_present = False
 
-                if drive_present:
-                    # Check if a disc is readable via cdparanoia query or dd probe
+                if drive_present and HAS_DISCID:
+                    # Audio CDs can't be probed with dd — use discid TOC read
                     try:
-                        result = await asyncio.get_event_loop().run_in_executor(
-                            None, lambda: subprocess.run(
-                                ['dd', f'if={self.device_path}', 'of=/dev/null',
-                                 'bs=2048', 'count=1'],
-                                capture_output=True, timeout=5
-                            )
+                        await asyncio.get_event_loop().run_in_executor(
+                            None, lambda: discid.read(self.device_path)
                         )
-                        disc_present = result.returncode == 0
-                    except (subprocess.TimeoutExpired, Exception):
+                        disc_present = True
+                    except Exception:
                         disc_present = False
 
                 # Drive state change
@@ -255,6 +251,8 @@ class AudioOutputs:
 
     def __init__(self):
         self.current_sink = None
+        self._env = os.environ.copy()
+        self._env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
 
     def get_outputs(self):
         """List all available audio sinks with friendly names."""
@@ -262,17 +260,17 @@ class AudioOutputs:
             # Get sink list: ID, Name, Driver, SampleSpec, State
             short = subprocess.run(
                 ['pactl', 'list', 'sinks', 'short'],
-                capture_output=True, text=True, timeout=3
+                capture_output=True, text=True, timeout=3, env=self._env
             )
             # Get descriptions via full listing
             full = subprocess.run(
                 ['pactl', 'list', 'sinks'],
-                capture_output=True, text=True, timeout=3
+                capture_output=True, text=True, timeout=3, env=self._env
             )
             # Get default sink
             default = subprocess.run(
                 ['pactl', 'get-default-sink'],
-                capture_output=True, text=True, timeout=3
+                capture_output=True, text=True, timeout=3, env=self._env
             ).stdout.strip()
 
             # Parse descriptions from full output
@@ -322,19 +320,19 @@ class AudioOutputs:
             # Set as default sink
             subprocess.run(
                 ['pactl', 'set-default-sink', sink_name],
-                capture_output=True, timeout=3, check=True
+                capture_output=True, timeout=3, check=True, env=self._env
             )
             # Move any active playback streams to the new sink
             result = subprocess.run(
                 ['pactl', 'list', 'sink-inputs', 'short'],
-                capture_output=True, text=True, timeout=3
+                capture_output=True, text=True, timeout=3, env=self._env
             )
             for line in result.stdout.strip().split('\n'):
                 if line.strip():
                     stream_id = line.split('\t')[0]
                     subprocess.run(
                         ['pactl', 'move-sink-input', stream_id, sink_name],
-                        capture_output=True, timeout=3
+                        capture_output=True, timeout=3, env=self._env
                     )
 
             self.current_sink = sink_name
@@ -363,14 +361,18 @@ class CDPlayer:
         await self.stop()
         self.current_track = track_num
         try:
+            env = os.environ.copy()
+            env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
             self.process = subprocess.Popen([
                 'mpv',
                 '--ao=pulse',
                 f'--cdrom-device={self.device_path}',
-                f'cdda://{track_num}',
+                f'--cdda-span-a={track_num}',
+                f'--cdda-span-b={track_num}',
+                'cdda://',
                 '--no-video', '--no-terminal',
                 f'--input-ipc-server={self._ipc_socket}',
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
             self.state = 'playing'
             log.info(f"Playing track {track_num}")
         except Exception as e:
