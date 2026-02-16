@@ -1137,6 +1137,54 @@ if [ ! -f "$CONFIG_FILE" ]; then
     fi
 
     # -------------------------------------------------------------------------
+    # Audio Output Configuration
+    # -------------------------------------------------------------------------
+    echo ""
+    log_section "Audio Output Configuration"
+    echo ""
+    echo "Configure how BeoSound 5c controls volume on your speakers."
+    echo ""
+
+    DEFAULT_OUTPUT_NAME="BeoLab 5"
+    read -p "Audio output name (shown in UI) [$DEFAULT_OUTPUT_NAME]: " OUTPUT_NAME
+    OUTPUT_NAME="${OUTPUT_NAME:-$DEFAULT_OUTPUT_NAME}"
+
+    echo ""
+    echo "Volume control method:"
+    echo ""
+    echo "  1) ESPHome  - Control volume via ESPHome REST API (e.g. BeoLab 5 ESP32 controller)"
+    echo "  2) Sonos    - Control volume directly on the Sonos speaker"
+    echo ""
+
+    VOLUME_TYPE="esphome"
+    VOLUME_HOST=""
+    VOLUME_MAX="70"
+
+    while true; do
+        read -p "Select volume control [1-2, default 1]: " VOLUME_CHOICE
+        VOLUME_CHOICE="${VOLUME_CHOICE:-1}"
+        case "$VOLUME_CHOICE" in
+            1) VOLUME_TYPE="esphome"; break ;;
+            2) VOLUME_TYPE="sonos"; break ;;
+            *) echo "Invalid selection. Please enter 1 or 2." ;;
+        esac
+    done
+
+    if [[ "$VOLUME_TYPE" == "esphome" ]]; then
+        DEFAULT_VOLUME_HOST="beolab5-controller.local"
+        read -p "ESPHome controller hostname [$DEFAULT_VOLUME_HOST]: " VOLUME_HOST
+        VOLUME_HOST="${VOLUME_HOST:-$DEFAULT_VOLUME_HOST}"
+    else
+        VOLUME_HOST="$SONOS_IP"
+        log_info "Using Sonos IP ($SONOS_IP) for volume control"
+    fi
+
+    read -p "Maximum volume percentage [70]: " VOLUME_MAX
+    VOLUME_MAX="${VOLUME_MAX:-70}"
+
+    log_success "Output: $OUTPUT_NAME, volume: $VOLUME_TYPE @ $VOLUME_HOST (max $VOLUME_MAX%%)"
+
+    # -------------------------------------------------------------------------
     # Write configuration file
     # -------------------------------------------------------------------------
     echo ""
@@ -1200,6 +1248,22 @@ MQTT_BROKER="$MQTT_BROKER"
 MQTT_PORT="$MQTT_PORT"
 MQTT_USER="$MQTT_USER"
 MQTT_PASSWORD="$MQTT_PASSWORD"
+
+# =============================================================================
+# Audio Output Configuration
+# =============================================================================
+
+# Display name for the output (shown in the UI volume overlay)
+OUTPUT_NAME="$OUTPUT_NAME"
+
+# Volume control type: "esphome" or "sonos"
+VOLUME_TYPE="$VOLUME_TYPE"
+
+# Volume target host
+VOLUME_HOST="$VOLUME_HOST"
+
+# Maximum volume percentage (0-100)
+VOLUME_MAX="$VOLUME_MAX"
 
 # =============================================================================
 # Spotify Configuration
@@ -1363,6 +1427,12 @@ echo -e "${CYAN}║${NC}  Mode:             ${GREEN}${TRANSPORT_MODE:-webhook}${
 if [ -n "$MQTT_BROKER" ] && [[ "$TRANSPORT_MODE" == "mqtt" || "$TRANSPORT_MODE" == "both" ]]; then
 echo -e "${CYAN}║${NC}  MQTT Broker:      ${GREEN}${MQTT_BROKER}:${MQTT_PORT}${NC}"
 fi
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${YELLOW}Audio Output${NC}                                                ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  Output:           ${GREEN}${OUTPUT_NAME:-BeoLab 5}${NC}"
+echo -e "${CYAN}║${NC}  Volume Control:   ${GREEN}${VOLUME_TYPE:-esphome} @ ${VOLUME_HOST:-beolab5-controller.local}${NC}"
+echo -e "${CYAN}║${NC}  Max Volume:       ${GREEN}${VOLUME_MAX:-70}%%${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  ${YELLOW}Bluetooth Remote${NC}                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"

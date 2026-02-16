@@ -355,10 +355,14 @@ class SonosArtworkViewer:
             logger.debug(f"Failed to prefetch track {position}: {e}")
 
 
+ROUTER_VOLUME_REPORT_URL = "http://localhost:8770/router/volume/report"
+
+
 class MediaServer:
     def __init__(self):
         self.running = False
         self.sonos_viewer = SonosArtworkViewer(SONOS_IP)
+        self._last_reported_volume = None
         
     async def start(self):
         """Start the media server."""
@@ -449,6 +453,17 @@ class MediaServer:
                         await self.trigger_wake()
 
                     current_playback_state = state
+
+                    # Report volume changes to the router (keeps UI arc in sync
+                    # when volume is changed from the Sonos app)
+                    try:
+                        vol = coordinator.volume if coordinator else None
+                        if vol is not None and vol != self._last_reported_volume:
+                            self._last_reported_volume = vol
+                            await self._report_volume_to_router(vol)
+                    except Exception as e:
+                        logger.debug(f"Could not check Sonos volume: {e}")
+
                 except Exception as e:
                     logger.debug(f"Could not get transport state: {e}")
 
@@ -664,6 +679,22 @@ class MediaServer:
                         logger.warning(f"Wake trigger returned status {response.status}")
         except Exception as e:
             logger.warning(f"Could not trigger wake: {e}")
+
+    async def _report_volume_to_router(self, volume: int):
+        """Report a Sonos volume change to the router so the UI arc stays in sync."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    ROUTER_VOLUME_REPORT_URL,
+                    json={'volume': volume},
+                    timeout=aiohttp.ClientTimeout(total=2)
+                ) as response:
+                    if response.status == 200:
+                        logger.info(f"Reported volume {volume}% to router")
+                    else:
+                        logger.debug(f"Router volume report returned {response.status}")
+        except Exception as e:
+            logger.debug(f"Could not report volume to router: {e}")
 
 def signal_handler(signum, frame):
     """Handle shutdown signals."""

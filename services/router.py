@@ -22,6 +22,7 @@ from aiohttp import web
 # Ensure services/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.transport import Transport
+from lib.volume import create_volume_adapter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,9 +37,7 @@ logger = logging.getLogger("beo-router")
 ROUTER_PORT = 8770
 CD_COMMAND_URL = "http://localhost:8769/command"
 CD_STATUS_URL = "http://localhost:8769/status"
-BEOLAB5_TURN_ON_URL = "http://beolab5-controller.local/switch/beolab_5/turn_on"
-BEOLAB5_VOLUME_URL = "http://beolab5-controller.local/number/beolab_5_volume/set"
-BEOLAB5_MAX_VOLUME = 70  # hard cap — never send more than 70% to BeoLab 5s
+OUTPUT_NAME = os.getenv("OUTPUT_NAME", "BeoLab 5")
 
 # Media keys that get intercepted when CD is active
 MEDIA_KEYS = {"play", "pause", "next", "prev", "stop", "go", "left", "right"}
@@ -56,44 +55,28 @@ CD_ACTION_MAP = {
 }
 
 
-BEOLAB5_SWITCH_URL = "http://beolab5-controller.local/switch/beolab_5"
-BEOLAB5_VOLUME_READ_URL = "http://beolab5-controller.local/number/beolab_5_volume"
-
-
 class EventRouter:
     def __init__(self):
         self.transport = Transport()
         self.active_source = "sonos"  # "sonos" or "cd"
         self.volume = 0  # current volume 0-100 (reported by active device)
-        self.output_device = "BeoLab 5"  # hardcoded for now
+        self.output_device = OUTPUT_NAME
         self._session: aiohttp.ClientSession | None = None
+        self._volume = None  # VolumeAdapter instance
 
     async def start(self):
         await self.transport.start()
         self._session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=2.0),
         )
-        # Fetch current volume from BeoLab 5 controller
-        await self._sync_beolab5_volume()
+        # Create volume adapter from config
+        self._volume = create_volume_adapter(self._session)
+        # Fetch current volume from output device
+        self.volume = await self._volume.get_volume()
         # Restore active source if CD is playing (background — cd.py may still be starting)
         asyncio.create_task(self._sync_cd_source())
-        logger.info("Router started (transport: %s, volume: %.0f%%)",
-                     self.transport.mode, self.volume)
-
-    async def _sync_beolab5_volume(self):
-        """Read current volume from BeoLab 5 controller on startup."""
-        if not self._session:
-            return
-        try:
-            async with self._session.get(
-                BEOLAB5_VOLUME_READ_URL,
-                timeout=aiohttp.ClientTimeout(total=2.0),
-            ) as resp:
-                data = await resp.json()
-                self.volume = float(data.get("value", 0))
-                logger.info("BeoLab 5 current volume: %.0f%%", self.volume)
-        except Exception as e:
-            logger.warning("Could not read BeoLab 5 volume: %s", e)
+        logger.info("Router started (transport: %s, output: %s, volume: %.0f%%)",
+                     self.transport.mode, self.output_device, self.volume)
 
     async def _sync_cd_source(self):
         """Check if CD is playing on startup and restore active_source.
@@ -115,21 +98,6 @@ class EventRouter:
             # No disc — no point retrying
             return
 
-    async def _is_beolab5_on(self) -> bool:
-        """Check if BeoLab 5 speakers are turned on."""
-        if not self._session:
-            return False
-        try:
-            async with self._session.get(
-                BEOLAB5_SWITCH_URL,
-                timeout=aiohttp.ClientTimeout(total=1.0),
-            ) as resp:
-                data = await resp.json()
-                return data.get("value", False) is True
-        except Exception as e:
-            logger.warning("Could not check BeoLab 5 power state: %s", e)
-            return False
-
     async def _get_cd_status(self) -> dict | None:
         """Get CD service status (disc presence, playback state, etc.)."""
         if not self._session:
@@ -143,19 +111,6 @@ class EventRouter:
         except Exception as e:
             logger.warning("Could not get CD status: %s", e)
             return None
-
-    async def _turn_on_beolab5(self):
-        """Turn on BeoLab 5 speakers via ESPHome."""
-        if not self._session:
-            return
-        try:
-            async with self._session.post(
-                BEOLAB5_TURN_ON_URL,
-                timeout=aiohttp.ClientTimeout(total=2.0),
-            ) as resp:
-                logger.info("BeoLab 5 turn on: HTTP %d", resp.status)
-        except Exception as e:
-            logger.warning("Could not turn on BeoLab 5: %s", e)
 
     async def stop(self):
         await self.transport.stop()
@@ -200,34 +155,15 @@ class EventRouter:
     async def set_volume(self, volume: float):
         """Set volume (0-100). Routes to the appropriate output."""
         self.volume = max(0, min(100, volume))
-        if not await self._is_beolab5_on():
-            logger.info("BeoLab 5 is OFF — skipping volume command (%.0f%%)", self.volume)
+        if not await self._volume.is_on():
+            logger.info("Output is OFF — skipping volume command (%.0f%%)", self.volume)
             return
-        await self._send_volume_to_beolab5(self.volume)
+        await self._volume.set_volume(self.volume)
 
     async def report_volume(self, volume: float):
         """A device reports its current volume (e.g. Sonos says 'I'm at 40%')."""
         self.volume = max(0, min(100, volume))
         logger.info("Volume reported: %.0f%%", self.volume)
-
-    async def _send_volume_to_beolab5(self, volume: float):
-        """Send volume to BeoLab 5 ESPHome controller, capped at max."""
-        capped = min(volume, BEOLAB5_MAX_VOLUME)
-        if volume > BEOLAB5_MAX_VOLUME:
-            logger.warning("Volume %.0f%% capped to %d%% for BeoLab 5",
-                           volume, BEOLAB5_MAX_VOLUME)
-        if not self._session:
-            logger.warning("Session not initialized")
-            return
-        try:
-            async with self._session.post(
-                BEOLAB5_VOLUME_URL,
-                params={"value": str(capped)},
-                timeout=aiohttp.ClientTimeout(total=2.0),
-            ) as resp:
-                logger.info("-> BeoLab 5 volume: %.0f%% (HTTP %d)", capped, resp.status)
-        except Exception as e:
-            logger.warning("BeoLab 5 controller unreachable: %s", e)
 
     async def _send_to_cd(self, command: str, **kwargs):
         """Forward a command to cd.py's HTTP API."""
@@ -267,8 +203,8 @@ class EventRouter:
 
         # Disc present and not playing — start playback
         logger.info("CD button: disc present, state=%s — starting playback", state)
-        if not await self._is_beolab5_on():
-            await self._turn_on_beolab5()
+        if not await self._volume.is_on():
+            await self._volume.power_on()
         await self._send_to_cd("play")
         self.active_source = "cd"
 
@@ -305,10 +241,10 @@ async def handle_source(request: web.Request) -> web.Response:
     router_instance.active_source = source
     if old != source:
         logger.info("Source changed: %s -> %s", old, source)
-        # Auto-power BeoLab 5 when switching to CD
+        # Auto-power output when switching to CD
         if source == "cd":
-            if not await router_instance._is_beolab5_on():
-                await router_instance._turn_on_beolab5()
+            if not await router_instance._volume.is_on():
+                await router_instance._volume.power_on()
     return web.json_response({"status": "ok", "active_source": source})
 
 
