@@ -20,6 +20,8 @@ import logging
 
 import aiohttp
 
+from .config import cfg
+
 logger = logging.getLogger(__name__)
 
 # Topic structure: beosound5c/{device_slug}/out|in|status
@@ -46,16 +48,16 @@ class Transport:
     """Unified transport for sending events to HA and receiving commands."""
 
     def __init__(self):
-        # Config from environment
-        self.mode = os.getenv("TRANSPORT_MODE", "webhook").lower()  # webhook | mqtt | both
-        self.webhook_url = os.getenv("HA_WEBHOOK_URL",
-                                     "http://homeassistant.local:8123/api/webhook/beosound5c")
-        self.device_name = os.getenv("DEVICE_NAME", "BeoSound5c")
+        # Config from JSON config + env vars for secrets
+        self.mode = cfg("transport", "mode", default="webhook").lower()  # webhook | mqtt | both
+        self.webhook_url = cfg("home_assistant", "webhook_url",
+                               default="http://homeassistant.local:8123/api/webhook/beosound5c")
+        self.device_name = cfg("device", default="BeoSound5c")
         self.device_slug = _device_slug(self.device_name)
 
-        # MQTT config
-        self.mqtt_broker = os.getenv("MQTT_BROKER", "homeassistant.local")
-        self.mqtt_port = int(os.getenv("MQTT_PORT", "1883"))
+        # MQTT config (broker from JSON, credentials from env secrets)
+        self.mqtt_broker = cfg("transport", "mqtt_broker", default="homeassistant.local")
+        self.mqtt_port = int(cfg("transport", "mqtt_port", default=1883))
         self.mqtt_user = os.getenv("MQTT_USER", "")
         self.mqtt_password = os.getenv("MQTT_PASSWORD", "")
 

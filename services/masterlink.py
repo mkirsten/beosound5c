@@ -12,8 +12,12 @@ from aiohttp import web
 from datetime import datetime
 from collections import defaultdict
 
+# Ensure services/ is on the path for sibling imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # Shared playlist lookup (single source of truth)
 from playlist_lookup import get_playlist_uri
+from lib.config import cfg
 
 # Logging setup
 logging.basicConfig(
@@ -23,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger('beo-masterlink')
 
 # Configuration variables
-BEOSOUND_DEVICE_NAME = os.getenv('DEVICE_NAME', 'BeoSound5c')
+BEOSOUND_DEVICE_NAME = cfg("device", default="BeoSound5c")
 ROUTER_URL = "http://localhost:8770/router/event"
 MIXER_PORT = int(os.getenv('MIXER_PORT', '8768'))
 

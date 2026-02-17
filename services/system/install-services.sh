@@ -38,8 +38,8 @@ echo ""
 
 # Create configuration directory and copy example if needed
 CONFIG_DIR="/etc/beosound5c"
-CONFIG_FILE="$CONFIG_DIR/config.env"
-CONFIG_EXAMPLE="$SCRIPT_DIR/../config.env.example"
+SECRETS_FILE="$CONFIG_DIR/secrets.env"
+SECRETS_EXAMPLE="$SCRIPT_DIR/../../config/secrets.env.example"
 
 echo "📋 Setting up configuration..."
 if [ ! -d "$CONFIG_DIR" ]; then
@@ -47,24 +47,25 @@ if [ ! -d "$CONFIG_DIR" ]; then
     mkdir -p "$CONFIG_DIR"
 fi
 
-if [ ! -f "$CONFIG_FILE" ]; then
-    if [ -f "$CONFIG_EXAMPLE" ]; then
-        echo "  ✅ Copying config.env.example to $CONFIG_FILE"
-        cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"
-        chmod 644 "$CONFIG_FILE"
+if [ ! -f "$SECRETS_FILE" ]; then
+    if [ -f "$SECRETS_EXAMPLE" ]; then
+        echo "  ✅ Copying secrets.env.example to $SECRETS_FILE"
+        cp "$SECRETS_EXAMPLE" "$SECRETS_FILE"
+        chmod 600 "$SECRETS_FILE"
         echo ""
-        echo "  ⚠️  IMPORTANT: Edit $CONFIG_FILE to customize for this device!"
-        echo "     - DEVICE_NAME: Location identifier (e.g., Kitchen, Loft)"
-        echo "     - HA_URL: Home Assistant URL"
-        echo "     - BEOREMOTE_MAC: BeoRemote One Bluetooth MAC address"
-        echo "     - SONOS_IP: Sonos speaker IP address"
-        echo "     - SPOTIFY_USER_ID: Spotify username for playlists"
+        echo "  ⚠️  IMPORTANT: Edit $SECRETS_FILE with credentials for this device!"
+        echo "     - HA_TOKEN: Home Assistant long-lived access token"
+        echo "     - SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET"
         echo ""
     else
-        echo "  ⚠️  Warning: config.env.example not found at $CONFIG_EXAMPLE"
+        echo "  ⚠️  Warning: secrets.env.example not found at $SECRETS_EXAMPLE"
     fi
 else
-    echo "  ℹ️  Config file already exists at $CONFIG_FILE"
+    echo "  ℹ️  Secrets file already exists at $SECRETS_FILE"
+fi
+
+if [ ! -f "$CONFIG_DIR/config.json" ]; then
+    echo "  ⚠️  No config.json found — run deploy.sh to install device config"
 fi
 
 echo ""

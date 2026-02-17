@@ -16,6 +16,7 @@
     <meta name="theme-color" content="#000000">
     
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../assets/phosphor/phosphor.css">
 </head>
 <body>
     <div id="app">
@@ -39,19 +40,39 @@
                 console.log('Scenes: Starting initialization...');
                 console.log('AppConfig:', typeof AppConfig !== 'undefined' ? 'loaded' : 'MISSING');
 
-                const dataSource = (typeof AppConfig !== 'undefined' && AppConfig.scenesFile)
-                    ? AppConfig.scenesFile
-                    : '../json/scenes.json';
-                console.log('Scenes: dataSource =', dataSource);
+                // Map a scene object to an ArcList item (supports both icon and legacy image)
+                function mapScene(scene) {
+                    const item = { id: scene.id, name: scene.name };
+                    if (scene.icon) {
+                        item.icon = scene.icon;
+                        item.color = scene.color || '#fff';
+                    } else if (scene.image) {
+                        item.image = scene.image;
+                    }
+                    if (scene.scenes) item.scenes = scene.scenes;
+                    return item;
+                }
 
-                // Fetch scenes, falling back to example file if missing
-                const testFetch = await fetch(dataSource)
-                    .then(r => r.ok ? r : fetch('../json/scenes.example.json'));
-                const testData = await testFetch.json();
-                console.log('Scenes: Loaded', testData.length, 'items');
+                let scenesData;
+                if (typeof AppConfig !== 'undefined' && AppConfig.scenes) {
+                    // New unified config — scenes array in AppConfig
+                    scenesData = AppConfig.scenes;
+                    console.log('Scenes: Using AppConfig.scenes,', scenesData.length, 'items');
+                } else {
+                    // Legacy fallback — load from separate file
+                    const dataSource = (typeof AppConfig !== 'undefined' && AppConfig.scenesFile)
+                        ? AppConfig.scenesFile
+                        : '../json/scenes.json';
+                    console.log('Scenes: Loading from', dataSource);
+                    const resp = await fetch(dataSource)
+                        .then(r => r.ok ? r : fetch('../json/scenes.example.json'));
+                    scenesData = await resp.json();
+                    console.log('Scenes: Loaded', scenesData.length, 'items');
+                }
 
                 const scenesConfig = {
-                    dataSource: dataSource,
+                    dataSource: '__inline__',
+                    inlineData: scenesData,
                     dataType: 'scenes',
                     viewMode: 'hierarchical',
                     parentKey: 'scenes',
@@ -59,19 +80,8 @@
                     storagePrefix: 'scenes_arclist',
                     title: 'Scenes',
                     context: 'scenes',
-                    itemMapper: (data) => {
-                        return data.map(scene => ({
-                            id: scene.id,
-                            name: scene.name,
-                            image: scene.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjNkI3MjgwIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7wn46tPC90ZXh0Pgo8L3N2Zz4K',
-                            scenes: scene.scenes
-                        }));
-                    },
-                    childNameMapper: (scene) => ({
-                        id: scene.id,
-                        name: scene.name,
-                        image: scene.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjNkI3MjgwIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7wn46tPC90ZXh0Pgo8L3N2Zz4K'
-                    }),
+                    itemMapper: (data) => data.map(mapScene),
+                    childNameMapper: mapScene,
                     webhookUrl: typeof AppConfig !== 'undefined' ? AppConfig.webhookUrl : null
                 };
 

@@ -36,6 +36,7 @@ import aiohttp
 # Ensure services/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from playlist_lookup import get_playlist_uri
+from lib.config import cfg
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -48,31 +49,10 @@ logging.basicConfig(
 logger = logging.getLogger("bluetooth_hid")
 
 # ---------------------------------------------------------------------------
-# Config — load from env file for standalone runs (systemd sets env via
-# EnvironmentFile, but when running manually this is needed)
+# Config
 # ---------------------------------------------------------------------------
-def load_config():
-    config_file = "/etc/beosound5c/config.env"
-    if not os.path.exists(config_file):
-        return
-    with open(config_file) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("export "):
-                line = line[7:]
-            if "=" in line:
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                if key not in os.environ:
-                    os.environ[key] = value
-
-load_config()
-
-DEVICE_NAME = os.getenv("DEVICE_NAME", "BeoSound5c")
-BEOREMOTE_MAC = os.getenv("BEOREMOTE_MAC", "")
+DEVICE_NAME = cfg("device", default="BeoSound5c")
+BEOREMOTE_MAC = cfg("bluetooth", "remote_mac", default="")
 DRY_RUN = "--dry-run" in sys.argv
 ROUTER_URL = "http://localhost:8770/router/event"
 

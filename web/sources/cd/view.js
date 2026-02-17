@@ -16,13 +16,17 @@ window.CDView = (() => {
     let metadata = null;
 
     // Arc browser state — matches softarc exactly
-    let arcItems = [];           // [{id, label, trackNum, duration, isEject}]
+    let arcItems = [];           // [{id, label, type, ...}]
     let arcTargetIndex = 0;
     let arcCurrentIndex = 0;
     let arcAnimFrame = null;
     let arcSnapTimer = null;
     let lastScrollTime = 0;
     let lastClickedItemId = null; // For click sound on selection change
+
+    // Submenu state
+    let viewMode = 'main';       // 'main' | 'settings' | 'artwork'
+    let savedMainIndex = 0;      // Scroll position when entering submenu
 
     // Softarc constants (exact match)
     const SCROLL_SPEED = 0.5;    // Easing: currentIndex += diff * SCROLL_SPEED
@@ -59,6 +63,8 @@ window.CDView = (() => {
         arcSnapTimer = null;
         lastScrollTime = 0;
         lastClickedItemId = null;
+        viewMode = 'main';
+        savedMainIndex = 0;
         flipProgress = 0;
         flipIsFlipped = false;
         flipDirection = null;
@@ -92,26 +98,105 @@ window.CDView = (() => {
 
     // ── Arc Browser ──
 
-    /** Build arc items array from metadata. Does NOT touch scroll position. */
+    /** Build arc items array from metadata (or submenu). Does NOT touch scroll position. */
     function buildArcItems() {
+        if (viewMode === 'settings') { arcItems = buildSettingsItems(); return; }
+        if (viewMode === 'artwork') { arcItems = buildArtworkItems(); return; }
+
         if (!metadata?.tracks?.length) {
             arcItems = [];
             return;
         }
+
+        // Tracks
         arcItems = metadata.tracks.map(t => ({
-            id: `track-${t.num}`,
-            label: t.title || `Track ${t.num}`,
-            trackNum: t.num,
-            duration: t.duration || '',
-            isEject: false
+            id: `track-${t.num}`, label: t.title || `Track ${t.num}`,
+            trackNum: t.num, duration: t.duration || '', type: 'track'
         }));
+
+        // Play Settings submenu
         arcItems.push({
-            id: 'eject',
-            label: 'Eject CD',
-            trackNum: null,
-            duration: '',
-            isEject: true
+            id: 'settings', label: 'Play Settings',
+            type: 'submenu', badgeIcon: '\u2699'
         });
+
+        // Artwork submenu (only if alternatives exist)
+        if (metadata.alternatives?.length) {
+            arcItems.push({
+                id: 'artwork', label: 'Artwork',
+                type: 'submenu', badgeImage: metadata.artwork
+            });
+        }
+
+        // Import Disc (only if external USB drive detected)
+        if (metadata.has_external_drive) {
+            arcItems.push({
+                id: 'import', label: 'Import Disc',
+                type: 'action', badgeIcon: '\u2B73'
+            });
+        }
+
+        // Eject
+        arcItems.push({
+            id: 'eject', label: 'Eject CD',
+            type: 'action', badgeIcon: '\u23CF'
+        });
+    }
+
+    function buildSettingsItems() {
+        return [
+            { id: 'back', label: '\u2190 Back', type: 'back', badgeIcon: '\u2190' },
+            {
+                id: 'repeat', type: 'toggle',
+                label: `Repeat: ${metadata?.repeat ? 'On' : 'Off'}`,
+                toggleOn: !!metadata?.repeat,
+                badgeIcon: '\uD83D\uDD01',
+                command: 'toggle_repeat'
+            },
+            {
+                id: 'shuffle', type: 'toggle',
+                label: `Shuffle: ${metadata?.shuffle ? 'On' : 'Off'}`,
+                toggleOn: !!metadata?.shuffle,
+                badgeIcon: '\uD83D\uDD00',
+                command: 'toggle_shuffle'
+            }
+        ];
+    }
+
+    function buildArtworkItems() {
+        const items = [
+            { id: 'back', label: '\u2190 Back', type: 'back', badgeIcon: '\u2190' }
+        ];
+        for (const alt of (metadata?.alternatives || [])) {
+            items.push({
+                id: `release-${alt.release_id}`,
+                label: `${alt.title}${alt.year ? ' (' + alt.year + ')' : ''}`,
+                sublabel: alt.artist,
+                type: 'release',
+                releaseId: alt.release_id,
+                badgeIcon: '\uD83C\uDFB5'
+            });
+        }
+        return items;
+    }
+
+    function enterSubmenu(mode) {
+        savedMainIndex = arcTargetIndex;
+        viewMode = mode;
+        buildArcItems();
+        arcTargetIndex = 0;
+        arcCurrentIndex = 0;
+        lastClickedItemId = null;
+        renderArc();
+    }
+
+    function exitSubmenu() {
+        viewMode = 'main';
+        buildArcItems();
+        arcTargetIndex = Math.min(savedMainIndex, arcItems.length - 1);
+        arcCurrentIndex = arcTargetIndex;
+        lastClickedItemId = null;
+        renderArc();
     }
 
     /** Set scroll position to the currently playing track. */
@@ -188,6 +273,16 @@ window.CDView = (() => {
                 element.classList.remove('cd-arc-item-selected');
                 if (nameEl) nameEl.classList.remove('selected');
             }
+
+            // Update playing state (track changes between adjacent tracks)
+            const isPlaying = item.type === 'track' && item.trackNum === metadata?.current_track;
+            element.classList.toggle('cd-arc-item-playing', isPlaying);
+
+            // Update toggle state (for settings submenu live updates)
+            if (item.type === 'toggle') {
+                element.classList.toggle('cd-arc-item-toggle-on', !!item.toggleOn);
+                if (nameEl) nameEl.textContent = item.label;
+            }
         });
 
         return true;
@@ -211,25 +306,56 @@ window.CDView = (() => {
         const visibleItems = getVisibleItems();
 
         for (const item of visibleItems) {
-            const isPlaying = !item.isEject && item.trackNum === metadata?.current_track;
+            const isPlaying = item.type === 'track' && item.trackNum === metadata?.current_track;
 
             const el = document.createElement('div');
             el.className = 'cd-arc-item leaf';
             el.dataset.itemId = item.id;
             if (item.isSelected) el.classList.add('cd-arc-item-selected');
             if (isPlaying) el.classList.add('cd-arc-item-playing');
-            if (item.isEject) el.classList.add('cd-arc-item-eject');
+            if (item.type === 'action' && item.id === 'eject') el.classList.add('cd-arc-item-eject');
+            if (item.type === 'back') el.classList.add('cd-arc-item-back');
+            if (item.type === 'toggle' && item.toggleOn) el.classList.add('cd-arc-item-toggle-on');
             el.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
+
+            // Text wrapper (name + optional duration/sublabel)
+            const textEl = document.createElement('div');
+            textEl.className = 'cd-arc-item-text';
 
             const nameEl = document.createElement('div');
             nameEl.className = 'cd-arc-item-name';
             if (item.isSelected) nameEl.classList.add('selected');
             nameEl.textContent = item.label;
-            el.appendChild(nameEl);
+            textEl.appendChild(nameEl);
 
+            if (item.duration) {
+                const durEl = document.createElement('div');
+                durEl.className = 'cd-arc-item-duration';
+                durEl.textContent = item.duration;
+                textEl.appendChild(durEl);
+            }
+            if (item.sublabel) {
+                const subEl = document.createElement('div');
+                subEl.className = 'cd-arc-item-sublabel';
+                subEl.textContent = item.sublabel;
+                textEl.appendChild(subEl);
+            }
+
+            el.appendChild(textEl);
+
+            // Badge
             const badge = document.createElement('div');
             badge.className = 'cd-arc-item-badge';
-            badge.textContent = item.isEject ? '\u23CF' : String(item.trackNum);
+            if (item.badgeImage) {
+                const img = document.createElement('img');
+                img.className = 'cd-arc-item-badge-img';
+                img.src = item.badgeImage;
+                badge.appendChild(img);
+            } else if (item.badgeIcon) {
+                badge.textContent = item.badgeIcon;
+            } else if (item.trackNum) {
+                badge.textContent = String(item.trackNum);
+            }
             el.appendChild(badge);
 
             container.appendChild(el);
@@ -259,6 +385,13 @@ window.CDView = (() => {
         const MIN_RENDER_INTERVAL = 16; // 60fps cap (matches softarc)
 
         function tick() {
+            // Stop animation when not on CD menu page
+            const route = window.uiStore?.currentRoute;
+            if (route !== 'menu/cd') {
+                arcAnimFrame = null;
+                return;
+            }
+
             const diff = arcTargetIndex - arcCurrentIndex;
             if (Math.abs(diff) < 0.01) {
                 arcCurrentIndex = arcTargetIndex;
@@ -330,6 +463,7 @@ window.CDView = (() => {
 
     function updateMetadata(data) {
         const prevArtwork = metadata?.artwork;
+        const prevTrack = metadata?.current_track;
         metadata = data;
 
         if (!menuActive) return;
@@ -351,15 +485,31 @@ window.CDView = (() => {
                 revealArcBrowser(loadingEl);
             }
         } else if (!morphing) {
-            const prevTarget = arcTargetIndex;
-            buildArcItems();
-            if (data.artwork !== prevArtwork) {
-                arcTargetIndex = 0;
-                arcCurrentIndex = 0;
-            } else {
+            if (viewMode !== 'main') {
+                // In a submenu — rebuild submenu items (updates toggle labels) but keep position
+                const prevTarget = arcTargetIndex;
+                const prevCurrent = arcCurrentIndex;
+                buildArcItems();
                 arcTargetIndex = Math.min(prevTarget, arcItems.length - 1);
+                arcCurrentIndex = Math.min(prevCurrent, arcItems.length - 1);
+                renderArc();
+            } else {
+                const prevTarget = arcTargetIndex;
+                const prevCurrent = arcCurrentIndex;
+                buildArcItems();
+                if (data.artwork !== prevArtwork) {
+                    // New disc — scroll to playing track
+                    scrollToPlayingTrack();
+                } else if (data.current_track !== prevTrack) {
+                    // Track changed — follow it
+                    scrollToPlayingTrack();
+                } else {
+                    // Same disc, same track — preserve scroll position
+                    arcTargetIndex = Math.min(prevTarget, arcItems.length - 1);
+                    arcCurrentIndex = Math.min(prevCurrent, arcItems.length - 1);
+                }
+                renderArc();
             }
-            renderArc();
         }
     }
 
@@ -417,7 +567,7 @@ window.CDView = (() => {
         if (!flipper || !back || back.style.display === 'none') return false;
 
         const speed = data.speed || 10;
-        const increment = 0.0304 + (speed * 0.00152);
+        const increment = 0.02128 + (speed * 0.001064); // 30% slower than original
 
         // No flip in progress — check if this direction can start one
         if (flipProgress === 0) {
@@ -479,6 +629,7 @@ window.CDView = (() => {
         flipProgress = 0;
         flipDirection = null;
         setFlipRestState(flipper);
+        if (window.uiStore?.sendClickCommand) window.uiStore.sendClickCommand();
     }
 
     /** Flip returned to 0.0 — stay on current face. */
@@ -506,6 +657,7 @@ window.CDView = (() => {
                 flipProgress = 0;
                 flipDirection = null;
                 setFlipRestState(flipper);
+                if (window.uiStore?.sendClickCommand) window.uiStore.sendClickCommand();
             }, 200);
         } else {
             // Snap back to current face
@@ -567,16 +719,34 @@ window.CDView = (() => {
             snapToNearest();
             const item = arcItems[arcTargetIndex];
             if (!item) return true;
-            if (item.isEject) {
-                sendCommand('eject');
-            } else {
-                sendCommand('play_track', { track: item.trackNum });
+            switch (item.type) {
+                case 'track':
+                    sendCommand('play_track', { track: item.trackNum });
+                    break;
+                case 'submenu':
+                    enterSubmenu(item.id === 'settings' ? 'settings' : 'artwork');
+                    break;
+                case 'back':
+                    exitSubmenu();
+                    break;
+                case 'toggle':
+                    sendCommand(item.command);
+                    break;
+                case 'release':
+                    sendCommand('use_release', { release_id: item.releaseId });
+                    break;
+                case 'action':
+                    if (item.id === 'eject') sendCommand('eject');
+                    if (item.id === 'import') sendCommand('import');
+                    break;
             }
             return true;
         }
 
-        // LEFT/RIGHT on CD menu: prev/next track (if playing)
-        if (button === 'left') { sendCommand('prev'); return true; }
+        if (button === 'left') {
+            if (viewMode !== 'main') { exitSubmenu(); return true; }
+            sendCommand('prev'); return true;
+        }
         if (button === 'right') { sendCommand('next'); return true; }
 
         return false;
@@ -608,7 +778,8 @@ window.CDView = (() => {
         handleButton,
         updateMetadata,
         sendCommand,
-        get isActive() { return menuActive || (window.uiStore?.activeSource === 'cd'); }
+        get isActive() { return menuActive || (window.uiStore?.activeSource === 'cd'); },
+        get metadata() { return metadata; }
     };
 })();
 
@@ -649,16 +820,22 @@ window.SourcePresets.cd = {
             const titleEl = container.querySelector('.media-view-title');
             const artistEl = container.querySelector('.media-view-artist');
             const albumEl = container.querySelector('.media-view-album');
-            if (titleEl) titleEl.textContent = track?.title || `Track ${data.current_track}`;
-            if (artistEl) artistEl.textContent = data.artist || '\u2014';
-            if (albumEl) {
-                albumEl.textContent = data.year
+            if (window.crossfadeText) {
+                window.crossfadeText(titleEl, track?.title || `Track ${data.current_track}`);
+                window.crossfadeText(artistEl, data.artist || '\u2014');
+                window.crossfadeText(albumEl, data.year
                     ? `${data.title} (${data.year})`
-                    : data.title || '\u2014';
+                    : data.title || '\u2014');
             }
             // Front artwork
             const front = container.querySelector('.playing-artwork');
-            if (front && data.artwork) front.src = data.artwork;
+            if (front) {
+                if (data.artwork) {
+                    front.src = data.artwork;
+                } else if (window.ArtworkManager) {
+                    window.ArtworkManager.displayArtwork(front, null, 'noArtwork');
+                }
+            }
             // Back artwork (show/hide back face)
             const backFace = container.querySelector('.playing-back');
             const backImg = container.querySelector('.playing-artwork-back');

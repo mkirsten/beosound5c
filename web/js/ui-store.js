@@ -1,3 +1,19 @@
+/**
+ * Soft crossfade for text changes on the playing view.
+ * Fades out, swaps text, fades back in. Cancels pending swaps on rapid updates.
+ */
+function crossfadeText(el, newText) {
+    if (!el) return;
+    if (el.textContent === newText) return;
+    clearTimeout(el._crossfadeTimer);
+    el.style.opacity = '0';
+    el._crossfadeTimer = setTimeout(() => {
+        el.textContent = newText;
+        el.style.removeProperty('opacity');
+    }, 200);
+}
+window.crossfadeText = crossfadeText;
+
 // Default PLAYING view slot content (used when no source overrides)
 const DEFAULT_ARTWORK_SLOT = `
     <div class="playing-flipper">
@@ -19,9 +35,9 @@ const DEFAULT_PLAYING_PRESET = {
         const titleEl = container.querySelector('.media-view-title');
         const artistEl = container.querySelector('.media-view-artist');
         const albumEl = container.querySelector('.media-view-album');
-        if (titleEl) titleEl.textContent = data.title || '—';
-        if (artistEl) artistEl.textContent = data.artist || '—';
-        if (albumEl) albumEl.textContent = data.album || '—';
+        crossfadeText(titleEl, data.title || '—');
+        crossfadeText(artistEl, data.artist || '—');
+        crossfadeText(albumEl, data.album || '—');
         const img = container.querySelector('.playing-artwork');
         if (img && window.ArtworkManager) {
             window.ArtworkManager.displayArtwork(img, data.artwork, 'noArtwork');
@@ -435,11 +451,16 @@ class UIStore {
      * Switch the PLAYING view to a source's preset (or default).
      */
     setActivePlayingPreset(sourceId) {
+        const preset = sourceId && window.SourcePresets?.[sourceId]?.playing;
+        const newPreset = preset || DEFAULT_PLAYING_PRESET;
+
+        // Skip rebuild if preset hasn't changed (avoids artwork flash on track changes)
+        if (newPreset === this.activePlayingPreset) return;
+
         const container = document.getElementById('now-playing');
         if (!container) {
             // PLAYING view not currently rendered — just store the preset for later
-            const preset = sourceId && window.SourcePresets?.[sourceId]?.playing;
-            this.activePlayingPreset = preset || DEFAULT_PLAYING_PRESET;
+            this.activePlayingPreset = newPreset;
             return;
         }
 
@@ -452,9 +473,8 @@ class UIStore {
             this.activePlayingPreset.onRemove(container);
         }
 
-        // Load new preset (or default)
-        const preset = sourceId && window.SourcePresets?.[sourceId]?.playing;
-        this.activePlayingPreset = preset || DEFAULT_PLAYING_PRESET;
+        // Activate new preset
+        this.activePlayingPreset = newPreset;
 
         // Override slots (or restore defaults)
         if (artworkSlot) {

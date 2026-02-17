@@ -171,29 +171,29 @@ html, body {
   transition: all 0.3s ease-in-out;
 }
 
+.media-view-title,
+.media-view-artist,
+.media-view-album {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.2s ease;
+}
+
 .media-view-title {
   font-size: 24px;
   font-weight: bold;
   margin-bottom: 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .media-view-artist {
   font-size: 18px;
   margin-bottom: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .media-view-album {
   font-size: 16px;
   opacity: 0.8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* PLAYING + CD view backgrounds */
@@ -590,17 +590,24 @@ html, body {
   will-change: transform;
 }
 
-/* Matches .item-name: right-aligned text, flex:1 */
-.cd-arc-item-name {
+/* Text wrapper for name + duration/sublabel */
+.cd-arc-item-text {
   text-align: right;
   flex: 1;
   min-width: 0;
+}
+
+/* Name: allow 2-line wrapping */
+.cd-arc-item-name {
   font-size: 0.875rem;
   color: white;
   font-weight: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre-line;
+  line-height: 1.2;
 }
 
 .cd-arc-item-name.selected {
@@ -610,6 +617,23 @@ html, body {
 
 .cd-arc-item-playing .cd-arc-item-name {
   color: rgba(102, 153, 255, 1);
+}
+
+/* Duration line under track name */
+.cd-arc-item-duration {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 2px;
+}
+
+/* Sublabel (artist on artwork items) */
+.cd-arc-item-sublabel {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Matches .item-image: 128px square, same border-radius */
@@ -625,6 +649,7 @@ html, body {
   font-size: 2rem;
   font-weight: 300;
   color: rgba(255, 255, 255, 0.5);
+  overflow: hidden;
 }
 
 .cd-arc-item-selected .cd-arc-item-badge {
@@ -642,6 +667,26 @@ html, body {
   background: rgba(255, 255, 255, 0.03);
   color: rgba(255, 255, 255, 0.3);
   font-size: 2.5rem;
+}
+
+/* Badge image (for artwork submenu item) */
+.cd-arc-item-badge-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 0.5rem;
+}
+
+/* Toggle active state */
+.cd-arc-item-toggle-on .cd-arc-item-badge {
+  background: rgba(102, 153, 255, 0.15);
+  color: rgba(102, 153, 255, 1);
+}
+
+/* Back item */
+.cd-arc-item-back .cd-arc-item-badge {
+  font-size: 1.5rem;
+  background: rgba(255, 255, 255, 0.03);
 }
 
 

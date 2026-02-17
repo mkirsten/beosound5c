@@ -5,8 +5,8 @@ const AppConfig = {
     // Device identification (overridden by json/config.json on deployed devices)
     deviceName: 'development',
 
-    // Device-specific data files (overridden by json/config.json on deployed devices)
-    scenesFile: '../json/scenes.json',
+    // Legacy fallback for scenes (only used if config.json has no scenes array)
+    scenesFile: '../json/scenes.example.json',
 
     // Home Assistant configuration
     homeAssistant: {
@@ -51,18 +51,38 @@ const AppConfig = {
     }
 };
 
-// Load device-specific overrides from config.json (deployed per-device)
+// Load device-specific config from unified config.json (deployed per-device)
+// Falls back to ../config/default.json for local development
 (function() {
-    try {
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', 'json/config.json', false);
-        xhr.send();
-        if (xhr.status === 200) {
-            const overrides = JSON.parse(xhr.responseText);
-            Object.assign(AppConfig, overrides);
-            console.log('[CONFIG] Loaded config.json, deviceName:', AppConfig.deviceName);
+    function applyConfig(config) {
+        if (config.device) AppConfig.deviceName = config.device;
+        if (config.scenes) AppConfig.scenes = config.scenes;
+        if (config.home_assistant) {
+            if (config.home_assistant.url) AppConfig.homeAssistant.url = config.home_assistant.url;
         }
-    } catch (e) {
+        if (config.menu && config.menu.SECURITY && typeof config.menu.SECURITY === 'object') {
+            if (config.menu.SECURITY.dashboard) {
+                AppConfig.homeAssistant.securityDashboard = config.menu.SECURITY.dashboard;
+            }
+        }
+    }
+
+    // Try deployed config first, then dev fallback
+    var paths = ['json/config.json', '../config/default.json'];
+    var loaded = false;
+    for (var i = 0; i < paths.length && !loaded; i++) {
+        try {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', paths[i], false);
+            xhr.send();
+            if (xhr.status === 200) {
+                applyConfig(JSON.parse(xhr.responseText));
+                console.log('[CONFIG] Loaded ' + paths[i] + ', deviceName:', AppConfig.deviceName);
+                loaded = true;
+            }
+        } catch (e) { /* try next */ }
+    }
+    if (!loaded) {
         console.warn('[CONFIG] No config.json found, using defaults');
     }
 })();

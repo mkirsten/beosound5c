@@ -135,6 +135,19 @@ body {
     background-color: rgba(255, 255, 255, 0.1);
 }
 
+/* Phosphor icon mode (replaces base64 image) */
+.item-image.item-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #111;
+    object-fit: unset;
+}
+
+.item-image.item-icon i {
+    font-size: 3.5rem;
+}
+
 /* Overlay that appears on top of selected images */
 .item-overlay {
     position: absolute;

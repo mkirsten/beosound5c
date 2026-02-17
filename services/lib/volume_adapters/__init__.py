@@ -14,10 +14,10 @@ Supported types:
 """
 
 import logging
-import os
 
 import aiohttp
 
+from ..config import cfg
 from .base import VolumeAdapter
 from .beolab5 import BeoLab5Volume
 from .hdmi import HdmiVolume
@@ -39,24 +39,22 @@ __all__ = [
 
 
 def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
-    """Create the right volume adapter based on environment variables.
+    """Create the right volume adapter based on config.json.
 
-    Reads:
-      VOLUME_TYPE   – "esphome"/"beolab5" (default), "sonos", "powerlink",
-                      "hdmi", or "spdif"
-      VOLUME_HOST   – target host/IP (not used by hdmi/spdif/powerlink-localhost)
-      VOLUME_MAX    – max volume percentage (default 70)
-      MIXER_PORT    – masterlink.py mixer HTTP port (default 8768, powerlink only)
-      ALSA_CARD     – ALSA card name override (hdmi/spdif only)
-      ALSA_CONTROL  – ALSA mixer control override (hdmi/spdif only)
+    Reads from config.json "volume" section:
+      type        – "esphome"/"beolab5" (default), "sonos", "powerlink",
+                    "hdmi", or "spdif"
+      host        – target host/IP (not used by hdmi/spdif/powerlink-localhost)
+      max         – max volume percentage (default 70)
+      mixer_port  – masterlink.py mixer HTTP port (default 8768, powerlink only)
     """
-    vol_type = os.getenv("VOLUME_TYPE", "esphome").lower()
-    vol_host = os.getenv("VOLUME_HOST", "beolab5-controller.local")
-    vol_max = int(os.getenv("VOLUME_MAX", "70"))
+    vol_type = str(cfg("volume", "type", default="esphome")).lower()
+    vol_host = cfg("volume", "host", default="beolab5-controller.local")
+    vol_max = int(cfg("volume", "max", default=70))
 
     if vol_type == "powerlink":
-        host = os.getenv("VOLUME_HOST", "localhost")
-        port = int(os.getenv("MIXER_PORT", "8768"))
+        host = cfg("volume", "host", default="localhost")
+        port = int(cfg("volume", "mixer_port", default=8768))
         logger.info("Volume adapter: PowerLink via masterlink.py @ %s:%d (max %d%%)",
                      host, port, vol_max)
         return PowerLinkVolume(host, vol_max, session, port)

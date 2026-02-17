@@ -202,31 +202,38 @@ function updateViaStore(angle, laserPosition) {
 // ── Navigation Wheel ──
 
 function handleNavEvent(uiStore, data) {
-    const currentPage = uiStore.currentRoute || 'unknown';
+    const page = uiStore.currentRoute || 'unknown';
 
-    // Route nav events to active source controller (by page)
-    const navSourceId = currentPage.startsWith('menu/') ? currentPage.slice(5) : null;
-    const navSourceCtrl = navSourceId && window.SourcePresets?.[navSourceId]?.controller;
-    if (navSourceCtrl?.isActive && navSourceCtrl.handleNavEvent) {
-        if (navSourceCtrl.handleNavEvent(data)) return;
-    }
+    if (routeNavToView(page, data, uiStore)) return;
 
-    // PLAYING page: route to active source controller
-    if (currentPage === 'menu/playing' && uiStore.activeSource) {
-        const activeCtrl = window.SourcePresets?.[uiStore.activeSource]?.controller;
-        if (activeCtrl?.isActive && activeCtrl.handleNavEvent) {
-            if (activeCtrl.handleNavEvent(data)) return;
-        }
-    }
-
-    // Forward nav events to iframe pages that handle their own navigation
-    if (window.IframeMessenger && window.IframeMessenger.routeHasIframe(currentPage)) {
-        window.IframeMessenger.sendNavEvent(currentPage, data);
-        return;
-    }
-
+    // Default: main menu wheel
     uiStore.topWheelPosition = data.direction === 'clock' ? 1 : -1;
     uiStore.handleWheelChange();
+}
+
+function routeNavToView(page, data, uiStore) {
+    const viewId = page.startsWith('menu/') ? page.slice(5) : null;
+
+    // Source page — controller owns nav
+    const sourceCtrl = viewId && window.SourcePresets?.[viewId]?.controller;
+    if (sourceCtrl) {
+        if (sourceCtrl.isActive && sourceCtrl.handleNavEvent) sourceCtrl.handleNavEvent(data);
+        return true; // source page always consumes
+    }
+
+    // Playing page — active source owns nav
+    if (page === 'menu/playing' && uiStore.activeSource) {
+        const ctrl = window.SourcePresets?.[uiStore.activeSource]?.controller;
+        if (ctrl?.isActive && ctrl.handleNavEvent && ctrl.handleNavEvent(data)) return true;
+    }
+
+    // Iframe page — iframe owns nav
+    if (window.IframeMessenger?.routeHasIframe(page)) {
+        window.IframeMessenger.sendNavEvent(page, data);
+        return true;
+    }
+
+    return false;
 }
 
 // ── Volume ──
@@ -314,79 +321,71 @@ function handleVolumeEvent(uiStore, data) {
 
 // ── Buttons ──
 
+// HA webhook context aliases for backwards compatibility
+const webhookContextAliases = {
+    'playing': 'now_playing',
+    'showing': 'now_showing'
+};
+
+function getWebhookContext(page) {
+    const context = page.startsWith('menu/') ? page.slice(5) : 'unknown';
+    return webhookContextAliases[context] || context;
+}
+
 function handleButtonEvent(uiStore, data) {
-    const currentPage = uiStore.currentRoute || 'unknown';
-    console.log(`[BUTTON] ${data.button} on ${currentPage}`);
+    const page = uiStore.currentRoute || 'unknown';
+    const button = data.button.toLowerCase();
+    console.log(`[BUTTON] ${button} on ${page}`);
 
-    // Active source controller captures buttons (by page)
-    const btnSourceId = currentPage.startsWith('menu/') ? currentPage.slice(5) : null;
-    const btnSourceCtrl = btnSourceId && window.SourcePresets?.[btnSourceId]?.controller;
-    if (btnSourceCtrl?.isActive && btnSourceCtrl.handleButton) {
-        if (btnSourceCtrl.handleButton(data.button.toLowerCase())) return;
-    }
+    // Global overlay intercept — camera overlay captures all buttons when active
+    if (window.CameraOverlayManager?.isActive &&
+        window.CameraOverlayManager.handleAction(button)) return;
 
-    // PLAYING page: route to active source controller
-    if (currentPage === 'menu/playing' && uiStore.activeSource) {
-        const activeCtrl = window.SourcePresets?.[uiStore.activeSource]?.controller;
-        if (activeCtrl?.isActive && activeCtrl.handleButton) {
-            if (activeCtrl.handleButton(data.button.toLowerCase())) return;
+    // Route to current view — if handled, done
+    if (routeButtonToView(page, button, uiStore)) return;
+
+    // Fallback: HA webhook (pages without local handling)
+    sendWebhook(getWebhookContext(page), button);
+}
+
+function routeButtonToView(page, button, uiStore) {
+    const viewId = page.startsWith('menu/') ? page.slice(5) : null;
+
+    // Source page — controller owns all buttons
+    const sourceCtrl = viewId && window.SourcePresets?.[viewId]?.controller;
+    if (sourceCtrl) {
+        if (sourceCtrl.isActive && sourceCtrl.handleButton) {
+            sourceCtrl.handleButton(button);
         }
+        return true; // source page always consumes
     }
 
-    // Check if camera overlay is active - intercept GO, LEFT, RIGHT buttons
-    if (window.CameraOverlayManager && window.CameraOverlayManager.isActive) {
-        const button = data.button.toLowerCase();
-        if (['go', 'left', 'right'].includes(button)) {
-            const handled = window.CameraOverlayManager.handleAction(button);
-            if (handled) {
-                console.log(`[BUTTON] Handled by camera overlay: ${button}`);
-                return;
-            }
+    // Playing page — active source owns buttons
+    if (page === 'menu/playing') {
+        if (uiStore.activeSource) {
+            const ctrl = window.SourcePresets?.[uiStore.activeSource]?.controller;
+            if (ctrl?.isActive && ctrl.handleButton && ctrl.handleButton(button)) return true;
         }
-    }
-
-    // On security page, GO button opens camera overlay
-    if (currentPage === 'menu/security' && data.button.toLowerCase() === 'go') {
-        if (window.CameraOverlayManager) {
-            console.log('[BUTTON] Opening camera overlay from security page');
-            window.CameraOverlayManager.show();
-            return;
+        if (window.EmulatorBridge?.isInEmulator) {
+            const action = { left: 'prev_track', right: 'next_track', go: 'toggle_playback' }[button];
+            if (action) { window.EmulatorBridge.notifyPlaybackControl(action); return true; }
         }
+        return false; // no handler — fall through to webhook
     }
 
-    // Handle Playing view buttons in emulator mode
-    if (currentPage === 'menu/playing' && window.EmulatorBridge?.isInEmulator) {
-        const button = data.button.toLowerCase();
-        const actionMap = {
-            'left': 'prev_track',
-            'right': 'next_track',
-            'go': 'toggle_playback'
-        };
-
-        if (actionMap[button]) {
-            window.EmulatorBridge.notifyPlaybackControl(actionMap[button]);
-            return;
-        }
+    // Iframe page — iframe owns all buttons
+    if (window.IframeMessenger?.routeHasIframe(page)) {
+        window.IframeMessenger.sendButtonEvent(page, button);
+        return true;
     }
 
-    // Forward button events to iframe pages
-    if (window.IframeMessenger && window.IframeMessenger.routeHasIframe(currentPage)) {
-        window.IframeMessenger.sendButtonEvent(currentPage, data.button);
-        return;
+    // Security GO — opens camera overlay (parent-side overlay, not iframe)
+    if (page === 'menu/security' && button === 'go' && window.CameraOverlayManager) {
+        window.CameraOverlayManager.show();
+        return true;
     }
 
-    // Send webhook for non-iframe contexts
-    const contextMap = {
-        'menu/security': 'security',
-        'menu/playing': 'now_playing',
-        'menu/showing': 'now_showing',
-        'menu/music': 'music',
-        'menu/settings': 'settings',
-        'menu/scenes': 'scenes'
-    };
-
-    const panelContext = contextMap[currentPage] || 'unknown';
-    sendWebhook(panelContext, data.button);
+    return false; // no view handler — webhook fallback
 }
 
 // ── Webhooks ──

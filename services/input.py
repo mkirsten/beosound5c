@@ -6,6 +6,7 @@ import os
 import logging
 from aiohttp import web, ClientSession
 from lib.transport import Transport
+from lib.config import cfg
 
 # Logging setup
 logging.basicConfig(
@@ -164,7 +165,7 @@ def get_system_info() -> dict:
             info['git_tag'] = '--'
 
         # Service status
-        services = ['beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-sonos', 'beo-cd', 'beo-input', 'beo-http', 'beo-ui', 'beo-spotify-fetch']
+        services = ['beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-sonos', 'beo-cd-source', 'beo-input', 'beo-http', 'beo-ui', 'beo-spotify-fetch']
         info['services'] = {}
         for svc in services:
             # For timers, check the timer status
@@ -176,19 +177,15 @@ def get_system_info() -> dict:
             status = result.stdout.strip()
             info['services'][svc] = 'Running' if status == 'active' else status.capitalize()
 
-        # Config from ENV file
-        config_file = '/etc/beosound5c/config.env'
+        # Config from JSON file
         info['config'] = {}
         try:
-            if os.path.exists(config_file):
-                with open(config_file, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#') and '=' in line:
-                            key, value = line.split('=', 1)
-                            # Remove quotes from value
-                            value = value.strip().strip('"').strip("'")
-                            info['config'][key] = value
+            import json as _json
+            for p in ['/etc/beosound5c/config.json', 'config.json']:
+                if os.path.exists(p):
+                    with open(p) as f:
+                        info['config'] = _json.load(f)
+                    break
         except Exception as e:
             logger.error('Config read error: %s', e)
 
@@ -368,9 +365,13 @@ def restart_service(action: str):
         if action == 'reboot':
             subprocess.Popen(['sudo', 'reboot'])
         elif action == 'restart-all':
-            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-sonos', 'beo-cd', 'beo-input', 'beo-http', 'beo-ui'])
+            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-sonos', 'beo-cd-source', 'beo-input', 'beo-http', 'beo-ui'])
         elif action.startswith('restart-'):
             service = 'beo-' + action.replace('restart-', '')
+            # CD source: eject disc first, use correct service name
+            if service == 'beo-cd':
+                subprocess.run(['eject', '/dev/sr0'], timeout=5, capture_output=True)
+                service = 'beo-cd-source'
             subprocess.Popen(['sudo', 'systemctl', 'restart', service])
     except Exception as e:
         logger.error('Restart error: %s', e)
@@ -440,7 +441,7 @@ async def refresh_spotify_playlists(ws):
 
 async def handle_camera_stream(request):
     """Proxy camera stream from Home Assistant to avoid CORS issues."""
-    ha_url = os.getenv('HA_URL', 'http://homeassistant.local:8123')
+    ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
     ha_token = os.getenv('HA_TOKEN', '')
 
     # Get camera entity from query params, default to doorbell
@@ -488,7 +489,7 @@ async def handle_camera_stream(request):
 
 async def handle_camera_snapshot(request):
     """Get a single snapshot from camera via Home Assistant."""
-    ha_url = os.getenv('HA_URL', 'http://homeassistant.local:8123')
+    ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
     ha_token = os.getenv('HA_TOKEN', '')
 
     # Get camera entity from query params, default to doorbell
@@ -761,7 +762,7 @@ async def handle_appletv(request):
             'Access-Control-Allow-Headers': 'Content-Type',
         })
 
-    ha_url = os.getenv('HA_URL', 'http://homeassistant.local:8123')
+    ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
     ha_token = os.getenv('HA_TOKEN', '')
 
     try:
@@ -802,7 +803,7 @@ async def handle_people(request):
             'Access-Control-Allow-Headers': 'Content-Type',
         })
 
-    ha_url = os.getenv('HA_URL', 'http://homeassistant.local:8123')
+    ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
     ha_token = os.getenv('HA_TOKEN', '')
 
     try:

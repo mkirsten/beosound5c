@@ -41,8 +41,12 @@ except ImportError:
     print("ERROR: Pillow library not installed. Install with: pip install pillow")
     sys.exit(1)
 
+# Ensure services/ is on the path for sibling imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.config import cfg
+
 # Configuration
-SONOS_IP = os.getenv('SONOS_IP', '192.168.0.190')
+SONOS_IP = cfg("sonos", "ip", default="192.168.0.190")
 WEBSOCKET_PORT = 8766
 POLL_INTERVAL = 0.5  # seconds between change checks (fast for responsive track changes)
 MAX_ARTWORK_SIZE = 500 * 1024  # 500KB limit for artwork

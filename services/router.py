@@ -23,6 +23,7 @@ from aiohttp import web
 
 # Ensure services/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.config import cfg
 from lib.transport import Transport
 from lib.volume_adapters import create_volume_adapter
 
@@ -38,17 +39,17 @@ logger = logging.getLogger("beo-router")
 # ---------------------------------------------------------------------------
 ROUTER_PORT = 8770
 INPUT_WEBHOOK_URL = "http://localhost:8767/webhook"
-OUTPUT_NAME = os.getenv("OUTPUT_NAME", "BeoLab 5")
-VOLUME_STEP = int(os.getenv("VOLUME_STEP", "3"))  # % per volup/voldown press
 
-# Static menu item titles (id -> display title)
-MENU_TITLES = {
-    "showing": "SHOWING",
-    "system": "SYSTEM",
-    "security": "SECURITY",
-    "scenes": "SCENES",
-    "music": "MUSIC",
-    "playing": "PLAYING",
+# Static menu IDs — these are built-in views (not dynamic sources)
+STATIC_VIEWS = {"showing", "system", "security", "scenes", "music", "playing"}
+
+# Source handles defaults (used when a source registers without specifying handles)
+DEFAULT_SOURCE_HANDLES = {
+    "cd": {"play", "pause", "next", "prev", "stop", "go", "left", "right",
+           "up", "down", "digits", "info"},
+    "usb": {"play", "pause", "next", "prev", "stop", "go", "left", "right",
+            "up", "down"},
+    "demo": {"play", "pause", "next", "prev", "stop", "go"},
 }
 
 
@@ -58,13 +59,12 @@ MENU_TITLES = {
 class Source:
     """A registered source that can receive routed events."""
 
-    def __init__(self, id: str, handles: set, after: str = "music"):
+    def __init__(self, id: str, handles: set):
         self.id = id
         self.name = id.upper()        # display name, overridden on register
         self.command_url = ""          # HTTP endpoint for forwarding events
         self.handles = handles         # set of action names this source handles
         self.menu_preset = id          # SourcePresets key in the UI
-        self.after = after             # insert menu item after this id
         self.state = "gone"            # gone | available | playing | paused
 
     def to_menu_item(self) -> dict:
@@ -96,11 +96,9 @@ class SourceRegistry:
     def get(self, id: str) -> Source | None:
         return self._sources.get(id)
 
-    def create_from_config(self, id: str, cfg: dict) -> Source:
+    def create_from_config(self, id: str, handles: set) -> Source:
         """Pre-create a Source from config (not yet registered/available)."""
-        handles = set(cfg.get("handles", []))
-        after = cfg.get("after", "music")
-        source = Source(id, handles, after)
+        source = Source(id, handles)
         self._sources[id] = source
         return source
 
@@ -113,8 +111,7 @@ class SourceRegistry:
         # Create source if unknown (not in config)
         if source is None:
             handles = set(fields.get("handles", []))
-            after = fields.get("after", "music")
-            source = Source(id, handles, after)
+            source = Source(id, handles)
             self._sources[id] = source
 
         # Update fields from registration payload
@@ -134,9 +131,12 @@ class SourceRegistry:
 
         if state == "available" and was_new:
             # New registration → add menu item
-            await router._broadcast("menu_item", {
-                "action": "add", "preset": source.menu_preset
-            })
+            broadcast_data = {"action": "add", "preset": source.menu_preset}
+            # Include the "after" position derived from menu config order
+            after_id = router._get_after(id)
+            if after_id:
+                broadcast_data["after"] = f"menu/{after_id}"
+            await router._broadcast("menu_item", broadcast_data)
             actions.append("add_menu_item")
             logger.info("Source registered: %s (handles: %s)", id, source.handles)
 
@@ -232,41 +232,53 @@ class EventRouter:
         self.registry = SourceRegistry()
         self.active_view = None       # UI view reported by frontend
         self.volume = 0               # current volume 0-100
-        self.output_device = OUTPUT_NAME
+        self.output_device = cfg("volume", "output_name", default="BeoLab 5")
+        self._volume_step = int(cfg("volume", "step", default=3))
         self._session: aiohttp.ClientSession | None = None
         self._volume = None           # VolumeAdapter instance
-        self._config = {}
+        self._menu_order: list[dict] = []  # parsed menu from config
         self._last_source_update_time = 0  # monotonic time of last source state update
 
-    def _load_config(self) -> dict:
-        path = os.getenv("ROUTER_CONFIG", "/etc/beosound5c/router.json")
-        try:
-            with open(path) as f:
-                cfg = json.load(f)
-                logger.info("Loaded config from %s", path)
-                return cfg
-        except FileNotFoundError:
-            logger.info("No config file at %s — using defaults", path)
-            return {
-                "menu": ["showing", "system", "security", "scenes", "music", "playing"],
-                "sources": {
-                    "cd": {
-                        "after": "music",
-                        "handles": ["play", "pause", "next", "prev", "stop",
-                                    "go", "left", "right", "up", "down", "digits", "info"],
-                    }
-                },
+    def _parse_menu(self):
+        """Parse the menu section from config.json into an ordered list.
+
+        Menu is defined top-to-bottom as visible on screen.  Each entry is
+        either a static view or a source.  String values = component with
+        default config; object values = component + config.
+        """
+        menu_cfg = cfg("menu")
+        if not menu_cfg:
+            # Fallback menu
+            menu_cfg = {
+                "PLAYING": "playing", "MUSIC": "music", "SCENES": "scenes",
+                "SYSTEM": "system", "SHOWING": "showing",
             }
+
+        items = []
+        for title, value in menu_cfg.items():
+            if isinstance(value, str):
+                entry_id = value
+                entry_cfg = {}
+            else:
+                entry_id = value.get("id", title.lower())
+                entry_cfg = value
+            items.append({"id": entry_id, "title": title, "config": entry_cfg})
+
+        # Pre-create sources from menu entries (non-static-view items)
+        for item in items:
+            if item["id"] not in STATIC_VIEWS:
+                handles = DEFAULT_SOURCE_HANDLES.get(item["id"], set())
+                self.registry.create_from_config(item["id"], handles)
+
+        self._menu_order = items
 
     async def start(self):
         await self.transport.start()
         self._session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=2.0),
         )
-        # Load config and pre-create sources
-        self._config = self._load_config()
-        for src_id, src_cfg in self._config.get("sources", {}).items():
-            self.registry.create_from_config(src_id, src_cfg)
+        # Parse menu from config and pre-create sources
+        self._parse_menu()
 
         # Create volume adapter from config
         self._volume = create_volume_adapter(self._session)
@@ -283,29 +295,24 @@ class EventRouter:
         logger.info("Router stopped")
 
     def get_menu(self) -> dict:
-        """Build the current menu state from config + registered sources."""
+        """Build the current menu state from config menu order.
+
+        The menu order in config.json is top-to-bottom.  Static views are
+        always shown; sources appear only when their service has registered
+        (state != "gone").
+        """
         items = []
-        config_menu = self._config.get("menu", [])
-
-        for menu_id in config_menu:
-            if menu_id in MENU_TITLES:
-                items.append({"id": menu_id, "title": MENU_TITLES[menu_id]})
-
-        # Insert dynamic sources at their configured positions
-        for source in self.registry.all_available():
-            source_item = source.to_menu_item()
-            # Find the insert position (after source.after)
-            insert_idx = None
-            for i, item in enumerate(items):
-                if item["id"] == source.after:
-                    insert_idx = i + 1
-                    break
-            if insert_idx is not None:
-                items.insert(insert_idx, source_item)
+        for entry in self._menu_order:
+            entry_id = entry["id"]
+            if entry_id in STATIC_VIEWS:
+                items.append({"id": entry_id, "title": entry["title"]})
             else:
-                # Fallback: insert before "playing"
-                playing_idx = next((i for i, item in enumerate(items) if item["id"] == "playing"), len(items))
-                items.insert(playing_idx, source_item)
+                # Dynamic source — only show if registered and not gone
+                source = self.registry.get(entry_id)
+                if source and source.state != "gone":
+                    item = source.to_menu_item()
+                    item["title"] = entry["title"]  # Use config title
+                    items.append(item)
 
         return {
             "items": items,
@@ -340,7 +347,7 @@ class EventRouter:
 
         # 4. Volume keys — handle locally via adapter (Audio mode only)
         if action in ("volup", "voldown") and device_type == "Audio":
-            delta = VOLUME_STEP if action == "volup" else -VOLUME_STEP
+            delta = self._volume_step if action == "volup" else -self._volume_step
             new_vol = max(0, min(100, self.volume + delta))
             logger.info("-> volume: %.0f%% -> %.0f%% (%s)", self.volume, new_vol, action)
             await self.set_volume(new_vol)
@@ -392,6 +399,19 @@ class EventRouter:
         """A device reports its current volume (e.g. Sonos says 'I'm at 40%')."""
         self.volume = max(0, min(100, volume))
         logger.info("Volume reported: %.0f%%", self.volume)
+
+    def _get_after(self, source_id: str) -> str | None:
+        """Find the menu item that precedes this source in the config order.
+
+        Returns the id of the preceding item, or None if this source is
+        first or not found in the menu config.
+        """
+        prev_id = None
+        for entry in self._menu_order:
+            if entry["id"] == source_id:
+                return prev_id
+            prev_id = entry["id"]
+        return None
 
     async def _broadcast(self, event_type: str, data: dict):
         """Broadcast an event to UI clients via input.py's webhook API."""
@@ -458,7 +478,7 @@ async def handle_source(request: web.Request) -> web.Response:
 
     # Extract optional fields
     fields = {}
-    for key in ("name", "command_url", "menu_preset", "handles", "after", "navigate"):
+    for key in ("name", "command_url", "menu_preset", "handles", "navigate"):
         if key in data:
             fields[key] = data[key]
 

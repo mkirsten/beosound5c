@@ -122,9 +122,14 @@ class ArcList {
      */
     async loadData() {
         try {
-            const cacheBust = `${this.config.dataSource}${this.config.dataSource.includes('?') ? '&' : '?'}_=${Date.now()}`;
-            const response = await fetch(cacheBust);
-            this.parentData = await response.json();
+            // Support inline data (no fetch needed)
+            if (this.config.inlineData) {
+                this.parentData = this.config.inlineData;
+            } else {
+                const cacheBust = `${this.config.dataSource}${this.config.dataSource.includes('?') ? '&' : '?'}_=${Date.now()}`;
+                const response = await fetch(cacheBust);
+                this.parentData = await response.json();
+            }
             
             // Convert data to our items format based on configuration
             if (this.config.itemMapper) {
@@ -337,11 +342,8 @@ class ArcList {
         const imgContainer = document.createElement('div');
         imgContainer.className = 'item-image-container';
         
-        const imgEl = document.createElement('img');
-        imgEl.className = 'item-image';
-        imgEl.src = this.selectedParent.image;
-        imgEl.loading = 'lazy';
-        
+        const imgEl = this.createImageElement(this.selectedParent);
+
         imgContainer.appendChild(imgEl);
         breadcrumb.appendChild(nameEl);
         breadcrumb.appendChild(imgContainer);
@@ -660,46 +662,35 @@ class ArcList {
      * Handles loading states and fallbacks properly
      */
     createImageElement(item) {
+        // Phosphor icon mode: item has `icon` (and optional `color`)
+        if (item.icon) {
+            const iconDiv = document.createElement('div');
+            iconDiv.className = 'item-image item-icon';
+            const i = document.createElement('i');
+            i.className = `ph ph-${item.icon}`;
+            if (item.color) i.style.color = item.color;
+            iconDiv.appendChild(i);
+            iconDiv.dataset.itemId = item.id;
+            return iconDiv;
+        }
+
+        // Image mode (legacy base64 or URL)
         const img = document.createElement('img');
         img.className = 'item-image';
         img.alt = item.name;
         img.loading = 'lazy';
-        
-        // Add unique data attribute to prevent caching issues
         img.dataset.itemId = item.id;
-        
-        console.log('Creating image for item:', item.name, 'with src:', item.image);
-        
-        // Handle image loading
-        img.onload = () => {
-            img.removeAttribute('data-loading');
-        };
-        
+
+        img.onload = () => { img.removeAttribute('data-loading'); };
         img.onerror = () => {
-            console.error('❌ Image failed to load for:', item.name, 'src:', item.image);
-            
-            // Try to create a better fallback based on the item name
             const fallbackColor = "4A90E2";
             const fallbackText = item.name.substring(0, 2).toUpperCase();
-            
-            // Create a more interesting fallback with the item's name
-            const fallbackSvg = `data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='%23${fallbackColor}'/%3E%3Ctext x='64' y='64' text-anchor='middle' dy='.3em' fill='white' font-size='20' font-family='Arial, sans-serif'%3E${fallbackText}%3C/text%3E%3C/svg%3E`;
-            
-            console.log('🔄 Using fallback image for:', item.name, 'with color:', fallbackColor, 'text:', fallbackText);
-            console.log('🔄 Fallback SVG URL:', fallbackSvg.substring(0, 100) + '...');
-            
-            // Test with a simple known-working image first
-            if (item.name.includes('test')) {
-                img.src = 'data:image/svg+xml,%3Csvg width="128" height="128" xmlns="http://www.w3.org/2000/svg"%3E%3Crect width="128" height="128" fill="%23ff0000"/%3E%3Ctext x="64" y="64" text-anchor="middle" dy=".3em" fill="white" font-size="20"%3ETEST%3C/text%3E%3C/svg%3E';
-            } else {
-                img.src = fallbackSvg;
-            }
+            img.src = `data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='%23${fallbackColor}'/%3E%3Ctext x='64' y='64' text-anchor='middle' dy='.3em' fill='white' font-size='20' font-family='Arial, sans-serif'%3E${fallbackText}%3C/text%3E%3C/svg%3E`;
         };
-        
+
         img.setAttribute('data-loading', 'true');
-        console.log('🔄 Setting image src to:', item.image);
         img.src = item.image;
-        
+
         return img;
     }
     
@@ -849,27 +840,22 @@ class ArcList {
             }
             nameEl.textContent = item.name;
             
-            const imgEl = document.createElement('img');
-            imgEl.className = 'item-image';
-            imgEl.src = item.image;
-            imgEl.loading = 'lazy';
-            
+            const imgEl = this.createImageElement(item);
+
             // Apply positioning and visual effects ONLY to non-breadcrumb items
             if (!itemElement.classList.contains('breadcrumb')) {
                 itemElement.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
-                itemElement.style.setProperty('opacity', '1', 'important'); // Ensure playlist items have full opacity (non-faded appearance)
-                itemElement.style.setProperty('filter', 'none', 'important'); // Remove blur for playlist items to keep them bright
-                
-                // Let CSS handle all styling - just set the classes
+                itemElement.style.setProperty('opacity', '1', 'important');
+                itemElement.style.setProperty('filter', 'none', 'important');
+
                 if (itemElement.classList.contains('selected')) {
                     nameEl.classList.add('selected');
                 } else {
                     nameEl.classList.add('unselected');
                 }
-                
-                // Override image styling to ensure it's fully bright (like playlist list)
-                imgEl.style.setProperty('opacity', '1', 'important'); // Full opacity for playlist artwork - force override
-                imgEl.style.setProperty('filter', 'none', 'important'); // Remove any filters that might cause fading - force override
+
+                imgEl.style.setProperty('opacity', '1', 'important');
+                imgEl.style.setProperty('filter', 'none', 'important');
             }
             
             // Add elements to the item container - EXACTLY like music.html
@@ -936,12 +922,9 @@ class ArcList {
                 nameEl.classList.add('selected');
             }
             nameEl.textContent = item.name;
-            
-            const imgEl = document.createElement('img');
-            imgEl.className = 'item-image';
-            imgEl.src = item.image;
-            imgEl.loading = 'lazy';
-            
+
+            const imgEl = this.createImageElement(item);
+
             // Apply positioning and visual effects ONLY to non-breadcrumb child items
             if (!itemElement.classList.contains('breadcrumb')) {
                 itemElement.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
@@ -1003,10 +986,14 @@ class ArcList {
      * WebSocket connection for navigation wheel events
      */
     connectWebSocket() {
+        // When embedded in an iframe, the parent handles event routing via postMessage.
+        // Connecting here would cause duplicate events (every iframe fires independently).
+        if (window.parent !== window) return;
+
         try {
             // WebSocket logging control - only log successful connections
             const ENABLE_WEBSOCKET_LOGGING = true;
-            
+
             this.ws = new WebSocket(this.config.webSocketUrl);
             
             const timeout = setTimeout(() => {
@@ -1648,11 +1635,11 @@ class ArcList {
         nameEl.className = 'item-name';
         nameEl.textContent = this.selectedParent ? this.selectedParent.name : 'Selected Playlist';
         
-        const imgEl = document.createElement('img');
-        imgEl.className = 'item-image';
-        imgEl.src = this.selectedParent ? this.selectedParent.image : '';
-        imgEl.loading = 'lazy';
-        
+        const imgEl = this.selectedParent
+            ? this.createImageElement(this.selectedParent)
+            : document.createElement('div');
+        if (!this.selectedParent) imgEl.className = 'item-image';
+
         breadcrumb.appendChild(nameEl);
         breadcrumb.appendChild(imgEl);
         

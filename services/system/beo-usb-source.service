@@ -8,7 +8,7 @@ Type=simple
 User=kirsten
 Group=kirsten
 WorkingDirectory=/home/kirsten/beosound5c/services
-EnvironmentFile=-/etc/beosound5c/config.env
+EnvironmentFile=-/etc/beosound5c/secrets.env
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/sources/usb.py
 Restart=always

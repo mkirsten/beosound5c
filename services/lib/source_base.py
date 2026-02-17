@@ -52,7 +52,7 @@ class SourceBase:
 
     # ── Router registration ──
 
-    async def register(self, state, navigate=False):
+    async def register(self, state, navigate=False, _retries=5):
         """Register / update source state in the router."""
         payload = {"id": self.id, "state": state}
         if state not in ("gone",):
@@ -64,13 +64,21 @@ class SourceBase:
             })
         if navigate:
             payload["navigate"] = True
-        try:
-            async with self._http_session.post(
-                ROUTER_SOURCE_URL, json=payload, timeout=5
-            ) as resp:
-                log.info("Router source -> %s (HTTP %d)", state, resp.status)
-        except Exception as e:
-            log.warning("Router unreachable: %s", e)
+        for attempt in range(_retries):
+            try:
+                async with self._http_session.post(
+                    ROUTER_SOURCE_URL, json=payload, timeout=5
+                ) as resp:
+                    log.info("Router source -> %s (HTTP %d)", state, resp.status)
+                    return
+            except Exception as e:
+                if attempt < _retries - 1:
+                    delay = 2 * (attempt + 1)
+                    log.warning("Router unreachable (attempt %d/%d, retry in %ds): %s",
+                                attempt + 1, _retries, delay, e)
+                    await asyncio.sleep(delay)
+                else:
+                    log.warning("Router unreachable after %d attempts: %s", _retries, e)
 
     # ── UI broadcasting via input.py ──
 
