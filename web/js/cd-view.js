@@ -1,73 +1,66 @@
 /**
  * CD View Controller
  *
- * Icons: Random, Repeat, Airplay, Database, Rotate, Eject
- * - Random/Repeat: toggles (shuffle/loop mode)
- * - Airplay: speaker picker sub-panel
- * - Database: alternative MusicBrainz matches sub-panel
- * - Rotate: 3D jewel case flip (front→back→tracks→front), conditional on back cover
- * - Eject: eject disc
+ * Nav-wheel flip navigation: the wheel directly drives a 3D flip of album
+ * artwork, revealing track list (down) or settings (up).
  *
- * Three interaction layers:
- *   1. No icon bar: nav wheel shows it, GO=play/pause, LEFT/RIGHT=prev/next
- *   2. Icon bar visible: nav wheel moves highlight, GO=activate, LEFT/RIGHT=prev/next
- *   3. Sub-panel open: nav wheel scrolls list, GO=select, LEFT=dismiss
+ * Four phases arranged vertically:
+ *   Phase -1: Settings       ↑ nav wheel up from artwork
+ *   Phase  0: Front artwork  ← default
+ *   Phase  1: Back artwork   ↓ nav wheel down (skipped if no back artwork)
+ *   Phase  2: Track list     ↓ nav wheel down from back artwork
+ *
+ * Buttons:
+ *   Artwork (0/1): LEFT/RIGHT=prev/next, GO=play/pause
+ *   Tracks (2):    nav=scroll, GO=play selected, LEFT/RIGHT=back to artwork
+ *   Settings (-1): nav=scroll, GO=activate, LEFT/RIGHT=back to artwork
  */
 window.CDView = (() => {
-    const HIDE_DELAY = 3000;
     const CD_SERVICE_URL = window.AppConfig?.cdServiceUrl || 'http://localhost:8769';
 
-    // Icon definitions
-    const ICON_DEFS = [
-        { name: 'random',   type: 'toggle' },
-        { name: 'repeat',   type: 'toggle' },
-        { name: 'airplay',  type: 'panel'  },
-        { name: 'database', type: 'panel'  },
-        { name: 'rotate',   type: 'action', conditional: true },
-        { name: 'import',   type: 'action', conditional: true },
-        { name: 'eject',    type: 'action' }
-    ];
-
-    const SVG = {
-        random: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>',
-        repeat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>',
-        airplay: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><polygon points="12 15 17 21 7 21"/></svg>',
-        database: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>',
-        rotate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2 11.5a10 10 0 0 1 18.8-4.3"/><path d="M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>',
-        import: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
-        eject: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 14 22 14"/><rect x="2" y="18" width="20" height="4" rx="1"/></svg>'
-    };
-
     // ── State ──
-    const NAV_COOLDOWN_ICONS = 280;  // ms between nav actions on icon bar
-    const NAV_COOLDOWN_PANEL = 120;  // ms between nav actions in panels
     let initialized = false;
-    let iconBarEl = null;
-    let hideTimer = null;
-    let selectedIcon = -1;
-    let visibleIcons = [];           // filtered ICON_DEFS (respects conditional)
-    let lastNavTime = 0;
-
-    let toggles = { random: false, repeat: false };
-    let rotatePhase = 0;             // 0=front, 1=back, 2=tracks
-    let hasBackCover = false;
-    let hasExternalDrive = false;
+    let morphing = false;
     let metadata = null;
 
-    let activePanel = null;          // null | 'airplay' | 'database' | 'tracks'
-    let panelItems = [];
-    let panelSelected = 0;
+    // Content state
+    let hasBackCover = false;
+
+    // Flip state
+    let phase = 0;            // -1, 0, 1, 2
+    let flipProgress = 0;     // 0..1
+    let flipTarget = null;    // target phase, null when idle
+    let flipIsUp = false;     // true when flipping toward settings (lower phase)
+    let snapTimer = null;     // idle timeout
+    let isSnapping = false;   // true during snap/commit animation
+
+    // List selection
+    let trackSelected = 0;
+    let settingsSelected = 0;
+    let lastScrollTime = 0;
+    const SCROLL_THROTTLE = 150; // ms between track list scroll steps
+
+    /** Reset all transient state (called on destroy). Preserves metadata. */
+    function resetState() {
+        if (snapTimer) clearTimeout(snapTimer);
+        initialized = false;
+        morphing = false;
+        phase = 0;
+        flipProgress = 0;
+        flipTarget = null;
+        flipIsUp = false;
+        snapTimer = null;
+        isSnapping = false;
+        trackSelected = 0;
+        settingsSelected = 0;
+    }
 
     // ── Lifecycle ──
 
     function init() {
         if (!document.getElementById('cd-view')) return;
-        rotatePhase = 0;
-        activePanel = null;
-        rebuildVisibleIcons();
-        buildIconBar();
+        resetState();
         initialized = true;
-        // Re-apply metadata if we already have it (e.g. returning from another view)
         if (metadata) {
             applyMetadataToDOM(metadata);
         }
@@ -75,305 +68,340 @@ window.CDView = (() => {
     }
 
     function destroy() {
-        if (hideTimer) clearTimeout(hideTimer);
-        selectedIcon = -1;
-        activePanel = null;
-        iconBarEl = null;
-        initialized = false;
+        resetState();
     }
 
-    function rebuildVisibleIcons() {
-        visibleIcons = ICON_DEFS.filter(icon => {
-            if (icon.conditional && icon.name === 'rotate') {
-                return hasBackCover || (metadata?.tracks?.length > 0);
-            }
-            if (icon.conditional && icon.name === 'import') {
-                return hasExternalDrive;
-            }
-            return true;
-        });
-    }
+    // ── 3D Flip ──
 
-    // ── Icon Bar ──
-
-    function buildIconBar() {
-        const existing = document.getElementById('cd-icon-bar');
-        if (existing) existing.remove();
-
-        iconBarEl = document.createElement('div');
-        iconBarEl.id = 'cd-icon-bar';
-        iconBarEl.className = 'cd-icon-bar cd-icon-bar-hidden';
-
-        visibleIcons.forEach((icon, i) => {
-            const btn = document.createElement('div');
-            btn.className = 'cd-icon-btn';
-            if (icon.type === 'toggle' && toggles[icon.name]) {
-                btn.classList.add('cd-icon-toggled');
-            }
-            btn.dataset.icon = icon.name;
-            btn.dataset.index = i;
-            btn.innerHTML = SVG[icon.name];
-            iconBarEl.appendChild(btn);
-        });
-
-        const cdView = document.getElementById('cd-view');
-        if (cdView) cdView.appendChild(iconBarEl);
-    }
-
-    function showIconBar() {
-        if (!iconBarEl) return;
-        iconBarEl.classList.remove('cd-icon-bar-hidden');
-        resetHideTimer();
-    }
-
-    function hideIconBar() {
-        if (!iconBarEl) return;
-        iconBarEl.classList.add('cd-icon-bar-hidden');
-        selectedIcon = -1;
-        updateHighlight();
-    }
-
-    function resetHideTimer() {
-        if (hideTimer) clearTimeout(hideTimer);
-        hideTimer = setTimeout(() => {
-            if (!activePanel) hideIconBar();
-        }, HIDE_DELAY);
-    }
-
-    function updateHighlight() {
-        if (!iconBarEl) return;
-        iconBarEl.querySelectorAll('.cd-icon-btn').forEach((btn, i) => {
-            btn.classList.toggle('cd-icon-selected', i === selectedIcon);
-        });
-    }
-
-    function updateToggleVisual(name) {
-        if (!iconBarEl) return;
-        const btn = iconBarEl.querySelector(`[data-icon="${name}"]`);
-        if (btn) btn.classList.toggle('cd-icon-toggled', toggles[name]);
-    }
-
-    function flashIcon(name) {
-        if (!iconBarEl) return;
-        const btn = iconBarEl.querySelector(`[data-icon="${name}"]`);
-        if (btn) {
-            btn.classList.add('cd-icon-flash');
-            setTimeout(() => btn.classList.remove('cd-icon-flash'), 300);
+    /**
+     * Determine flip target for a given direction from the current phase.
+     * Returns target phase or null if flip not applicable.
+     */
+    function getFlipTarget(direction) {
+        if (direction === 'clock') { // down
+            if (phase === 0) return hasBackCover ? 1 : 2;
+            if (phase === 1) return 2;
+        } else { // counter-clock = up
+            if (phase === 0) return -1;
+            if (phase === 1) return 0;
         }
+        return null;
     }
 
-    // ── Sub-Panel ──
-
-    function openPanel(type, items, title) {
-        activePanel = type;
-        panelItems = items;
-        panelSelected = 0;
-
-        const panel = document.getElementById('cd-sub-panel');
-        if (!panel) return;
-
-        let html = `<div class="cd-panel-title">${title}</div><div class="cd-panel-items">`;
-        items.forEach((item, i) => {
-            const sel = i === 0 ? ' cd-panel-item-selected' : '';
-            const extra = item.active ? ' cd-panel-item-active' : '';
-            html += `<div class="cd-panel-item${sel}${extra}" data-index="${i}">${item.label}</div>`;
-        });
-        html += '</div>';
-        panel.innerHTML = html;
-        panel.classList.remove('cd-hidden');
-    }
-
-    function closePanel() {
-        activePanel = null;
-        const panel = document.getElementById('cd-sub-panel');
-        if (panel) {
-            panel.classList.add('cd-hidden');
-            panel.innerHTML = '';
+    /**
+     * Get the face element for a given phase.
+     */
+    function getFaceEl(p) {
+        switch (p) {
+            case -1: return document.getElementById('cd-face-settings');
+            case 0:  return document.getElementById('cd-face-artwork');
+            case 1:  return document.getElementById('cd-face-back');
+            case 2:  return document.getElementById('cd-face-tracks');
         }
-        // If we were in track list via rotate, go back to front
-        if (rotatePhase === 2) {
-            setRotatePhase(0);
-        }
+        return null;
     }
 
-    function scrollPanel(direction) {
-        if (!panelItems.length) return;
-        if (direction === 'clock') {
-            panelSelected = Math.min(panelSelected + 1, panelItems.length - 1);
-        } else {
-            if (panelSelected <= 0) { closePanel(); return; }
-            panelSelected--;
-        }
-        const panel = document.getElementById('cd-sub-panel');
-        if (!panel) return;
-        panel.querySelectorAll('.cd-panel-item').forEach((el, i) => {
-            el.classList.toggle('cd-panel-item-selected', i === panelSelected);
-        });
-        // Scroll selected into view
-        const selected = panel.querySelector('.cd-panel-item-selected');
-        if (selected) selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        resetHideTimer();
-    }
+    /**
+     * Set up two faces for a flip: current at 0°, target at 180°.
+     * Hide all other faces.
+     */
+    function startFlip(target) {
+        flipTarget = target;
+        flipProgress = 0;
+        // Determine flip axis: "up" = toward settings (target is above current)
+        // Phase order top-to-bottom: -1, 0, 1, 2
+        flipIsUp = target < phase;
 
-    function activatePanelItem() {
-        const item = panelItems[panelSelected];
-        if (!item) return;
+        // Build face content before showing
+        if (target === 2) buildTracksFace();
+        if (target === -1) buildSettingsFace();
 
-        if (activePanel === 'airplay') {
-            sendCommand('set_speaker', { sink: item.value });
-            closePanel();
-        } else if (activePanel === 'database') {
-            sendCommand('use_release', { release_id: item.value });
-            closePanel();
-        } else if (activePanel === 'tracks') {
-            sendCommand('play_track', { track: item.value });
-            flashIcon('rotate');
-        }
-    }
-
-    // ── Rotate / 3D Flip ──
-
-    function setRotatePhase(phase) {
-        rotatePhase = phase;
         const flipper = document.getElementById('cd-flipper');
-        const artworkArea = document.getElementById('cd-artwork-area');
-        const trackList = document.getElementById('cd-track-list');
+        if (!flipper) return;
 
-        if (phase === 0) {
-            // Front cover
-            if (flipper) flipper.classList.remove('cd-flipped');
-            if (artworkArea) artworkArea.classList.remove('cd-hidden');
-            if (trackList) trackList.classList.add('cd-hidden');
-            closePanel();
-        } else if (phase === 1) {
-            // Back cover (3D flip)
-            if (flipper) flipper.classList.add('cd-flipped');
-            if (artworkArea) artworkArea.classList.remove('cd-hidden');
-            if (trackList) trackList.classList.add('cd-hidden');
-        } else if (phase === 2) {
-            // Track list
-            if (flipper) flipper.classList.remove('cd-flipped');
-            if (artworkArea) artworkArea.classList.add('cd-hidden');
-            if (trackList) trackList.classList.remove('cd-hidden');
-            openTrackListPanel();
-        }
+        // Remove any snap transition
+        flipper.classList.remove('cd-flipper-snap');
+        flipper.style.transform = '';
+
+        // Show current and target, hide others
+        // Always flip around Y axis; "up" reverses sign for symmetric motion
+        [-1, 0, 1, 2].forEach(p => {
+            const el = getFaceEl(p);
+            if (!el) return;
+            if (p === phase) {
+                el.classList.remove('cd-face-hidden');
+                el.style.transform = 'rotateY(0deg)';
+            } else if (p === target) {
+                el.classList.remove('cd-face-hidden');
+                el.style.transform = flipIsUp ? 'rotateY(-180deg)' : 'rotateY(180deg)';
+            } else {
+                el.classList.add('cd-face-hidden');
+                el.style.transform = '';
+            }
+        });
     }
 
-    function cycleRotate() {
-        if (hasBackCover) {
-            // front → back → tracks → front
-            const next = (rotatePhase + 1) % 3;
-            setRotatePhase(next);
+    /**
+     * Advance flip progress and apply transform.
+     */
+    function advanceFlip(direction, speed) {
+        const increment = 0.0304 + (speed * 0.00152);
+
+        // Determine if this direction moves us toward or away from target
+        const isForward = (direction === 'clock' && flipTarget > phase)
+                       || (direction !== 'clock' && flipTarget < phase);
+
+        if (isForward) {
+            flipProgress = Math.min(flipProgress + increment, 1.0);
         } else {
-            // front → tracks → front (skip back)
-            setRotatePhase(rotatePhase === 0 ? 2 : 0);
+            flipProgress = Math.max(flipProgress - increment, 0.0);
+        }
+
+        applyFlipTransform();
+
+        // Commit immediately at 1.0
+        if (flipProgress >= 1.0) {
+            if (snapTimer) clearTimeout(snapTimer);
+            commitFlip();
+            return;
+        }
+        // Cancel immediately at 0.0
+        if (flipProgress <= 0.0) {
+            if (snapTimer) clearTimeout(snapTimer);
+            cancelFlip();
+            return;
+        }
+
+        // Reset idle timer
+        resetSnapTimer();
+    }
+
+    /**
+     * Apply the current flipProgress as a CSS transform on the flipper.
+     */
+    function applyFlipTransform() {
+        const flipper = document.getElementById('cd-flipper');
+        if (!flipper) return;
+
+        const angle = flipProgress * 180;
+        const tilt = flipProgress * 8;
+
+        // Same axis (Y) both ways — "up" just reverses the sign
+        if (flipIsUp) {
+            flipper.style.transform = `rotateY(${-angle}deg) rotateX(${-tilt}deg)`;
+        } else {
+            flipper.style.transform = `rotateY(${angle}deg) rotateX(${-tilt}deg)`;
         }
     }
 
-    function openTrackListPanel() {
-        if (!metadata?.tracks?.length) return;
-        const items = metadata.tracks.map(t => ({
-            label: `${t.num}. ${t.title}${t.duration ? '  ' + t.duration : ''}`,
-            value: t.num,
-            active: t.num === metadata.current_track
-        }));
-        openPanel('tracks', items, metadata.title || 'Tracks');
+    /**
+     * Reset the snap timer (called on each nav tick during flip).
+     */
+    function resetSnapTimer() {
+        if (snapTimer) clearTimeout(snapTimer);
+        snapTimer = setTimeout(snapFlip, 200);
     }
 
-    function renderTrackList() {
-        const el = document.getElementById('cd-track-list');
-        if (!el || !metadata?.tracks) return;
+    /**
+     * Idle timer callback: commit or snap back based on progress.
+     */
+    function snapFlip() {
+        snapTimer = null;
+        if (flipTarget === null) return;
 
-        const titleEl = el.querySelector('.cd-track-list-title');
+        const flipper = document.getElementById('cd-flipper');
+        if (!flipper) return;
+
+        isSnapping = true;
+
+        if (flipProgress >= 0.5) {
+            // Animate to 180° (commit)
+            flipper.classList.add('cd-flipper-snap');
+            flipProgress = 1.0;
+            applyFlipTransform();
+            flipper.addEventListener('transitionend', function onEnd(e) {
+                if (e.propertyName !== 'transform') return;
+                flipper.removeEventListener('transitionend', onEnd);
+                commitFlip();
+            });
+            // Safety fallback
+            setTimeout(() => { if (isSnapping) commitFlip(); }, 300);
+        } else {
+            // Animate to 0° (snap back)
+            flipper.classList.add('cd-flipper-snap');
+            flipProgress = 0.0;
+            applyFlipTransform();
+            flipper.addEventListener('transitionend', function onEnd(e) {
+                if (e.propertyName !== 'transform') return;
+                flipper.removeEventListener('transitionend', onEnd);
+                cancelFlip();
+            });
+            setTimeout(() => { if (isSnapping) cancelFlip(); }, 300);
+        }
+    }
+
+    /**
+     * Finalize a committed flip: set phase = target, reset flipper.
+     */
+    function commitFlip() {
+        const flipper = document.getElementById('cd-flipper');
+        if (!flipper) return;
+
+        const oldPhase = phase;
+        phase = flipTarget;
+        flipTarget = null;
+        flipProgress = 0;
+        isSnapping = false;
+
+        // Clean up: remove snap transition, reset transforms
+        flipper.classList.remove('cd-flipper-snap');
+        flipper.style.transform = '';
+
+        // Show new current face at 0°, hide old face
+        [-1, 0, 1, 2].forEach(p => {
+            const el = getFaceEl(p);
+            if (!el) return;
+            if (p === phase) {
+                el.classList.remove('cd-face-hidden');
+                el.style.transform = '';
+            } else {
+                el.classList.add('cd-face-hidden');
+                el.style.transform = '';
+            }
+        });
+
+        // Update info text visibility
+        updateInfoVisibility();
+
+        console.log(`[CD] Flip committed: phase ${oldPhase} → ${phase}`);
+    }
+
+    /**
+     * Cancel a flip: animate back, hide target face, reset.
+     */
+    function cancelFlip() {
+        const flipper = document.getElementById('cd-flipper');
+        if (!flipper) return;
+
+        const target = flipTarget;
+        flipTarget = null;
+        flipProgress = 0;
+        isSnapping = false;
+
+        flipper.classList.remove('cd-flipper-snap');
+        flipper.style.transform = '';
+
+        // Hide the target face, keep current
+        if (target !== null) {
+            const el = getFaceEl(target);
+            if (el) {
+                el.classList.add('cd-face-hidden');
+                el.style.transform = '';
+            }
+        }
+        // Ensure current face is visible
+        const curEl = getFaceEl(phase);
+        if (curEl) {
+            curEl.classList.remove('cd-face-hidden');
+            curEl.style.transform = '';
+        }
+    }
+
+    /**
+     * Show/hide info text based on phase.
+     * Visible in phases 0/1 (artwork), hidden in -1/2 (lists).
+     */
+    function updateInfoVisibility() {
+        const infoEl = document.getElementById('cd-info');
+        if (!infoEl) return;
+        if (phase === 0 || phase === 1) {
+            infoEl.style.opacity = '';
+            infoEl.style.pointerEvents = '';
+        } else {
+            infoEl.style.opacity = '0';
+            infoEl.style.pointerEvents = 'none';
+        }
+    }
+
+    // ── Face Builders ──
+
+    function buildTracksFace() {
+        const face = document.getElementById('cd-face-tracks');
+        if (!face || !metadata?.tracks?.length) return;
+
+        const titleEl = face.querySelector('.cd-face-list-title');
         if (titleEl) titleEl.textContent = metadata.title || 'Unknown Album';
 
-        const itemsEl = el.querySelector('.cd-track-list-items');
+        const itemsEl = face.querySelector('.cd-face-list-items');
         if (!itemsEl) return;
-        itemsEl.innerHTML = metadata.tracks.map(t => {
-            const playing = t.num === metadata.current_track ? ' cd-track-item-playing' : '';
-            return `<div class="cd-track-item${playing}">`
-                + `<span class="cd-track-num">${t.num}</span>`
-                + `<span class="cd-track-name">${t.title}</span>`
-                + `<span class="cd-track-dur">${t.duration || ''}</span>`
+
+        // Pre-select playing track
+        const playingIdx = metadata.tracks.findIndex(t => t.num === metadata.current_track);
+        trackSelected = playingIdx >= 0 ? playingIdx : 0;
+
+        itemsEl.innerHTML = metadata.tracks.map((t, i) => {
+            const playing = t.num === metadata.current_track ? ' cd-face-list-item-playing' : '';
+            const selected = i === trackSelected ? ' cd-face-list-item-selected' : '';
+            return `<div class="cd-face-list-item${playing}${selected}" data-index="${i}">`
+                + `<span class="cd-face-track-num">${t.num}</span>`
+                + `<span class="cd-face-track-name">${t.title}</span>`
+                + `<span class="cd-face-track-dur">${t.duration || ''}</span>`
                 + `</div>`;
         }).join('');
     }
 
-    // ── Icon Activation ──
+    function buildSettingsFace() {
+        const face = document.getElementById('cd-face-settings');
+        if (!face) return;
 
-    function activateIcon(icon) {
-        const name = icon.name;
-        console.log(`[CD] Activate: ${name} (type: ${icon.type})`);
+        settingsSelected = 0;
 
-        if (icon.type === 'toggle') {
-            toggles[name] = !toggles[name];
-            updateToggleVisual(name);
-            flashIcon(name);
-            sendCommand(name === 'random' ? 'toggle_shuffle' : 'toggle_repeat');
-            return;
+        const headerEl = face.querySelector('.cd-face-list-header');
+        if (headerEl) {
+            const trackNum = metadata?.current_track || '?';
+            const totalTracks = metadata?.tracks?.length || '?';
+            headerEl.textContent = `Track ${trackNum} of ${totalTracks}`;
         }
 
-        if (name === 'eject') {
-            sendCommand('eject');
-            flashIcon(name);
-            return;
-        }
+        const itemsEl = face.querySelector('.cd-face-list-items');
+        if (!itemsEl) return;
 
-        if (name === 'rotate') {
-            cycleRotate();
-            flashIcon(name);
-            return;
-        }
-
-        if (name === 'import') {
-            sendCommand('import');
-            flashIcon(name);
-            return;
-        }
-
-        if (name === 'airplay') {
-            flashIcon(name);
-            fetchSpeakersAndOpen();
-            return;
-        }
-
-        if (name === 'database') {
-            flashIcon(name);
-            openDatabasePanel();
-            return;
-        }
+        itemsEl.innerHTML = `<div class="cd-face-list-item cd-face-list-item-selected" data-index="0" data-action="eject">Eject disc</div>`;
     }
 
-    async function fetchSpeakersAndOpen() {
-        try {
-            const resp = await fetch(`${CD_SERVICE_URL}/speakers`);
-            if (!resp.ok) throw new Error();
-            const outputs = await resp.json();
-            const items = outputs.map(o => ({
-                label: o.label + (o.type === 'airplay' ? '' : ' (local)'),
-                value: o.name,
-                active: o.active
-            }));
-            if (items.length === 0) {
-                items.push({ label: '(no outputs found)', value: null, active: false });
-            }
-            openPanel('airplay', items, 'Audio Output');
-        } catch {
-            openPanel('airplay', [{ label: '(service unavailable)', value: null }], 'Audio Output');
-        }
+    // ── List Scrolling ──
+
+    function getListItems(p) {
+        const face = getFaceEl(p);
+        if (!face) return [];
+        return face.querySelectorAll('.cd-face-list-item');
     }
 
-    function openDatabasePanel() {
-        const alts = metadata?.alternatives || [];
-        if (alts.length === 0) {
-            openPanel('database', [{ label: '(no alternatives)', value: null }], 'Releases');
-            return;
+    function scrollList(direction) {
+        const now = performance.now();
+        if (now - lastScrollTime < SCROLL_THROTTLE) return;
+        lastScrollTime = now;
+
+        const items = getListItems(phase);
+        if (!items.length) return;
+
+        const sel = phase === 2 ? trackSelected : settingsSelected;
+        let next;
+        if (direction === 'clock') {
+            next = Math.min(sel + 1, items.length - 1);
+        } else {
+            next = Math.max(sel - 1, 0);
         }
-        const items = alts.map(a => ({
-            label: `${a.artist} — ${a.title}${a.year ? ' (' + a.year + ')' : ''}`,
-            value: a.release_id
-        }));
-        openPanel('database', items, 'Alternative Releases');
+
+        if (next === sel) return; // clamped at edge
+
+        // Update selection
+        items[sel]?.classList.remove('cd-face-list-item-selected');
+        items[next]?.classList.add('cd-face-list-item-selected');
+        items[next]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+        if (phase === 2) trackSelected = next;
+        else settingsSelected = next;
     }
 
     // ── Event Handlers ──
@@ -384,40 +412,44 @@ window.CDView = (() => {
     function handleNavEvent(data) {
         if (!initialized) return false;
 
-        // Debounce — nav wheel fires very fast on real hardware
-        const cooldown = activePanel ? NAV_COOLDOWN_PANEL : NAV_COOLDOWN_ICONS;
-        const now = Date.now();
-        if (now - lastNavTime < cooldown) return true;
-        lastNavTime = now;
+        // During snap animation, consume but ignore
+        if (isSnapping) return true;
 
-        // Layer 3: sub-panel open → scroll panel
-        if (activePanel) {
-            scrollPanel(data.direction);
+        // During any active flip, advance it (regardless of which phase started it)
+        if (flipTarget !== null) {
+            advanceFlip(data.direction, data.speed || 10);
             return true;
         }
 
-        // Layer 2: icon bar visible → move highlight
-        if (iconBarEl && !iconBarEl.classList.contains('cd-icon-bar-hidden')) {
-            if (data.direction === 'clock') {
-                if (selectedIcon < 0) selectedIcon = 0;
-                else selectedIcon = Math.min(selectedIcon + 1, visibleIcons.length - 1);
-            } else {
-                if (selectedIcon <= 0) {
-                    selectedIcon = -1;
-                    hideIconBar();
+        // Phase 2 or -1 (list views): scroll, or flip back to artwork at edges
+        if (phase === 2 || phase === -1) {
+            // At top of tracks, scrolling up → animated flip back to artwork
+            if (phase === 2 && data.direction !== 'clock' && trackSelected === 0) {
+                const target = hasBackCover ? 1 : 0;
+                startFlip(target);
+                advanceFlip(data.direction, data.speed || 10);
+                return true;
+            }
+            // At bottom of settings, scrolling down → animated flip back to artwork
+            if (phase === -1 && data.direction === 'clock') {
+                const items = getListItems(-1);
+                if (settingsSelected >= items.length - 1) {
+                    startFlip(0);
+                    advanceFlip(data.direction, data.speed || 10);
                     return true;
                 }
-                selectedIcon--;
             }
-            updateHighlight();
-            resetHideTimer();
+            scrollList(data.direction);
             return true;
         }
 
-        // Layer 1: icon bar hidden → show it
-        showIconBar();
-        selectedIcon = 0;
-        updateHighlight();
+        // Phase 0 or 1 (artwork views): start a new flip
+        const target = getFlipTarget(data.direction);
+        if (target !== null) {
+            startFlip(target);
+            advanceFlip(data.direction, data.speed || 10);
+        }
+
         return true;
     }
 
@@ -427,22 +459,51 @@ window.CDView = (() => {
     function handleButton(button) {
         if (!initialized) return false;
 
-        // Layer 3: sub-panel → GO=select, LEFT=dismiss
-        if (activePanel) {
-            if (button === 'go') { activatePanelItem(); return true; }
-            if (button === 'left') { closePanel(); return true; }
-            return true; // consume all buttons while panel is open
-        }
+        // Mid-flip: consume but ignore
+        if (flipTarget !== null || isSnapping) return true;
 
-        // Layer 2: icon bar visible with selection → GO=activate
-        if (selectedIcon >= 0 && iconBarEl && !iconBarEl.classList.contains('cd-icon-bar-hidden')) {
+        // Phase 2: track list
+        if (phase === 2) {
             if (button === 'go') {
-                activateIcon(visibleIcons[selectedIcon]);
+                const items = getListItems(2);
+                const item = items[trackSelected];
+                if (item && metadata?.tracks?.[trackSelected]) {
+                    sendCommand('play_track', { track: metadata.tracks[trackSelected].num });
+                }
                 return true;
             }
+            if (button === 'left' || button === 'right') {
+                goToArtwork();
+                return true;
+            }
+            return true;
         }
 
-        // Layer 1: standard CD controls
+        // Phase -1: settings
+        if (phase === -1) {
+            if (button === 'go') {
+                const items = getListItems(-1);
+                const item = items[settingsSelected];
+                if (item) {
+                    const action = item.dataset.action;
+                    if (action === 'eject') sendCommand('eject');
+                }
+                return true;
+            }
+            if (button === 'left' || button === 'right') {
+                goToArtwork();
+                return true;
+            }
+            return true;
+        }
+
+        // Phase 1: back artwork — LEFT/RIGHT return to front, GO is no-op
+        if (phase === 1) {
+            if (button === 'left' || button === 'right') { goToArtwork(); return true; }
+            return true;
+        }
+
+        // Phase 0: front artwork
         if (button === 'left') { sendCommand('prev'); return true; }
         if (button === 'right') { sendCommand('next'); return true; }
         if (button === 'go') { sendCommand('toggle'); return true; }
@@ -450,102 +511,151 @@ window.CDView = (() => {
         return false;
     }
 
+    /**
+     * Instant jump back to artwork (phase 0) from a list view.
+     */
+    function goToArtwork() {
+        phase = 0;
+        flipTarget = null;
+        flipProgress = 0;
+        if (snapTimer) clearTimeout(snapTimer);
+        isSnapping = false;
+
+        const flipper = document.getElementById('cd-flipper');
+        if (flipper) {
+            flipper.classList.remove('cd-flipper-snap');
+            flipper.style.transform = '';
+        }
+
+        [-1, 0, 1, 2].forEach(p => {
+            const el = getFaceEl(p);
+            if (!el) return;
+            if (p === 0) {
+                el.classList.remove('cd-face-hidden');
+                el.style.transform = '';
+            } else {
+                el.classList.add('cd-face-hidden');
+                el.style.transform = '';
+            }
+        });
+
+        updateInfoVisibility();
+    }
+
     // ── Metadata ──
 
     /**
      * Called from cursor-handler on cd_update WebSocket events.
-     * Detects changes, stores metadata, and applies to DOM with transitions.
      */
     function updateMetadata(data) {
         const prevArtwork = metadata?.artwork;
         const prevTrack = metadata?.current_track;
         metadata = data;
         hasBackCover = !!data.back_artwork;
-        hasExternalDrive = !!data.has_external_drive;
 
-        if (!initialized) return; // DOM not mounted yet — stored for init()
+        if (!initialized) return;
 
-        // Hide loading, show content on first metadata update
         const loadingEl = document.getElementById('cd-loading');
-        if (loadingEl && !loadingEl.classList.contains('cd-hidden')) {
-            loadingEl.classList.add('cd-hidden');
-        }
+        const isFirstReveal = !morphing
+            && loadingEl && !loadingEl.classList.contains('cd-hidden');
 
-        // Reset to front cover when artwork changes (new disc or database selection)
+        // Reset to front cover when artwork changes (new disc)
         if (data.artwork !== prevArtwork) {
-            setRotatePhase(0);
+            goToArtwork();
         }
 
-        // Apply everything to DOM (with track-change animation)
-        applyMetadataToDOM(data, prevTrack);
+        if (isFirstReveal) {
+            morphing = true;
+            if (data.artwork) {
+                const img = new Image();
+                img.onload = () => applyMetadataToDOM(data, prevTrack, true);
+                img.onerror = () => applyMetadataToDOM(data, prevTrack, true);
+                img.src = data.artwork;
+            } else {
+                applyMetadataToDOM(data, prevTrack, true);
+            }
+        } else if (morphing) {
+            // Morph in progress — update text info (track/state) without touching the morph animation
+            applyTrackText(data, prevTrack);
+        } else {
+            applyMetadataToDOM(data, prevTrack);
+        }
     }
 
     /**
      * Apply stored metadata directly to DOM elements.
-     * Called from init() on re-mount and from updateMetadata() on new data.
-     * @param {object} data - metadata object
-     * @param {number|null} prevTrack - previous track number (for animation), null to skip animation
      */
-    function applyMetadataToDOM(data, prevTrack) {
-        // Show content areas (hide loading)
+    function applyMetadataToDOM(data, prevTrack, morph) {
         const loadingEl = document.getElementById('cd-loading');
         const artworkArea = document.getElementById('cd-artwork-area');
         const infoEl = document.getElementById('cd-info');
-        if (loadingEl) loadingEl.classList.add('cd-hidden');
-        if (artworkArea && rotatePhase !== 2) {
-            artworkArea.classList.remove('cd-hidden');
-        }
-        if (infoEl) infoEl.classList.remove('cd-hidden');
 
-        // Front artwork
+        if (morph) {
+            if (artworkArea) {
+                artworkArea.classList.remove('cd-hidden');
+                artworkArea.style.visibility = 'visible';
+                artworkArea.style.opacity = '0';
+            }
+            if (infoEl) { infoEl.classList.remove('cd-hidden'); infoEl.style.visibility = 'visible'; infoEl.style.opacity = '0'; }
+        } else {
+            if (loadingEl) loadingEl.classList.add('cd-hidden');
+            if (artworkArea) artworkArea.classList.remove('cd-hidden');
+            if (infoEl) infoEl.classList.remove('cd-hidden');
+        }
+
+        applyArtwork(data);
+        applyTrackText(data, prevTrack);
+        if (!morph) updateInfoVisibility();
+
+        // Rebuild track list if currently viewing it (phase 2) so playing indicator updates
+        if (phase === 2) buildTracksFace();
+
+        console.log(`[CD] Metadata: ${data.artist} — ${data.title}, track ${data.current_track}, state ${data.state}`);
+
+        if (morph) runMorphTransition(loadingEl, artworkArea, infoEl);
+    }
+
+    function applyArtwork(data) {
+        const bust = `?t=${Date.now()}`;
         const front = document.getElementById('cd-artwork-front');
         if (front) {
             if (data.artwork) {
-                front.onerror = () => {
-                    front.onerror = null;
-                    front.src = 'assets/cd-disc.png';
-                    console.warn('[CD] Artwork load failed:', data.artwork);
-                };
-                front.src = data.artwork;
+                front.onerror = () => { front.onerror = null; front.src = 'assets/cd-disc.png'; };
+                front.src = data.artwork + bust;
             } else {
                 front.src = 'assets/cd-disc.png';
             }
         }
-
-        // Back artwork
         const back = document.getElementById('cd-artwork-back');
         if (back) {
             if (data.back_artwork) {
-                back.src = data.back_artwork;
-                back.style.display = '';
+                back.src = data.back_artwork + bust;
             } else {
-                back.style.display = 'none';
+                back.src = '';
             }
         }
+    }
 
-        // Text: "Track N" as title, song name as artist, "Artist — Album (Year)" as album
+    function applyTrackText(data, prevTrack) {
         const titleEl = document.querySelector('#cd-view .media-view-title');
         const artistEl = document.querySelector('#cd-view .media-view-artist');
         const albumEl = document.querySelector('#cd-view .media-view-album');
 
-        let newTitle = '';
-        let newArtist = '';
-        let newAlbum = '';
+        let newTitle = '', newArtist = '', newAlbum = '';
 
         if (data.current_track && data.tracks?.length) {
             const track = data.tracks.find(t => t.num === data.current_track);
-            newTitle = `Track ${data.current_track}`;
-            newArtist = track ? track.title : '';
+            newTitle = track ? track.title : `Track ${data.current_track}`;
+            newArtist = data.artist || '';
             newAlbum = data.year
-                ? `${data.artist} — ${data.title} (${data.year})`
-                : `${data.artist} — ${data.title}`;
+                ? `${data.title} (${data.year})`
+                : data.title || '';
         } else {
             newTitle = data.title || '';
             newArtist = data.artist || '';
             newAlbum = data.album || '';
         }
 
-        // Animate track change if track number changed (only when prevTrack is provided)
         if (prevTrack && data.current_track && prevTrack !== data.current_track && titleEl) {
             animateTrackChange(titleEl, artistEl, newTitle, newArtist);
         } else {
@@ -553,67 +663,69 @@ window.CDView = (() => {
             if (artistEl) artistEl.textContent = newArtist;
         }
         if (albumEl) albumEl.textContent = newAlbum;
+    }
 
-        // Update toggle states from backend
-        if (data.shuffle !== undefined) {
-            toggles.random = data.shuffle;
-            updateToggleVisual('random');
-        }
-        if (data.repeat !== undefined) {
-            toggles.repeat = data.repeat;
-            updateToggleVisual('repeat');
-        }
+    function runMorphTransition(loadingEl, artworkArea, infoEl) {
+        // Double-rAF ensures the browser has committed the initial paint (opacity:0)
+        // before starting the transition to opacity:1 — more reliable on RPi Chromium
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                if (loadingEl) { loadingEl.style.transition = 'opacity 0.8s ease-out'; loadingEl.style.opacity = '0'; }
+                if (artworkArea) { artworkArea.style.transition = 'opacity 0.8s ease-in'; artworkArea.style.opacity = '1'; }
+                if (infoEl) { infoEl.style.transition = 'opacity 0.6s ease-in 0.3s'; infoEl.style.opacity = '1'; }
+            });
+        });
 
-        // Rebuild icon bar (rotate may now be visible/hidden)
-        rebuildVisibleIcons();
-        if (iconBarEl) buildIconBar();
-
-        // Render track list
-        renderTrackList();
-
-        console.log(`[CD] Metadata: ${data.artist} — ${data.title}, track ${data.current_track}, state ${data.state}`);
+        // Timeout-based cleanup (more reliable than transitionend on RPi Chromium)
+        setTimeout(() => {
+            if (!morphing) return;
+            if (loadingEl) { loadingEl.classList.add('cd-hidden'); loadingEl.style.transition = ''; loadingEl.style.opacity = ''; }
+            if (artworkArea) { artworkArea.style.transition = ''; artworkArea.style.opacity = ''; artworkArea.style.visibility = ''; }
+            if (infoEl) { infoEl.style.transition = ''; infoEl.style.opacity = ''; infoEl.style.visibility = ''; }
+            morphing = false;
+            if (metadata) applyMetadataToDOM(metadata, null);
+        }, 1200);
     }
 
     function animateTrackChange(titleEl, artistEl, newTitle, newArtist) {
-        // Phase 1: exit — slide up + fade out
-        [titleEl, artistEl].forEach(el => {
-            if (el) {
-                el.classList.add('cd-track-transition');
-                el.classList.add('cd-track-exit');
-            }
-        });
+        let cleaned = false;
+        const elements = [titleEl, artistEl].filter(Boolean);
 
-        setTimeout(() => {
-            // Swap text while invisible
+        function cleanup() {
+            if (cleaned) return;
+            cleaned = true;
+            if (titleEl) titleEl.textContent = newTitle;
+            if (artistEl) artistEl.textContent = newArtist;
+            elements.forEach(el => {
+                el.classList.remove('cd-track-transition', 'cd-track-exit', 'cd-track-enter');
+            });
+        }
+
+        const safetyTimer = setTimeout(cleanup, 800);
+
+        elements.forEach(el => el.classList.add('cd-track-transition', 'cd-track-exit'));
+
+        titleEl.addEventListener('transitionend', function exitDone(e) {
+            if (e.propertyName !== 'opacity') return;
+            titleEl.removeEventListener('transitionend', exitDone);
+            if (cleaned) return;
+
             if (titleEl) titleEl.textContent = newTitle;
             if (artistEl) artistEl.textContent = newArtist;
 
-            // Phase 2: prepare enter position
-            [titleEl, artistEl].forEach(el => {
-                if (el) {
-                    el.classList.remove('cd-track-exit');
-                    el.classList.add('cd-track-enter');
-                }
-            });
-
-            // Force reflow so the enter position takes effect
+            elements.forEach(el => { el.classList.remove('cd-track-exit'); el.classList.add('cd-track-enter'); });
             void titleEl?.offsetHeight;
 
-            // Phase 3: animate to final position
             requestAnimationFrame(() => {
-                [titleEl, artistEl].forEach(el => {
-                    if (el) {
-                        el.classList.remove('cd-track-enter');
-                    }
+                elements.forEach(el => el.classList.remove('cd-track-enter'));
+                titleEl.addEventListener('transitionend', function enterDone(e) {
+                    if (e.propertyName !== 'opacity') return;
+                    titleEl.removeEventListener('transitionend', enterDone);
+                    clearTimeout(safetyTimer);
+                    cleanup();
                 });
-                // Clean up transition class after animation
-                setTimeout(() => {
-                    [titleEl, artistEl].forEach(el => {
-                        if (el) el.classList.remove('cd-track-transition');
-                    });
-                }, 260);
             });
-        }, 250); // matches exit transition duration
+        });
     }
 
     // ── Commands ──
@@ -642,6 +754,7 @@ window.CDView = (() => {
         handleButton,
         updateMetadata,
         sendCommand,
-        get isActive() { return initialized; }
+        get isActive() { return initialized; },
+        get isFlipping() { return flipTarget !== null; }
     };
 })();

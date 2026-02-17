@@ -20,14 +20,21 @@ window.MenuPresets = {
                     <!-- Artwork area: 3D flip container (hidden until metadata) -->
                     <div id="cd-artwork-area" class="media-view-artwork cd-artwork-container cd-hidden">
                         <div id="cd-flipper" class="cd-flipper">
-                            <img id="cd-artwork-front" class="cd-flip-face cd-flip-front" src="assets/cd-disc.png" alt="Front Cover">
-                            <img id="cd-artwork-back" class="cd-flip-face cd-flip-back" src="" alt="Back Cover" style="display:none">
+                            <div id="cd-face-artwork" class="cd-face">
+                                <img id="cd-artwork-front" src="assets/cd-disc.png">
+                            </div>
+                            <div id="cd-face-back" class="cd-face cd-face-hidden">
+                                <img id="cd-artwork-back" src="">
+                            </div>
+                            <div id="cd-face-tracks" class="cd-face cd-face-hidden cd-face-list">
+                                <div class="cd-face-list-title"></div>
+                                <div class="cd-face-list-items"></div>
+                            </div>
+                            <div id="cd-face-settings" class="cd-face cd-face-hidden cd-face-list">
+                                <div class="cd-face-list-header"></div>
+                                <div class="cd-face-list-items"></div>
+                            </div>
                         </div>
-                    </div>
-                    <!-- Track list (shown via rotate, replaces artwork area) -->
-                    <div id="cd-track-list" class="cd-track-list cd-hidden">
-                        <div class="cd-track-list-title">—</div>
-                        <div class="cd-track-list-items"></div>
                     </div>
                     <!-- Media info text (hidden until metadata) -->
                     <div id="cd-info" class="media-view-info cd-hidden">
@@ -35,8 +42,6 @@ window.MenuPresets = {
                         <div class="media-view-artist"></div>
                         <div class="media-view-album"></div>
                     </div>
-                    <!-- Sub-panel overlay (airplay/database/tracks) -->
-                    <div id="cd-sub-panel" class="cd-sub-panel cd-hidden"></div>
                 </div>`
         },
 
@@ -46,7 +51,7 @@ window.MenuPresets = {
 
         /**
          * Called each time the CD view is rendered into the content area.
-         * Initialises the CDView controller (icon bar).
+         * Initialises the CDView controller.
          */
         onMount() {
             if (window.CDView) window.CDView.init();

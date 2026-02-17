@@ -141,9 +141,15 @@ class PC2Device:
     EP_OUT = 0x01  # For sending data to device
     EP_IN = 0x81   # For receiving data from device (LIBUSB_ENDPOINT_IN | 1)
 
+    # Reconnect settings
+    RECONNECT_BASE_DELAY = 2.0    # Initial retry delay in seconds
+    RECONNECT_MAX_DELAY = 30.0    # Max retry delay
+    RECONNECT_BACKOFF = 1.5       # Backoff multiplier
+
     def __init__(self):
         self.dev = None
         self.running = False
+        self.connected = False
         self.message_queue = MessageQueue()
         self.sniffer_thread = None
         self.sender_thread = None
@@ -174,7 +180,46 @@ class PC2Device:
         # Claim interface
         usb.util.claim_interface(self.dev, 0)
 
+        self.connected = True
         logger.info("Opened PC2 device")
+
+    def _release_device(self):
+        """Release the USB device handle (best-effort, ignores errors)."""
+        self.connected = False
+        if self.dev is not None:
+            try:
+                usb.util.release_interface(self.dev, 0)
+            except Exception:
+                pass
+            try:
+                usb.util.dispose_resources(self.dev)
+            except Exception:
+                pass
+            self.dev = None
+
+    def _reconnect(self):
+        """Try to reconnect to the PC2 device with exponential backoff."""
+        self._release_device()
+        delay = self.RECONNECT_BASE_DELAY
+
+        while self.running:
+            logger.info("Attempting to reconnect to PC2 in %.1fs...", delay)
+            time.sleep(delay)
+            if not self.running:
+                return False
+
+            try:
+                self.open()
+                self.init()
+                self.set_address_filter()
+                logger.info("Reconnected to PC2 successfully")
+                return True
+            except Exception as e:
+                logger.warning("Reconnect failed: %s", e)
+                self._release_device()
+                delay = min(delay * self.RECONNECT_BACKOFF, self.RECONNECT_MAX_DELAY)
+
+        return False
 
     def init(self):
         """Initialize the device with required commands"""
@@ -213,16 +258,19 @@ class PC2Device:
         logger.info("USB message sniffer and sender threads started")
 
     def _sniff_loop(self):
-        """Background thread to continuously read USB messages and add to queue"""
-        timeout_count = 0
-        last_timeout_message = time.time()
-
+        """Background thread to continuously read USB messages and add to queue.
+        Automatically reconnects if the USB device disconnects."""
         while self.running:
+            if not self.connected:
+                # Device was lost — try to reconnect
+                if not self._reconnect():
+                    break  # self.running became False
+                continue
+
             try:
                 data = self.dev.read(self.EP_IN, 1024, timeout=500)
 
                 if data and len(data) > 0:
-                    timeout_count = 0
                     message = list(data)
                     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
@@ -233,14 +281,16 @@ class PC2Device:
                             self.message_queue.add(msg_data)
 
             except usb.core.USBTimeoutError:
-                timeout_count += 1
-                if time.time() - last_timeout_message > 10:
-                    last_timeout_message = time.time()
-                time.sleep(0.1)
+                pass  # Normal — no data within timeout window
 
             except usb.core.USBError as e:
-                logger.error("USB error: %s", e)
-                time.sleep(0.5)
+                if e.errno == 19:  # ENODEV — device disconnected
+                    logger.error("PC2 device disconnected (No such device)")
+                    self.connected = False
+                    # Loop will trigger reconnect on next iteration
+                else:
+                    logger.error("USB error: %s", e)
+                    time.sleep(0.5)
 
             except Exception as e:
                 logger.error("Error in sniffing thread: %s", e)
@@ -510,10 +560,10 @@ class PC2Device:
         if self.dev:
             try:
                 self.send_message([0xa7])
-                usb.util.release_interface(self.dev, 0)
-                logger.info("Device closed")
-            except Exception as e:
-                logger.error("Error closing device: %s", e)
+            except Exception:
+                pass
+            self._release_device()
+            logger.info("Device closed")
 
 
 if __name__ == "__main__":

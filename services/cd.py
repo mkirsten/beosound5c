@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import signal
+import sys
 import logging
 from pathlib import Path
 from aiohttp import web, ClientSession
@@ -34,6 +35,10 @@ try:
     HAS_ZEROCONF = True
 except ImportError:
     HAS_ZEROCONF = False
+
+# Shared library
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.audio_outputs import AudioOutputs
 
 try:
     import edge_tts
@@ -235,7 +240,7 @@ class CDMetadata:
 
         try:
             async with ClientSession() as session:
-                url = f'https://coverartarchive.org/release/{release_id}/{side}-500'
+                url = f'https://coverartarchive.org/release/{release_id}/{side}-1200'
                 async with session.get(url, timeout=15) as resp:
                     if resp.status == 200:
                         data = await resp.read()
@@ -249,107 +254,6 @@ class CDMetadata:
             log.warning(f"Artwork ({side}) fetch failed: {e}")
             return None
 
-
-class AudioOutputs:
-    """Lists and switches audio outputs via PipeWire/PulseAudio.
-
-    PipeWire's RAOP module discovers AirPlay speakers automatically
-    and exposes them as regular sinks alongside local outputs (HDMI, etc).
-    No separate Zeroconf needed.
-    """
-
-    def __init__(self):
-        self.current_sink = None
-        self._env = os.environ.copy()
-        self._env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
-
-    def get_outputs(self):
-        """List all available audio sinks with friendly names."""
-        try:
-            # Get sink list: ID, Name, Driver, SampleSpec, State
-            short = subprocess.run(
-                ['pactl', 'list', 'sinks', 'short'],
-                capture_output=True, text=True, timeout=3, env=self._env
-            )
-            # Get descriptions via full listing
-            full = subprocess.run(
-                ['pactl', 'list', 'sinks'],
-                capture_output=True, text=True, timeout=3, env=self._env
-            )
-            # Get default sink
-            default = subprocess.run(
-                ['pactl', 'get-default-sink'],
-                capture_output=True, text=True, timeout=3, env=self._env
-            ).stdout.strip()
-
-            # Parse descriptions from full output
-            descriptions = {}
-            current_name = None
-            for line in full.stdout.split('\n'):
-                line = line.strip()
-                if line.startswith('Name:'):
-                    current_name = line.split(':', 1)[1].strip()
-                elif line.startswith('Description:') and current_name:
-                    descriptions[current_name] = line.split(':', 1)[1].strip()
-
-            outputs = []
-            for line in short.stdout.strip().split('\n'):
-                if not line.strip():
-                    continue
-                parts = line.split('\t')
-                if len(parts) < 2:
-                    continue
-                sink_name = parts[1]
-
-                # Skip dummy/null sinks
-                if 'null' in sink_name.lower():
-                    continue
-
-                description = descriptions.get(sink_name, sink_name)
-                is_airplay = sink_name.startswith('raop_sink.')
-                is_active = sink_name == default
-
-                outputs.append({
-                    'name': sink_name,
-                    'label': description,
-                    'type': 'airplay' if is_airplay else 'local',
-                    'active': is_active
-                })
-
-            self.current_sink = default
-            return outputs
-
-        except Exception as e:
-            log.error(f"Failed to list audio outputs: {e}")
-            return []
-
-    async def set_output(self, sink_name):
-        """Switch default audio output and move active streams."""
-        try:
-            # Set as default sink
-            subprocess.run(
-                ['pactl', 'set-default-sink', sink_name],
-                capture_output=True, timeout=3, check=True, env=self._env
-            )
-            # Move any active playback streams to the new sink
-            result = subprocess.run(
-                ['pactl', 'list', 'sink-inputs', 'short'],
-                capture_output=True, text=True, timeout=3, env=self._env
-            )
-            for line in result.stdout.strip().split('\n'):
-                if line.strip():
-                    stream_id = line.split('\t')[0]
-                    subprocess.run(
-                        ['pactl', 'move-sink-input', stream_id, sink_name],
-                        capture_output=True, timeout=3, env=self._env
-                    )
-
-            self.current_sink = sink_name
-            log.info(f"Audio output → {sink_name}")
-            return True
-        except Exception as e:
-            log.error(f"Failed to set output {sink_name}: {e}")
-            return False
 
 
 class CDPlayer:
@@ -501,7 +405,8 @@ class CDPlayer:
         if self.process:
             self.process.terminate()
             try:
-                self.process.wait(timeout=2)
+                await asyncio.get_event_loop().run_in_executor(
+                    None, self.process.wait, 2)
             except subprocess.TimeoutExpired:
                 self.process.kill()
             self.process = None
@@ -541,6 +446,8 @@ class CDService:
         self._http_session = None
         self._rip_process = None
         self._is_first_detection = True  # skip autoplay on startup with disc already in
+        self._external_drive_cache = None
+        self._external_drive_cache_time = 0
 
     async def start(self):
         log.info("Starting CD service...")
@@ -578,21 +485,22 @@ class CDService:
         # Wait for PipeWire to discover AirPlay sinks
         for _ in range(15):
             await asyncio.sleep(2)
-            outputs = self.audio.get_outputs()
-            for out in outputs:
-                if sonos_ip in out['name']:
-                    await self.audio.set_output(out['name'])
-                    log.info(f"Default AirPlay → {out['label']}")
-                    return
+            sink = self.audio.find_sink(ip=sonos_ip)
+            if sink:
+                await self.audio.set_output(sink['name'])
+                log.info(f"Default AirPlay -> {sink['label']}")
+                return
         log.warning(f"Sonos AirPlay sink for {sonos_ip} not found")
 
     async def _handle_resync(self, request):
         """Re-send CD menu item and metadata. Called by input.py on new WebSocket client."""
-        if self.drive.disc_inserted and self.metadata:
+        if self.drive.disc_inserted:
             await self._send_input_command('add_menu_item', {'preset': 'cd'})
-            await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
-            await self._broadcast_cd_update()
-            log.info("Resync: sent menu item + metadata")
+            if self.player.state in ('playing', 'paused'):
+                await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
+            if self.metadata:
+                await self._broadcast_cd_update()
+            log.info("Resync: sent menu item + metadata=%s", self.metadata is not None)
             return web.json_response({'status': 'ok', 'resynced': True},
                                      headers=self._cors_headers())
         return web.json_response({'status': 'ok', 'resynced': False},
@@ -615,9 +523,9 @@ class CDService:
             self._is_first_detection = False
             # Show CD menu item, hide PLAYING (CD replaces it)
             await self._send_input_command('add_menu_item', {'preset': 'cd'})
-            await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
             if not is_startup:
-                # Only wake/navigate on real disc insertion, not on service startup
+                # Only hide PLAYING and navigate on real disc insertion, not on service startup
+                await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
                 await self._send_input_command('wake', {'page': 'menu/cd'})
             # Fetch metadata in background (autoplay only on real insertion)
             asyncio.create_task(self._fetch_and_update_metadata(autoplay=not is_startup))
@@ -639,12 +547,14 @@ class CDService:
             # No more tracks — return to Sonos
             log.info("Reached end of disc, returning to Sonos")
             await self._set_router_source('sonos')
+            await self._send_input_command('show_menu_item', {'path': 'menu/playing'})
             await self._broadcast_cd_update()
 
     async def _on_pause_timeout(self):
         """Called when paused too long — release drive, return to Sonos."""
         log.info("Pause timeout — returning to Sonos")
         await self._set_router_source('sonos')
+        await self._send_input_command('show_menu_item', {'path': 'menu/playing'})
         await self._broadcast_cd_update()
 
     async def _fetch_and_update_metadata(self, autoplay=True):
@@ -655,7 +565,9 @@ class CDService:
             if autoplay:
                 await self.player.play_track(1)
                 await self._set_router_source('cd')
-                await self._announce_track()
+                await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
+                await self._send_input_command('wake', {'page': 'menu/cd'})
+                await self._announce_track(volume=70)
                 await self._broadcast_cd_update()
 
     async def _broadcast_cd_update(self):
@@ -667,6 +579,7 @@ class CDService:
                 'title': self.metadata.get('title', 'Unknown Album'),
                 'artist': self.metadata.get('artist', 'Unknown Artist'),
                 'album': self.metadata.get('album', ''),
+                'year': self.metadata.get('year', ''),
                 'artwork': self.metadata.get('artwork'),
                 'back_artwork': self.metadata.get('back_artwork'),
                 'tracks': self.metadata.get('tracks', []),
@@ -680,7 +593,7 @@ class CDService:
             }
         })
 
-    async def _announce_track(self):
+    async def _announce_track(self, volume=100):
         """Speak the current track name over the CD audio via TTS overlay."""
         if not self.metadata or self.player.state != 'playing':
             log.info("Announce skipped — no metadata or not playing")
@@ -708,7 +621,7 @@ class CDService:
                 communicate = edge_tts.Communicate(text, voice="en-US-AndrewNeural")
                 await communicate.save(tts_file)
                 subprocess.Popen(
-                    ['mpv', '--ao=pulse', '--volume=85', '--no-video', '--no-terminal', tts_file],
+                    ['mpv', '--ao=pulse', f'--volume={volume}', '--no-video', '--no-terminal', tts_file],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env
                 )
                 return
@@ -723,14 +636,18 @@ class CDService:
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env
             )
             subprocess.Popen(
-                ['mpv', '--ao=pulse', '--volume=85', '--no-video', '--no-terminal', '-'],
+                ['mpv', '--ao=pulse', f'--volume={volume}', '--no-video', '--no-terminal', '-'],
                 stdin=espeak.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env
             )
         except Exception as e:
             log.error(f"TTS announce failed: {e}")
 
     def _detect_external_drive(self):
-        """Check if an external USB drive is mounted (for ripping)."""
+        """Check if an external USB drive is mounted (for ripping). Cached for 30s."""
+        import time as _time
+        now = _time.monotonic()
+        if now - self._external_drive_cache_time < 30:
+            return self._external_drive_cache
         try:
             result = subprocess.run(
                 ['lsblk', '-nro', 'MOUNTPOINT,TRAN'],
@@ -739,9 +656,13 @@ class CDService:
             for line in result.stdout.strip().split('\n'):
                 parts = line.strip().split()
                 if len(parts) >= 2 and parts[1] == 'usb' and parts[0].startswith('/'):
+                    self._external_drive_cache = parts[0]
+                    self._external_drive_cache_time = now
                     return parts[0]
         except Exception:
             pass
+        self._external_drive_cache = None
+        self._external_drive_cache_time = now
         return None
 
     # ── Communication with input.py ──
@@ -805,12 +726,16 @@ class CDService:
             if cmd == 'play':
                 await self.player.play()
                 await self._set_router_source('cd')
+                await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
                 await self._broadcast_cd_update()
             elif cmd == 'pause':
                 await self.player.pause()
                 await self._broadcast_cd_update()
             elif cmd == 'toggle':
                 await self.player.toggle_playback()
+                if self.player.state == 'playing':
+                    await self._set_router_source('cd')
+                    await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
                 await self._broadcast_cd_update()
             elif cmd == 'next':
                 await self.player.next_track()
@@ -821,10 +746,12 @@ class CDService:
             elif cmd == 'stop':
                 await self.player.stop()
                 await self._set_router_source('sonos')
+                await self._send_input_command('show_menu_item', {'path': 'menu/playing'})
                 await self._broadcast_cd_update()
             elif cmd == 'play_track':
                 await self.player.play_track(data.get('track', 1))
                 await self._set_router_source('cd')
+                await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
                 await self._broadcast_cd_update()
             elif cmd == 'eject':
                 await self.player.stop()
@@ -859,7 +786,7 @@ class CDService:
 
     async def _use_alternative_release(self, release_id):
         """Switch metadata to an alternative MusicBrainz release."""
-        if not release_id or not self.metadata:
+        if not release_id or not self.metadata or not HAS_MB:
             return
         disc_id = self.metadata.get('disc_id', '')
 

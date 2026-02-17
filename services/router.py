@@ -38,6 +38,7 @@ ROUTER_PORT = 8770
 CD_COMMAND_URL = "http://localhost:8769/command"
 CD_STATUS_URL = "http://localhost:8769/status"
 OUTPUT_NAME = os.getenv("OUTPUT_NAME", "BeoLab 5")
+VOLUME_STEP = int(os.getenv("VOLUME_STEP", "3"))  # % per volup/voldown press
 
 # Media keys that get intercepted when CD is active
 MEDIA_KEYS = {"play", "pause", "next", "prev", "stop", "go", "left", "right"}
@@ -59,6 +60,7 @@ class EventRouter:
     def __init__(self):
         self.transport = Transport()
         self.active_source = "sonos"  # "sonos" or "cd"
+        self.active_view = None       # UI view reported by frontend (e.g. "menu/cd")
         self.volume = 0  # current volume 0-100 (reported by active device)
         self.output_device = OUTPUT_NAME
         self._session: aiohttp.ClientSession | None = None
@@ -123,10 +125,10 @@ class EventRouter:
         """Route an incoming event to the right destination."""
         action = payload.get("action", "")
 
-        # Media keys go to cd.py when CD is active
+        # Media keys go to cd.py when CD is the active source
         if self.active_source == "cd" and action in MEDIA_KEYS:
             cd_command = CD_ACTION_MAP.get(action, action)
-            logger.info("-> cd.py: %s (from %s)", cd_command, action)
+            logger.info("-> cd.py: %s (from %s, view=%s)", cd_command, action, self.active_view)
             await self._send_to_cd(cd_command)
             return
 
@@ -146,6 +148,14 @@ class EventRouter:
         # CD button — start CD playback if disc is present
         if action == "cd":
             await self._handle_cd_button(payload)
+            return
+
+        # Volume keys — handle locally via the volume adapter (no HA round-trip)
+        if action in ("volup", "voldown"):
+            delta = VOLUME_STEP if action == "volup" else -VOLUME_STEP
+            new_vol = max(0, min(100, self.volume + delta))
+            logger.info("-> volume: %.0f%% -> %.0f%% (%s)", self.volume, new_vol, action)
+            await self.set_volume(new_vol)
             return
 
         # Everything else goes to HA
@@ -278,10 +288,26 @@ async def handle_volume_report(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "volume": router_instance.volume})
 
 
+async def handle_view(request: web.Request) -> web.Response:
+    """POST /router/view — UI reports which view is active."""
+    try:
+        data = await request.json()
+    except (json.JSONDecodeError, Exception):
+        return web.json_response({"error": "invalid json"}, status=400)
+
+    view = data.get("view")  # e.g. "menu/cd", "menu/playing", or null
+    old = router_instance.active_view
+    router_instance.active_view = view
+    if old != view:
+        logger.info("View changed: %s -> %s", old, view)
+    return web.json_response({"status": "ok", "active_view": view})
+
+
 async def handle_status(request: web.Request) -> web.Response:
     """GET /router/status — return current routing state."""
     return web.json_response({
         "active_source": router_instance.active_source,
+        "active_view": router_instance.active_view,
         "volume": router_instance.volume,
         "output_device": router_instance.output_device,
         "transport_mode": router_instance.transport.mode,
@@ -316,6 +342,7 @@ def create_app() -> web.Application:
     app = web.Application(middlewares=[cors_middleware])
     app.router.add_post("/router/event", handle_event)
     app.router.add_post("/router/source", handle_source)
+    app.router.add_post("/router/view", handle_view)
     app.router.add_post("/router/volume", handle_volume_set)
     app.router.add_post("/router/volume/report", handle_volume_report)
     app.router.add_get("/router/status", handle_status)

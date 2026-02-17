@@ -109,7 +109,7 @@ class UIStore {
                     <div id="now-playing" class="media-view">
                         <div class="media-view-artwork cd-artwork-container">
                             <div class="cd-flipper">
-                                <img id="now-playing-artwork" class="cd-flip-face cd-flip-front" src="" alt="Album Art">
+                                <img id="now-playing-artwork" class="cd-face" src="" alt="Album Art">
                             </div>
                         </div>
                         <div class="media-view-info">
@@ -132,7 +132,7 @@ class UIStore {
         
         // Ensure menu starts visible
         setTimeout(() => {
-            this.ensureMenuVisible();
+            this.setMenuVisible(true);
         }, 100);
         
         // Media info will be received via WebSocket from media server
@@ -662,14 +662,28 @@ class UIStore {
             }
         }
         
-        // DETERMINISTIC NAVIGATION: Position always determines view
-        // Only navigate if the view actually changed (prevents flicker)
-        const viewChanged = this.currentRoute !== viewInfo.path;
-        
-        console.log(`[DEBUG] Position ${this.laserPosition} -> ${viewInfo.path} (${viewInfo.reason}) ${viewChanged ? '[NAVIGATE]' : '[SAME]'}`);
-        
+        // Hysteresis: prevent rapid switching when laser is near boundary between adjacent items
+        let effectivePath = viewInfo.path;
+        if (effectivePath !== this.currentRoute && !viewInfo.isOverlay) {
+            const visibleItems = this.menuItems.filter(m => !m.hidden);
+            const currentIdx = visibleItems.findIndex(m => m.path === this.currentRoute);
+            if (currentIdx !== -1) {
+                const currentAngle = this.getStartItemAngle() + currentIdx * this.angleStep;
+                const distFromCurrent = Math.abs(viewInfo.angle - currentAngle);
+                // Require moving past the midpoint by an extra margin before switching
+                const threshold = this.angleStep / 2 + 0.8;
+                if (distFromCurrent < threshold) {
+                    effectivePath = this.currentRoute;
+                }
+            }
+        }
+
+        const viewChanged = this.currentRoute !== effectivePath;
+
+        console.log(`[DEBUG] Position ${this.laserPosition} -> ${effectivePath} (${viewInfo.reason}) ${viewChanged ? '[NAVIGATE]' : '[SAME]'}`);
+
         if (viewChanged) {
-            this.navigateToView(viewInfo.path);
+            this.navigateToView(effectivePath);
         }
         
         // Update state AFTER navigation (not before) to track current position
@@ -686,8 +700,9 @@ class UIStore {
         }
 
         // Click feedback when navigating to a new page (not on every laser movement)
-        if (viewChanged) {
-            console.log(`[CLICK] View changed to ${viewInfo.path} - sending click`);
+        // Suppress click when CD artwork is flipping (nav wheel jitters laser)
+        if (viewChanged && !window.CDView?.isFlipping) {
+            console.log(`[CLICK] View changed to ${effectivePath} - sending click`);
             this.sendClickCommand();
         }
 
@@ -748,6 +763,15 @@ class UIStore {
     
     
 
+    reportViewToRouter(view) {
+        const url = `${window.AppConfig?.routerUrl || 'http://localhost:8770'}/router/view`;
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ view })
+        }).catch(() => {}); // fire-and-forget
+    }
+
     navigateToView(path) {
         // Cancel any pending navigation transition
         if (this.navigationTimeout) {
@@ -757,6 +781,9 @@ class UIStore {
 
         // Update route immediately to prevent repeated navigation triggers
         this.currentRoute = path;
+
+        // Report view to router so BeoRemote buttons are routed correctly
+        this.reportViewToRouter(path);
 
         // For overlay transitions, update immediately to prevent content hiding
         const isOverlayTransition = path === 'menu/playing' || path === 'menu/showing';
@@ -805,6 +832,16 @@ class UIStore {
             this.updateView();
             return;
         }
+
+        // Teardown previous view's preset (e.g. CDView.destroy()) before replacing content
+        if (this._previousRoute && this._previousRoute !== this.currentRoute && window.MenuPresets) {
+            for (const preset of Object.values(window.MenuPresets)) {
+                if (preset.item.path === this._previousRoute && preset.onRemove) {
+                    preset.onRemove();
+                }
+            }
+        }
+        this._previousRoute = this.currentRoute;
 
         // Update content while it's faded out
         contentArea.innerHTML = view.content;

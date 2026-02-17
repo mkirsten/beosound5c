@@ -196,6 +196,41 @@ def get_system_info() -> dict:
         logger.error('System info error: %s', e)
     return info
 
+def get_network_status() -> dict:
+    """Ping default gateway and internet (8.8.8.8) to check connectivity."""
+    net = {}
+    try:
+        # Get default gateway
+        result = subprocess.run(
+            ['ip', 'route', 'show', 'default'],
+            capture_output=True, text=True, timeout=2
+        )
+        if result.stdout:
+            parts = result.stdout.strip().split()
+            if 'via' in parts:
+                gw = parts[parts.index('via') + 1]
+                net['gateway'] = gw
+                result = subprocess.run(
+                    ['ping', '-c', '1', '-W', '1', gw],
+                    capture_output=True, text=True, timeout=3
+                )
+                if result.returncode == 0 and 'time=' in result.stdout:
+                    net['gateway_ping'] = result.stdout.split('time=')[1].split()[0]
+                else:
+                    net['gateway_ping'] = 'timeout'
+        # Ping internet
+        result = subprocess.run(
+            ['ping', '-c', '1', '-W', '1', '8.8.8.8'],
+            capture_output=True, text=True, timeout=3
+        )
+        if result.returncode == 0 and 'time=' in result.stdout:
+            net['internet_ping'] = result.stdout.split('time=')[1].split()[0]
+        else:
+            net['internet_ping'] = 'timeout'
+    except Exception as e:
+        logger.error('Network check error: %s', e)
+    return net
+
 def get_bt_remotes() -> list:
     """Get paired Bluetooth devices with connection info."""
     remotes = []
@@ -841,14 +876,15 @@ async def handler(ws, path=None):
 async def _notify_cd_resync():
     """Ask beo-cd to re-send its menu item and metadata (if a disc is in)."""
     try:
-        async with ClientSession() as session:
-            async with session.get('http://localhost:8769/resync', timeout=3) as resp:
+        from aiohttp import ClientTimeout
+        async with ClientSession(timeout=ClientTimeout(total=3)) as session:
+            async with session.get('http://localhost:8769/resync') as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     if data.get('resynced'):
                         logger.info('CD resync triggered for new client')
-    except Exception:
-        pass  # beo-cd not running — that's fine
+    except Exception as e:
+        logger.debug('CD resync skipped (beo-cd not reachable): %s', e)
 
 async def broadcast(msg: str):
     if not clients:
@@ -891,6 +927,9 @@ async def receive_commands(ws):
             elif cmd == 'get_system_info':
                 info = get_system_info()
                 await ws.send(json.dumps({'type': 'system_info', **info}))
+            elif cmd == 'get_network_status':
+                net = await asyncio.get_event_loop().run_in_executor(None, get_network_status)
+                await ws.send(json.dumps({'type': 'network_status', **net}))
             elif cmd == 'restart_service':
                 restart_service(params.get('action', ''))
             elif cmd == 'refresh_playlists':

@@ -531,95 +531,54 @@ html, body {
   overflow: visible;
 }
 
-/* CD Icon Bar — top-right overlay, ~3% screen estate */
-.cd-icon-bar {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  display: flex;
-  gap: 8px;
-  z-index: 10;
-  transition: opacity 0.4s ease;
-}
-
-.cd-icon-bar-hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.cd-icon-btn {
-  width: 28px;
-  height: 28px;
-  color: #666;
-  transition: color 0.2s ease, transform 0.15s ease;
-  cursor: pointer;
-}
-
-.cd-icon-btn svg {
-  width: 100%;
-  height: 100%;
-}
-
-.cd-icon-selected {
-  color: #fff;
-  transform: scale(1.15);
-}
-
-.cd-icon-flash {
-  color: rgba(102, 153, 255, 1) !important;
-  transform: scale(1.3) !important;
-}
-
-.cd-icon-toggled {
-  color: rgba(102, 153, 255, 1);
-}
-
-/* ── 3D Jewel Case Flip ── */
+/* ── 3D Flip ── */
 
 .cd-flipper {
   width: 100%;
   height: 100%;
   position: relative;
   transform-style: preserve-3d;
-  transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.cd-flipper.cd-flipped {
-  transform: rotateY(180deg);
+/* Snap/commit animation (added temporarily by JS) */
+.cd-flipper-snap {
+  transition: transform 150ms ease-out;
 }
 
-.cd-flip-face {
+.cd-face {
+  width: 100%;
+  height: 100%;
   position: absolute;
   top: 0;
   left: 0;
+  backface-visibility: hidden;
+}
+
+.cd-face img {
   width: 100%;
   height: 100%;
-  backface-visibility: hidden;
   object-fit: cover;
   border-radius: 8px;
 }
 
-.cd-flip-front {
-  z-index: 2;
+.cd-face.cd-face-hidden {
+  display: none;
 }
 
-.cd-flip-back {
-  transform: rotateY(180deg);
-}
+/* ── Face List (tracks / settings) ── */
 
-/* ── Track List ── */
-
-.cd-track-list {
-  width: 70%;
-  max-height: 60%;
+.cd-face-list {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
   overflow-y: auto;
   scrollbar-width: none;
-  text-align: left;
-  transition: opacity 0.4s ease;
+  padding: 16px;
+  box-sizing: border-box;
 }
-.cd-track-list::-webkit-scrollbar { display: none; }
+.cd-face-list::-webkit-scrollbar { display: none; }
 
-.cd-track-list-title {
+.cd-face-list-title {
   font-size: 20px;
   font-weight: bold;
   margin-bottom: 12px;
@@ -627,44 +586,59 @@ html, body {
   border-bottom: 1px solid rgba(255,255,255,0.15);
 }
 
-.cd-track-list-items {
+.cd-face-list-header {
+  font-size: 16px;
+  color: #888;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.cd-face-list-items {
   display: flex;
   flex-direction: column;
 }
 
-.cd-track-item {
+.cd-face-list-item {
   display: flex;
   gap: 12px;
-  padding: 6px 0;
+  padding: 6px 4px;
   font-size: 15px;
   color: #ccc;
   border-bottom: 1px solid rgba(255,255,255,0.05);
+  transition: color 0.15s ease, background 0.15s ease;
 }
 
-.cd-track-num {
+.cd-face-list-item-selected {
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+}
+
+.cd-face-list-item-playing {
+  color: rgba(102, 153, 255, 1);
+}
+
+.cd-face-track-num {
   width: 24px;
   text-align: right;
   opacity: 0.5;
   flex-shrink: 0;
 }
 
-.cd-track-name {
+.cd-face-track-name {
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.cd-track-dur {
+.cd-face-track-dur {
   opacity: 0.4;
   flex-shrink: 0;
   font-size: 13px;
 }
 
-.cd-track-item-playing {
-  color: rgba(102, 153, 255, 1);
-}
-.cd-track-item-playing .cd-track-num {
+.cd-face-list-item-playing .cd-face-track-num {
   opacity: 1;
 }
 
@@ -681,56 +655,6 @@ html, body {
   transform: translateY(12px);
 }
 
-/* ── Sub-Panel Overlay ── */
-
-.cd-sub-panel {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.92);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 20;
-  transition: opacity 0.3s ease;
-}
-
-.cd-panel-title {
-  font-size: 18px;
-  font-weight: bold;
-  margin-bottom: 16px;
-  opacity: 0.7;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-
-.cd-panel-items {
-  width: 70%;
-  max-height: 60%;
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-.cd-panel-items::-webkit-scrollbar { display: none; }
-
-.cd-panel-item {
-  padding: 10px 14px;
-  font-size: 16px;
-  color: #888;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  transition: color 0.15s ease, background 0.15s ease;
-}
-
-.cd-panel-item-selected {
-  color: #fff;
-  background: rgba(255,255,255,0.08);
-}
-
-.cd-panel-item-active {
-  color: rgba(102, 153, 255, 1);
-}
 
 /* Volume Overlay */
 #volume-overlay {

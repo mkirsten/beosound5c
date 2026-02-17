@@ -207,10 +207,10 @@ function updateTransitionStyles() {
             [id*="cursor"],
             .top-wheel-pointer,
             g[transform],
-            [style*="transform"],
+            [style*="transform"]:not(.cd-flipper):not(.cd-face):not(.cd-track-transition),
             [transform],
-            *[style*="transition"],
-            *[style*="rotate"],
+            *[style*="transition"]:not(.cd-flipper):not(.cd-face):not(.cd-track-transition),
+            *[style*="rotate"]:not(.cd-flipper):not(.cd-face),
             path, line, polygon {
                 transition: none !important;
                 animation: none !important;
@@ -221,7 +221,7 @@ function updateTransitionStyles() {
                 backface-visibility: hidden;
                 transform: translateZ(0);
             }
-            
+
             /* Speed up rendering with hardware acceleration hints */
             body, svg, #viewport {
                 will-change: transform;
@@ -688,12 +688,13 @@ function handleExternalNavigation(uiStore, data) {
         window.uiStore.logWebsocketMessage(`🌐 External navigation to: ${page}`);
     }
 
-    // Handle next/previous cycling through menu items
+    // Handle next/previous cycling through visible menu items only
     if (page === 'next' || page === 'previous') {
-        const menuOrder = uiStore.menuItems.map(m => m.path);
+        const visibleItems = uiStore.menuItems.filter(m => !m.hidden);
+        const menuOrder = visibleItems.map(m => m.path);
         const currentRoute = uiStore.currentRoute || 'menu/playing';
         let currentIndex = menuOrder.indexOf(currentRoute);
-        if (currentIndex === -1) currentIndex = 5; // default to playing
+        if (currentIndex === -1) currentIndex = menuOrder.length - 1;
 
         let newIndex;
         if (page === 'next') {
@@ -789,12 +790,11 @@ function handleButtonEvent(uiStore, data) {
     const currentPage = uiStore.currentRoute || 'unknown';
     console.log(`[BUTTON] ${data.button} on ${currentPage}`);
 
-    // CD view button handling (LEFT=prev, RIGHT=next, GO=play/pause)
-    if (currentPage === 'menu/cd' && window.CDView?.isActive) {
+    // CD view captures ALL buttons when active (regardless of laser jitter
+    // momentarily switching currentRoute to a neighbouring menu item)
+    if (window.CDView?.isActive) {
         if (window.CDView.handleButton(data.button.toLowerCase())) return;
     }
-    // Never send webhooks from CD view — all buttons are handled above
-    if (currentPage === 'menu/cd') return;
 
     // Check if camera overlay is active - intercept GO, LEFT, RIGHT buttons
     if (window.CameraOverlayManager && window.CameraOverlayManager.isActive) {

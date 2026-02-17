@@ -523,6 +523,103 @@
             color: #555;
         }
 
+        /* Output section */
+        .output-section .output-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-width: 500px;
+        }
+
+        .output-description {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 20px;
+            max-width: 500px;
+        }
+
+        .output-category {
+            font-size: 11px;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-top: 16px;
+            margin-bottom: 4px;
+            padding-left: 2px;
+        }
+
+        .output-category:first-child {
+            margin-top: 0;
+        }
+
+        .output-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 4px;
+            transition: all 0.15s;
+            cursor: pointer;
+        }
+
+        .output-item.selected {
+            background: #1a1a2a;
+            border-color: #446;
+        }
+
+        .output-item.active .output-check {
+            opacity: 1;
+        }
+
+        .output-icon {
+            width: 24px;
+            height: 24px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #888;
+        }
+
+        .output-icon svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .output-info {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .output-name {
+            color: #fff;
+            font-size: 14px;
+        }
+
+        .output-type {
+            color: #666;
+            font-size: 11px;
+            margin-top: 1px;
+        }
+
+        .output-check {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+            opacity: 0;
+            color: #4a4;
+            transition: opacity 0.15s;
+        }
+
+        .output-check svg {
+            width: 18px;
+            height: 18px;
+        }
+
         /* Scrollbar styling */
         .log-output::-webkit-scrollbar,
         .section-content::-webkit-scrollbar {
@@ -550,6 +647,7 @@
             <div class="section-tab" data-section="services">Services</div>
             <div class="section-tab" data-section="remotes">Remotes</div>
             <div class="section-tab" data-section="people">People</div>
+            <div class="section-tab" data-section="output">Audio</div>
         </nav>
 
         <!-- Info Section -->
@@ -636,6 +734,22 @@
                     <div class="debug-item">
                         <span class="label">Home Assistant</span>
                         <span class="value" id="conn-ha">--</span>
+                    </div>
+                </div>
+
+                <div class="debug-card">
+                    <h3>Network</h3>
+                    <div class="debug-item">
+                        <span class="label">Gateway</span>
+                        <span class="value" id="net-gateway">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Gateway Ping</span>
+                        <span class="value" id="net-gateway-ping">--</span>
+                    </div>
+                    <div class="debug-item">
+                        <span class="label">Internet (8.8.8.8)</span>
+                        <span class="value" id="net-internet-ping">--</span>
                     </div>
                 </div>
 
@@ -832,6 +946,101 @@
             </div>
         </div>
 
+        <!-- Audio Output Section -->
+        <div class="section-content output-section" id="output">
+            <p class="output-description">Select the audio output for BeoSound 5c playback.</p>
+            <div class="output-list" id="output-list">
+                <div class="output-category">Wired</div>
+
+                <div class="output-item" data-output="0">
+                    <div class="output-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="2" y="7" width="12" height="10" rx="1.5"/>
+                            <path d="M14 10h6.5M14 14h6.5"/>
+                            <rect x="20" y="8.5" width="2" height="3" rx="0.5"/>
+                            <rect x="20" y="12.5" width="2" height="3" rx="0.5"/>
+                        </svg>
+                    </div>
+                    <div class="output-info">
+                        <div class="output-name">HDMI</div>
+                        <div class="output-type">Digital</div>
+                    </div>
+                    <div class="output-check">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="output-item" data-output="1">
+                    <div class="output-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="4" y="8" width="16" height="8" rx="4"/>
+                            <circle cx="12" cy="12" r="2"/>
+                            <path d="M15 9.5l1.5-3M9 9.5l-1.5-3"/>
+                        </svg>
+                    </div>
+                    <div class="output-info">
+                        <div class="output-name">S/PDIF</div>
+                        <div class="output-type">Toslink and COAX</div>
+                    </div>
+                    <div class="output-check">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="output-item" data-output="2">
+                    <div class="output-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="4" y="8" width="16" height="8" rx="4"/>
+                            <circle cx="12" cy="12" r="2"/>
+                            <path d="M15 9.5l1.5-3M9 9.5l-1.5-3"/>
+                            <text x="20" y="8" font-size="7" fill="currentColor" stroke="none" font-weight="bold">5</text>
+                        </svg>
+                    </div>
+                    <div class="output-info">
+                        <div class="output-name">S/PDIF + BeoLab 5</div>
+                        <div class="output-type">COAX and wireless control</div>
+                    </div>
+                    <div class="output-check">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="output-item" data-output="3">
+                    <div class="output-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <circle cx="12" cy="12" r="8"/>
+                            <circle cx="9" cy="10" r="1.2"/>
+                            <circle cx="15" cy="10" r="1.2"/>
+                            <circle cx="9" cy="14" r="1.2"/>
+                            <circle cx="15" cy="14" r="1.2"/>
+                            <circle cx="12" cy="12" r="1.2"/>
+                        </svg>
+                    </div>
+                    <div class="output-info">
+                        <div class="output-name">Powerlink</div>
+                        <div class="output-type">Analogue with control</div>
+                    </div>
+                    <div class="output-check">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="output-category">Wireless</div>
+                <div id="wireless-outputs">
+                    <span class="people-loading">Discovering speakers...</span>
+                </div>
+            </div>
+            <div class="section-hint"><span class="key">GO</span> Select output</div>
+        </div>
+
         <div class="nav-hint">
             <span><span class="key">LEFT/RIGHT</span> Sections</span>
             <span><span class="key">WHEEL</span> Scroll / Select</span>
@@ -841,18 +1050,22 @@
     <script>
         class SystemPanel {
             constructor() {
-                this.sections = ['info', 'debug', 'logs', 'services', 'remotes', 'people'];
+                this.sections = ['info', 'debug', 'logs', 'services', 'remotes', 'people', 'output'];
                 this.currentSection = 0;
                 this.logServices = ['beo-masterlink', 'beo-bluetooth', 'beo-input', 'beo-media', 'beo-http', 'beo-ui', 'beo-cd', 'beo-spotify-fetch'];
                 this.currentLogService = 0;
                 this.serviceItems = document.querySelectorAll('#services .service-item');
                 this.currentServiceItem = 0;
+                this.outputItems = document.querySelectorAll('#output-list .output-item');
+                this.currentOutputItem = 0;
+                this.activeOutput = -1;
                 this.inputWs = null;
                 this.serviceStatus = {};
                 this.remoteItems = [];
                 this.currentRemoteItem = 0;
                 this.btRemotes = [];
                 this.remotesRefreshInterval = null;
+                this.networkPollInterval = null;
                 this.isStreaming = false;
                 this.isDemoMode = false;
 
@@ -938,6 +1151,13 @@
                 document.getElementById('sonos-artist').textContent = '—';
                 document.getElementById('sonos-album').textContent = '—';
 
+                // Network info - dev mode
+                document.getElementById('net-gateway').textContent = 'Dev Mode';
+                document.getElementById('net-gateway-ping').textContent = 'N/A';
+                document.getElementById('net-gateway-ping').className = 'value';
+                document.getElementById('net-internet-ping').textContent = 'N/A';
+                document.getElementById('net-internet-ping').className = 'value';
+
                 // Config data from AppConfig
                 const deviceName = window.top?.AppConfig?.deviceName || 'Development';
                 document.getElementById('cfg-device-name').textContent = deviceName;
@@ -976,6 +1196,9 @@
 
                 // Mock remotes
                 this.loadMockRemotes();
+
+                // Mock wireless outputs
+                this.loadMockWirelessOutputs();
 
                 // Still try to connect to media server (it might be running locally)
                 this.connectMediaWebSocketDev();
@@ -1176,6 +1399,7 @@
                 this.fetchSpotifyInfo();
                 this.fetchPeople();
                 this.fetchCDStatus();
+                this.fetchWirelessOutputs();
                 setInterval(() => this.checkServiceStatus(), 10000);
                 setInterval(() => this.fetchPeople(), 30000);
                 setInterval(() => this.fetchCDStatus(), 5000);
@@ -1213,6 +1437,8 @@
                                 this.appendLogLine(data.line);
                             } else if (data.type === 'system_info') {
                                 this.updateSystemInfo(data);
+                            } else if (data.type === 'network_status') {
+                                this.updateNetworkStatus(data);
                             } else if (data.type === 'bt_remotes') {
                                 this.btRemotes = data.remotes || [];
                                 this.renderRemotesList(this.btRemotes);
@@ -1355,6 +1581,9 @@
                         if (selected && selected.dataset.action === 'pair') {
                             this.startBTPairing();
                         }
+                    } else if (section === 'output') {
+                        this.activeOutput = this.currentOutputItem;
+                        this.updateOutputActive();
                     }
                 }
             }
@@ -1391,6 +1620,15 @@
                         }
                         this.updateRemoteSelection();
                     }
+                } else if (section === 'output') {
+                    if (this.outputItems.length > 0) {
+                        if (direction === 'counter') {
+                            this.currentOutputItem = Math.max(0, this.currentOutputItem - 1);
+                        } else if (direction === 'clock') {
+                            this.currentOutputItem = Math.min(this.outputItems.length - 1, this.currentOutputItem + 1);
+                        }
+                        this.updateOutputSelection();
+                    }
                 } else if (section === 'debug') {
                     const debugSection = document.getElementById('debug');
                     const scrollAmount = Math.min(speed * 15, 90);
@@ -1414,6 +1652,17 @@
                 // Start log stream when entering logs section
                 if (this.sections[this.currentSection] === 'logs' && !this.isStreaming) {
                     this.startLogStream(this.logServices[this.currentLogService]);
+                }
+
+                // Poll network status only when debug section is active
+                if (this.sections[this.currentSection] === 'debug') {
+                    this.fetchNetworkStatus();
+                    this.networkPollInterval = setInterval(() => this.fetchNetworkStatus(), 5000);
+                } else {
+                    if (this.networkPollInterval) {
+                        clearInterval(this.networkPollInterval);
+                        this.networkPollInterval = null;
+                    }
                 }
 
                 // Fetch remotes when entering remotes section, stop refresh when leaving
@@ -1513,6 +1762,41 @@
                             else if (status === 'Inactive' || status === 'Failed') dot.classList.add('stopped');
                             else dot.classList.add('warning');
                         }
+                    }
+                }
+            }
+
+            fetchNetworkStatus() {
+                if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
+                    this.inputWs.send(JSON.stringify({
+                        type: 'command',
+                        command: 'get_network_status'
+                    }));
+                }
+            }
+
+            updateNetworkStatus(data) {
+                if (data.gateway) {
+                    document.getElementById('net-gateway').textContent = data.gateway;
+                }
+                const gwPingEl = document.getElementById('net-gateway-ping');
+                if (data.gateway_ping) {
+                    if (data.gateway_ping === 'timeout') {
+                        gwPingEl.textContent = 'Timeout';
+                        gwPingEl.className = 'value status-error';
+                    } else {
+                        gwPingEl.textContent = data.gateway_ping;
+                        gwPingEl.className = parseFloat(data.gateway_ping) > 50 ? 'value status-warning' : 'value status-ok';
+                    }
+                }
+                const netPingEl = document.getElementById('net-internet-ping');
+                if (data.internet_ping) {
+                    if (data.internet_ping === 'timeout') {
+                        netPingEl.textContent = 'Timeout';
+                        netPingEl.className = 'value status-error';
+                    } else {
+                        netPingEl.textContent = data.internet_ping;
+                        netPingEl.className = parseFloat(data.internet_ping) > 100 ? 'value status-warning' : 'value status-ok';
                     }
                 }
             }
@@ -1738,6 +2022,133 @@
                     const dot = document.getElementById('dot-cd');
                     if (dot) dot.className = 'status-dot stopped';
                 }
+            }
+
+            updateOutputSelection() {
+                this.outputItems.forEach((item, index) => {
+                    item.classList.toggle('selected', index === this.currentOutputItem);
+                });
+            }
+
+            updateOutputActive() {
+                this.outputItems.forEach((item, index) => {
+                    item.classList.toggle('active', index === this.activeOutput);
+                });
+                // Brief flash on the newly active item
+                const activeItem = this.outputItems[this.activeOutput];
+                if (activeItem) {
+                    activeItem.style.background = '#1a2a1a';
+                    setTimeout(() => { activeItem.style.background = ''; }, 400);
+                }
+            }
+
+            refreshOutputItems() {
+                this.outputItems = document.querySelectorAll('#output-list .output-item');
+                // Find which wireless item is active (if any)
+                this.outputItems.forEach((item, index) => {
+                    if (item.classList.contains('active')) {
+                        this.activeOutput = index;
+                        this.currentOutputItem = index;
+                    }
+                });
+            }
+
+            getWirelessIcon(type) {
+                const icons = {
+                    sonos: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="11" r="2.5"/><path d="M9 8.5a4.2 4.2 0 0 1 6 0"/></svg>',
+                    homepod: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="12" cy="18" rx="5" ry="2"/><path d="M7 18V8a5 5 0 0 1 10 0v10"/><circle cx="12" cy="12" r="2"/><path d="M9.5 9.5a3.5 3.5 0 0 1 5 0"/></svg>',
+                    appletv: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2"/></svg>',
+                    mac: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M5 20h14"/><path d="M8 16h8v4H8z"/></svg>',
+                    iphone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="10" y1="19" x2="14" y2="19"/></svg>',
+                    ipad: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="10" y1="18" x2="14" y2="18"/></svg>',
+                    bluetooth: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 7l10 10-5 5V2l5 5L7 17"/></svg>',
+                    airplay: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12 4 20 14 4 14"/><path d="M8 17a7 7 0 0 0 8 0"/><path d="M6.5 19.5a10 10 0 0 0 11 0"/></svg>',
+                };
+                return icons[type] || icons.airplay;
+            }
+
+            getWirelessTypeLabel(type) {
+                const labels = {
+                    sonos: 'Sonos', homepod: 'HomePod', appletv: 'Apple TV',
+                    mac: 'Mac', iphone: 'iPhone', ipad: 'iPad',
+                    bluetooth: 'Bluetooth', airplay: 'AirPlay',
+                };
+                return labels[type] || 'AirPlay';
+            }
+
+            renderWirelessOutputs(speakers) {
+                const container = document.getElementById('wireless-outputs');
+                const wiredCount = document.querySelectorAll('#output-list .output-item[data-output="0"], #output-list .output-item[data-output="1"], #output-list .output-item[data-output="2"], #output-list .output-item[data-output="3"]').length;
+                const checkSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
+                if (!speakers || speakers.length === 0) {
+                    container.innerHTML = '<span class="people-loading">No wireless speakers found</span>';
+                    this.refreshOutputItems();
+                    return;
+                }
+
+                // Find the currently active speaker
+                const activeSpeaker = speakers.find(s => s.active);
+
+                container.innerHTML = speakers.map((speaker, i) => {
+                    const idx = wiredCount + i;
+                    const isActive = speaker.active;
+                    const classes = ['output-item'];
+                    if (isActive) classes.push('active');
+                    return `
+                        <div class="${classes.join(' ')}" data-output="${idx}" data-sink="${speaker.name}">
+                            <div class="output-icon">${this.getWirelessIcon(speaker.type)}</div>
+                            <div class="output-info">
+                                <div class="output-name">${speaker.label}</div>
+                                <div class="output-type">${this.getWirelessTypeLabel(speaker.type)}</div>
+                            </div>
+                            <div class="output-check">${checkSvg}</div>
+                        </div>
+                    `;
+                }).join('');
+
+                this.refreshOutputItems();
+
+                // If a wireless speaker is the active output, select it
+                if (activeSpeaker) {
+                    // activeOutput already set by refreshOutputItems scanning for .active class
+                } else if (this.activeOutput >= this.outputItems.length) {
+                    this.activeOutput = 0;
+                    this.currentOutputItem = 0;
+                }
+                this.updateOutputSelection();
+            }
+
+            async fetchWirelessOutputs() {
+                if (this.isDemoMode) {
+                    this.loadMockWirelessOutputs();
+                    return;
+                }
+                try {
+                    const resp = await fetch('http://localhost:8769/speakers');
+                    if (!resp.ok) throw new Error('speakers endpoint not available');
+                    const allOutputs = await resp.json();
+                    // Filter to wireless types only (wired outputs are hardcoded in HTML)
+                    const wirelessTypes = ['sonos', 'homepod', 'appletv', 'mac', 'iphone', 'ipad', 'airplay', 'bluetooth'];
+                    const wireless = allOutputs.filter(o => wirelessTypes.includes(o.type));
+                    this.renderWirelessOutputs(wireless);
+                } catch (e) {
+                    console.error('[AUDIO] Error fetching speakers:', e);
+                    if (this.isDemoMode) return;
+                    document.getElementById('wireless-outputs').innerHTML =
+                        '<span class="people-loading">Unable to discover speakers</span>';
+                    this.refreshOutputItems();
+                }
+            }
+
+            loadMockWirelessOutputs() {
+                const mockSpeakers = [
+                    { name: 'raop_sink.Sonos-48A6B8246BFC.local.192.168.0.190.7000', label: 'Church Dining', type: 'sonos', active: true },
+                    { name: 'raop_sink.Sonos-347E5C123456.local.192.168.1.135.7000', label: 'Kitchen', type: 'sonos', active: false },
+                    { name: 'raop_sink.Kirstens-MacBook-Pro.local.192.168.1.50.7000', label: "Kirsten's MacBook Pro", type: 'mac', active: false },
+                    { name: 'raop_sink.HomePod-mini.local.192.168.1.80.7000', label: 'HomePod', type: 'homepod', active: false },
+                ];
+                this.renderWirelessOutputs(mockSpeakers);
             }
 
             getInitials(name) {
