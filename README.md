@@ -18,8 +18,8 @@ The web interface includes built-in hardware emulation using keyboard and mouse/
 # Start web server
 cd web && python3 -m http.server 8000
 
-# Optional: Start media server for Sonos artwork
-cd services && python3 media.py
+# Optional: Start Sonos player for artwork
+cd services && python3 players/sonos.py
 
 # Open http://localhost:8000
 ```
@@ -78,26 +78,57 @@ To reconfigure: `sudo nano /etc/beosound5c/config.env` then restart services.
 
 | Service | File | Description |
 |---------|------|-------------|
-| `beo-input` | [`services/input.py`](services/input.py) | Python USB HID driver for BS5 rotary encoder, buttons, and laser pointer |
-| `beo-media` | [`services/media.py`](services/media.py) | Python WebSocket server for Sonos monitoring with artwork caching |
-| `beo-masterlink` | [`services/masterlink.py`](services/masterlink.py) | Python USB sniffer for B&O IR and MasterLink bus commands |
-| `beo-bluetooth` | [`services/bluetooth.py`](services/bluetooth.py) | Python HID service for BeoRemote One wireless control |
-| `beo-http` | — | Python simple HTTP server for static files |
-| `beo-ui` | [`services/ui.sh`](services/ui.sh) | Bash script launching Chromium in kiosk mode (1024×768) |
+| `beo-input` | [`services/input.py`](services/input.py) | USB HID driver for BS5 rotary encoder, buttons, and laser pointer |
+| `beo-router` | [`services/router.py`](services/router.py) | Event router: dispatches remote events to HA or the active source, controls volume |
+| `beo-sonos` | [`services/players/sonos.py`](services/players/sonos.py) | Sonos player monitor: artwork, metadata, volume reporting |
+| `beo-cd` | [`services/sources/cd.py`](services/sources/cd.py) | CD player: disc detection, MusicBrainz metadata, mpv playback |
+| `beo-masterlink` | [`services/masterlink.py`](services/masterlink.py) | USB sniffer for B&O IR and MasterLink bus commands |
+| `beo-bluetooth` | [`services/bluetooth.py`](services/bluetooth.py) | HID service for BeoRemote One wireless control |
+| `beo-http` | — | Simple HTTP server for static files |
+| `beo-ui` | [`services/ui.sh`](services/ui.sh) | Chromium in kiosk mode (1024×768) |
 
 Service definitions: [`services/system/`](services/system/)
+
+### Sources, players, and volume adapters
+
+The backend separates three concerns that can combine independently:
+
+- **Sources** ([`services/sources/`](services/sources/)) own content and playback. A source registers with the router, gets a menu item, and receives remote control events when active. CD playback is a source; Spotify and USB are planned.
+
+- **Players** ([`services/players/`](services/players/)) monitor external playback devices. A player watches what's happening on a device (track info, artwork, volume) and reports it to the UI. It doesn't provide content — the content could come from any source, or from someone's phone.
+
+- **Volume adapters** ([`services/lib/volume_adapters/`](services/lib/volume_adapters/)) control the physical audio output. The router sends volume commands through whichever adapter matches the configured output (BeoLab 5 speakers via ESP32, or Sonos directly).
+
+These three are independent. For example: **cd.py** (source) plays a CD through mpv, sending audio to Sonos via AirPlay. **sonos.py** (player) sees the Sonos playing and shows artwork in the UI. **BeoLab5Volume** (adapter) controls the volume on the BeoLab 5 speakers. Swap any piece — play Spotify instead of CD, use a different speaker — and the others don't change.
 
 ## Directory Structure
 
 ```
-web/                 # Web UI (HTML, CSS, JavaScript)
-├── js/              # UI logic, hardware emulation, config
-├── json/            # Scenes, settings, playlists
-└── softarc/         # Arc-based navigation subpages
-services/            # Python and Bash backend services
-├── system/          # Systemd service files and install scripts
-└── config.env.example
-tools/               # Spotify OAuth, USB debugging utilities
+services/                   # Backend services
+├── sources/                # Content providers (register with router)
+│   ├── cd.py               #   CD player (beo-cd)
+│   ├── spotify.py          #   Spotify Connect (stub)
+│   └── usb.py              #   USB file playback (stub)
+├── players/                # External playback monitors
+│   └── sonos.py            #   Sonos monitor (beo-sonos)
+├── lib/
+│   ├── volume_adapters/    # Pluggable volume output control
+│   │   ├── beolab5.py      #   BeoLab 5 via ESP32 REST API
+│   │   ├── sonos.py        #   Sonos via SoCo
+│   │   ├── powerlink.py    #   B&O PowerLink (stub)
+│   │   └── digital_out.py  #   HDMI/S/PDIF (stub)
+│   ├── transport.py        # HA communication (webhook/MQTT)
+│   └── audio_outputs.py    # PipeWire sink discovery
+├── router.py               # Event router (beo-router)
+├── input.py                # USB HID input (beo-input)
+├── bluetooth.py            # BeoRemote BLE (beo-bluetooth)
+├── masterlink.py           # MasterLink IR (beo-masterlink)
+└── system/                 # Systemd service files
+web/                        # Web UI (HTML, CSS, JavaScript)
+├── js/                     # UI logic, hardware emulation
+├── json/                   # Scenes, settings, playlists
+└── softarc/                # Arc-based navigation subpages
+tools/                      # Spotify OAuth, USB debugging, BLE testing
 ```
 
 ## Home Assistant Integration

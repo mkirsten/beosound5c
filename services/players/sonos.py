@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """
-Media Server for Sonos Integration
-Monitors Sonos player for changes and sends updates via WebSocket.
-Handles both automatic change detection and on-demand requests.
+BeoSound 5c Sonos Player Monitor (beo-sonos)
 
-This runs as a separate service to avoid interfering with the latency-sensitive
-USB event processing in other services
+Monitors a Sonos speaker for track changes, fetches artwork, and broadcasts
+updates to the UI via WebSocket (port 8766). Also reports volume changes to
+the router so the volume arc stays in sync when controlled from the Sonos app.
+
+This is a "player" — it watches an external playback device and relays what's
+happening.  It does NOT provide content or handle playback commands; sources
+like CD or Spotify do that.  The Sonos speaker may be playing content from any
+source (AirPlay from cd.py, Spotify Connect, AirPlay from a phone, etc.).
 """
 
 import asyncio
@@ -96,7 +100,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger('media_server')
+logger = logging.getLogger('beo-sonos')
 
 class SonosArtworkViewer:
     """Integrated Sonos artwork viewer for direct communication with Sonos devices."""

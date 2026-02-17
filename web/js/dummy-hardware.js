@@ -365,7 +365,7 @@ class DummyHardwareManager {
 // Global manager instance
 const dummyHardwareManager = new DummyHardwareManager();
 
-// Export for use by cursor-handler.js
+// Export for use by ws-dispatcher.js
 window.DummyHardwareManager = DummyHardwareManager;
 window.dummyHardwareManager = dummyHardwareManager;
 

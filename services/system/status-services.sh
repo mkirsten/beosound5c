@@ -9,12 +9,13 @@ echo "============================="
 # Define service files
 SERVICES=(
     "beo-http.service"
-    "beo-media.service"
+    "beo-sonos.service"
     "beo-input.service"
     "beo-router.service"
     "beo-masterlink.service"
     "beo-bluetooth.service"
-    "beo-cd.service"
+    "beo-cd-source.service"
+    "beo-usb-source.service"
     "beo-ui.service"
     "beo-spotify-fetch.timer"
 )
@@ -22,12 +23,13 @@ SERVICES=(
 # Service descriptions
 declare -A SERVICE_DESC
 SERVICE_DESC["beo-http.service"]="HTTP Web Server (Port 8000)"
-SERVICE_DESC["beo-media.service"]="Media/Sonos Server (Port 8766)"
+SERVICE_DESC["beo-sonos.service"]="Sonos Player (Port 8766)"
 SERVICE_DESC["beo-input.service"]="Hardware Input Server (Port 8765)"
 SERVICE_DESC["beo-router.service"]="Event Router (Port 8770)"
 SERVICE_DESC["beo-masterlink.service"]="MasterLink Sniffer"
 SERVICE_DESC["beo-bluetooth.service"]="Bluetooth Remote Service"
-SERVICE_DESC["beo-cd.service"]="CD Drive Service (Port 8769)"
+SERVICE_DESC["beo-cd-source.service"]="CD Source (Port 8769)"
+SERVICE_DESC["beo-usb-source.service"]="USB File Source (Port 8773)"
 SERVICE_DESC["beo-ui.service"]="Chromium UI Kiosk"
 SERVICE_DESC["beo-spotify-fetch.timer"]="Spotify Playlist Fetch (Hourly)"
 

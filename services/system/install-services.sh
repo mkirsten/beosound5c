@@ -16,12 +16,13 @@ fi
 # Define service files
 SERVICES=(
     "beo-http.service"
-    "beo-media.service"
+    "beo-sonos.service"
     "beo-input.service"
     "beo-router.service"
     "beo-masterlink.service"
     "beo-bluetooth.service"
-    "beo-cd.service"
+    "beo-cd-source.service"
+    "beo-usb-source.service"
     "beo-ui.service"
     "beo-spotify-fetch.service"
     "beo-spotify-fetch.timer"
@@ -190,9 +191,9 @@ echo "  🌐 Starting HTTP server..."
 systemctl enable beo-http.service
 systemctl start beo-http.service
 
-echo "  📡 Starting media server..."
-systemctl enable beo-media.service
-systemctl start beo-media.service
+echo "  📡 Starting Sonos player..."
+systemctl enable beo-sonos.service
+systemctl start beo-sonos.service
 
 echo "  🎮 Starting input server..."
 systemctl enable beo-input.service
@@ -210,9 +211,13 @@ echo "  📱 Starting Bluetooth service..."
 systemctl enable beo-bluetooth.service
 systemctl start beo-bluetooth.service
 
-echo "  💿 Starting CD service..."
-systemctl enable beo-cd.service
-systemctl start beo-cd.service
+echo "  💿 Starting CD source..."
+systemctl enable beo-cd-source.service
+systemctl start beo-cd-source.service
+
+echo "  💾 Starting USB source..."
+systemctl enable beo-usb-source.service
+systemctl start beo-usb-source.service
 
 # Start UI service last (depends on HTTP)
 echo "  🖥️  Starting UI service..."

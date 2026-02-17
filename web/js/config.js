@@ -23,6 +23,9 @@ const AppConfig = {
     // CD service
     cdServiceUrl: 'http://localhost:8769',
 
+    // USB file source
+    usbServiceUrl: 'http://localhost:8773',
+
     // WebSocket endpoints (browser connects to same host as web UI)
     websocket: {
         input: 'ws://localhost:8765',

@@ -10,7 +10,6 @@ import asyncio
 import json
 import os
 import subprocess
-import signal
 import sys
 import logging
 from pathlib import Path
@@ -37,8 +36,9 @@ except ImportError:
     HAS_ZEROCONF = False
 
 # Shared library
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.audio_outputs import AudioOutputs
+from lib.source_base import SourceBase
 
 try:
     import edge_tts
@@ -51,11 +51,8 @@ log = logging.getLogger('beo-cd')
 
 # Configuration
 CDROM_DEVICE = os.getenv('CDROM_DEVICE', '/dev/sr0')
-INPUT_WEBHOOK_URL = 'http://localhost:8767/webhook'
-ROUTER_SOURCE_URL = 'http://localhost:8770/router/source'
 BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/kirsten/beosound5c')
 CD_CACHE_DIR = os.path.join(BS5C_BASE_PATH, 'web/assets/cd-cache')
-HTTP_PORT = 8769
 POLL_INTERVAL = 2  # seconds
 
 
@@ -433,25 +430,40 @@ class CDPlayer:
         }
 
 
-class CDService:
+class CDService(SourceBase):
     """Main CD service — ties drive detection, metadata, AirPlay, and playback together."""
 
+    id = "cd"
+    name = "CD"
+    port = 8769
+    action_map = {
+        "play": "toggle",
+        "pause": "toggle",
+        "go": "toggle",
+        "next": "next",
+        "prev": "prev",
+        "right": "next",
+        "left": "prev",
+        "stop": "stop",
+        "info": "announce",
+    }
+
     def __init__(self):
+        super().__init__()
         self.drive = CDDrive()
         self.metadata_lookup = CDMetadata()
         self.audio = AudioOutputs()
         self.player = CDPlayer()
         self.metadata = None
         self._all_releases = []  # full release list from MusicBrainz
-        self._http_session = None
         self._rip_process = None
         self._is_first_detection = True  # skip autoplay on startup with disc already in
         self._external_drive_cache = None
         self._external_drive_cache_time = 0
 
-    async def start(self):
-        log.info("Starting CD service...")
+    # ── SourceBase hooks ──
 
+    async def on_start(self):
         # Wire player callbacks for auto-advance and pause timeout
         self.player._on_track_end = self._on_track_end
         self.player._on_pause_timeout = self._on_pause_timeout
@@ -461,21 +473,113 @@ class CDService:
             on_disc_change=self._on_disc_change
         )
 
-        # HTTP API
-        app = web.Application()
-        app.router.add_get('/status', self._handle_status)
-        app.router.add_post('/command', self._handle_command)
-        app.router.add_options('/command', self._handle_cors)
-        app.router.add_get('/speakers', self._handle_speakers)
-        app.router.add_get('/resync', self._handle_resync)
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', HTTP_PORT)
-        await site.start()
-        log.info(f"HTTP API on port {HTTP_PORT}")
-
-        self._http_session = ClientSession()
         asyncio.create_task(self._set_default_airplay())
+
+    async def on_stop(self):
+        await self.player.stop()
+        await self.drive.stop()
+
+    def add_routes(self, app):
+        app.router.add_get('/speakers', self._handle_speakers)
+
+    async def handle_status(self) -> dict:
+        return {
+            'drive_connected': self.drive.drive_connected,
+            'disc_inserted': self.drive.disc_inserted,
+            'metadata': self.metadata,
+            'playback': self.player.get_status(),
+            'audio_outputs': self.audio.get_outputs(),
+            'current_sink': self.audio.current_sink,
+            'has_external_drive': self._detect_external_drive(),
+            'ripping': self._rip_process is not None and self._rip_process.poll() is None,
+            'capabilities': {
+                'discid': HAS_DISCID,
+                'musicbrainz': HAS_MB,
+                'zeroconf': HAS_ZEROCONF
+            }
+        }
+
+    async def handle_resync(self) -> dict:
+        """Re-register source state and metadata. Called by input.py on new WebSocket client."""
+        if self.drive.disc_inserted:
+            state = self.player.state if self.player.state in ('playing', 'paused') else 'available'
+            await self.register(state)
+            if self.metadata:
+                await self._broadcast_cd_update()
+            log.info("Resync: state=%s, metadata=%s", state, self.metadata is not None)
+            return {'status': 'ok', 'resynced': True}
+        return {'status': 'ok', 'resynced': False}
+
+    async def handle_raw_action(self, action, data):
+        """Handle CD button and digit→track before action_map."""
+        # CD button → start playback if disc present
+        if action == 'cd':
+            # Return a special command that handle_command knows
+            return ('_cd_button', data)
+        # Digit → play specific track
+        digit = data.get('digit')
+        if digit is not None:
+            data['track'] = digit
+            return ('play_track', data)
+        return None
+
+    async def handle_command(self, cmd, data) -> dict:
+        if cmd == '_cd_button':
+            return await self._handle_cd_button_action()
+        elif cmd == 'play':
+            await self.player.play()
+            await self.register('playing')
+            await self._broadcast_cd_update()
+        elif cmd == 'pause':
+            await self.player.pause()
+            await self.register('paused')
+            await self._broadcast_cd_update()
+        elif cmd == 'toggle':
+            await self.player.toggle_playback()
+            if self.player.state == 'playing':
+                await self.register('playing')
+            else:
+                await self.register('paused')
+            await self._broadcast_cd_update()
+        elif cmd == 'next':
+            await self.player.next_track()
+            await self._broadcast_cd_update()
+        elif cmd == 'prev':
+            await self.player.prev_track()
+            await self._broadcast_cd_update()
+        elif cmd == 'stop':
+            await self.player.stop()
+            await self.register('available')
+            await self._broadcast_cd_update()
+        elif cmd == 'play_track':
+            await self.player.play_track(data.get('track', 1))
+            await self.register('playing')
+            await self._broadcast_cd_update()
+        elif cmd == 'eject':
+            await self.player.stop()
+            await self.register('available')
+            await self.drive.eject()
+            # _on_disc_change will send 'gone' when disc is actually ejected
+        elif cmd == 'set_speaker':
+            await self.audio.set_output(data.get('sink', ''))
+        elif cmd == 'toggle_shuffle':
+            self.player.toggle_shuffle()
+            await self._broadcast_cd_update()
+        elif cmd == 'toggle_repeat':
+            self.player.toggle_repeat()
+            await self._broadcast_cd_update()
+        elif cmd == 'use_release':
+            await self._use_alternative_release(data.get('release_id', ''))
+        elif cmd == 'import':
+            await self._start_rip()
+        elif cmd == 'announce':
+            await self._announce_track()
+        else:
+            return {'status': 'error', 'message': f'Unknown: {cmd}'}
+
+        return {'playback': self.player.get_status()}
+
+    # ── AirPlay default ──
 
     async def _set_default_airplay(self):
         """Set the default audio output to the local Sonos AirPlay sink."""
@@ -492,26 +596,6 @@ class CDService:
                 return
         log.warning(f"Sonos AirPlay sink for {sonos_ip} not found")
 
-    async def _handle_resync(self, request):
-        """Re-send CD menu item and metadata. Called by input.py on new WebSocket client."""
-        if self.drive.disc_inserted:
-            await self._send_input_command('add_menu_item', {'preset': 'cd'})
-            if self.player.state in ('playing', 'paused'):
-                await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
-            if self.metadata:
-                await self._broadcast_cd_update()
-            log.info("Resync: sent menu item + metadata=%s", self.metadata is not None)
-            return web.json_response({'status': 'ok', 'resynced': True},
-                                     headers=self._cors_headers())
-        return web.json_response({'status': 'ok', 'resynced': False},
-                                 headers=self._cors_headers())
-
-    async def stop(self):
-        await self.player.stop()
-        await self.drive.stop()
-        if self._http_session:
-            await self._http_session.close()
-
     # ── Drive event handlers ──
 
     async def _on_drive_change(self, connected):
@@ -521,20 +605,16 @@ class CDService:
         if inserted:
             is_startup = self._is_first_detection
             self._is_first_detection = False
-            # Show CD menu item, hide PLAYING (CD replaces it)
-            await self._send_input_command('add_menu_item', {'preset': 'cd'})
-            if not is_startup:
-                # Only hide PLAYING and navigate on real disc insertion, not on service startup
-                await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
-                await self._send_input_command('wake', {'page': 'menu/cd'})
+            # Register as available — router adds menu item
+            navigate = not is_startup  # navigate to CD view on real insertion
+            await self.register('available', navigate=navigate)
             # Fetch metadata in background (autoplay only on real insertion)
             asyncio.create_task(self._fetch_and_update_metadata(autoplay=not is_startup))
         else:
             await self.player.stop()
             self.metadata = None
-            await self._set_router_source('sonos')
-            await self._send_input_command('remove_menu_item', {'path': 'menu/cd'})
-            await self._send_input_command('show_menu_item', {'path': 'menu/playing'})
+            # Unregister — router removes menu item and deactivates if active
+            await self.register('gone')
 
     async def _on_track_end(self):
         """Called when mpv finishes a track naturally — auto-advance."""
@@ -544,17 +624,15 @@ class CDService:
             log.info(f"Auto-advance: track {old_track} → {self.player.current_track}")
             await self._broadcast_cd_update()
         else:
-            # No more tracks — return to Sonos
-            log.info("Reached end of disc, returning to Sonos")
-            await self._set_router_source('sonos')
-            await self._send_input_command('show_menu_item', {'path': 'menu/playing'})
+            # No more tracks — deactivate source
+            log.info("Reached end of disc, deactivating CD source")
+            await self.register('available')
             await self._broadcast_cd_update()
 
     async def _on_pause_timeout(self):
-        """Called when paused too long — release drive, return to Sonos."""
-        log.info("Pause timeout — returning to Sonos")
-        await self._set_router_source('sonos')
-        await self._send_input_command('show_menu_item', {'path': 'menu/playing'})
+        """Called when paused too long — release drive, deactivate source."""
+        log.info("Pause timeout — deactivating CD source")
+        await self.register('available')
         await self._broadcast_cd_update()
 
     async def _fetch_and_update_metadata(self, autoplay=True):
@@ -564,33 +642,28 @@ class CDService:
             await self._broadcast_cd_update()
             if autoplay:
                 await self.player.play_track(1)
-                await self._set_router_source('cd')
-                await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
-                await self._send_input_command('wake', {'page': 'menu/cd'})
+                await self.register('playing', navigate=True)
                 await self._announce_track(volume=70)
                 await self._broadcast_cd_update()
 
     async def _broadcast_cd_update(self):
         if not self.metadata:
             return
-        await self._send_input_command('broadcast', {
-            'type': 'cd_update',
-            'data': {
-                'title': self.metadata.get('title', 'Unknown Album'),
-                'artist': self.metadata.get('artist', 'Unknown Artist'),
-                'album': self.metadata.get('album', ''),
-                'year': self.metadata.get('year', ''),
-                'artwork': self.metadata.get('artwork'),
-                'back_artwork': self.metadata.get('back_artwork'),
-                'tracks': self.metadata.get('tracks', []),
-                'track_count': self.metadata.get('track_count', 0),
-                'current_track': self.player.current_track,
-                'state': self.player.state,
-                'alternatives': self.metadata.get('alternatives', []),
-                'shuffle': self.player.shuffle,
-                'repeat': self.player.repeat,
-                'has_external_drive': self._detect_external_drive()
-            }
+        await self.broadcast('cd_update', {
+            'title': self.metadata.get('title', 'Unknown Album'),
+            'artist': self.metadata.get('artist', 'Unknown Artist'),
+            'album': self.metadata.get('album', ''),
+            'year': self.metadata.get('year', ''),
+            'artwork': self.metadata.get('artwork'),
+            'back_artwork': self.metadata.get('back_artwork'),
+            'tracks': self.metadata.get('tracks', []),
+            'track_count': self.metadata.get('track_count', 0),
+            'current_track': self.player.current_track,
+            'state': self.player.state,
+            'alternatives': self.metadata.get('alternatives', []),
+            'shuffle': self.player.shuffle,
+            'repeat': self.player.repeat,
+            'has_external_drive': self._detect_external_drive()
         })
 
     async def _announce_track(self, volume=100):
@@ -665,124 +738,21 @@ class CDService:
         self._external_drive_cache_time = now
         return None
 
-    # ── Communication with input.py ──
+    # ── CD button action ──
 
-    async def _send_input_command(self, command, params):
-        try:
-            async with self._http_session.post(
-                INPUT_WEBHOOK_URL,
-                json={'command': command, 'params': params},
-                timeout=5
-            ) as resp:
-                log.info(f"→ input.py: {command} (HTTP {resp.status})")
-        except Exception as e:
-            log.error(f"Failed to send {command}: {e}")
+    async def _handle_cd_button_action(self):
+        """Handle CD button press from remote — start playback if disc present."""
+        if not self.drive.disc_inserted:
+            return {'message': 'no disc'}
 
-    async def _set_router_source(self, source):
-        """Tell the router which source is active ('cd' or 'sonos')."""
-        try:
-            async with self._http_session.post(
-                ROUTER_SOURCE_URL,
-                json={'source': source},
-                timeout=5
-            ) as resp:
-                log.info(f"Router source -> {source} (HTTP {resp.status})")
-        except Exception as e:
-            log.warning(f"Router unreachable for source change: {e}")
+        if self.player.state == 'playing':
+            return {'message': 'already playing'}
 
-    # ── HTTP API handlers ──
-
-    def _cors_headers(self):
-        return {'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type'}
-
-    async def _handle_cors(self, request):
-        return web.Response(headers=self._cors_headers())
-
-    async def _handle_status(self, request):
-        status = {
-            'drive_connected': self.drive.drive_connected,
-            'disc_inserted': self.drive.disc_inserted,
-            'metadata': self.metadata,
-            'playback': self.player.get_status(),
-            'audio_outputs': self.audio.get_outputs(),
-            'current_sink': self.audio.current_sink,
-            'has_external_drive': self._detect_external_drive(),
-            'ripping': self._rip_process is not None and self._rip_process.poll() is None,
-            'capabilities': {
-                'discid': HAS_DISCID,
-                'musicbrainz': HAS_MB,
-                'zeroconf': HAS_ZEROCONF
-            }
-        }
-        return web.json_response(status, headers=self._cors_headers())
-
-    async def _handle_command(self, request):
-        try:
-            data = await request.json()
-            cmd = data.get('command', '')
-
-            if cmd == 'play':
-                await self.player.play()
-                await self._set_router_source('cd')
-                await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
-                await self._broadcast_cd_update()
-            elif cmd == 'pause':
-                await self.player.pause()
-                await self._broadcast_cd_update()
-            elif cmd == 'toggle':
-                await self.player.toggle_playback()
-                if self.player.state == 'playing':
-                    await self._set_router_source('cd')
-                    await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
-                await self._broadcast_cd_update()
-            elif cmd == 'next':
-                await self.player.next_track()
-                await self._broadcast_cd_update()
-            elif cmd == 'prev':
-                await self.player.prev_track()
-                await self._broadcast_cd_update()
-            elif cmd == 'stop':
-                await self.player.stop()
-                await self._set_router_source('sonos')
-                await self._send_input_command('show_menu_item', {'path': 'menu/playing'})
-                await self._broadcast_cd_update()
-            elif cmd == 'play_track':
-                await self.player.play_track(data.get('track', 1))
-                await self._set_router_source('cd')
-                await self._send_input_command('hide_menu_item', {'path': 'menu/playing'})
-                await self._broadcast_cd_update()
-            elif cmd == 'eject':
-                await self.player.stop()
-                await self._set_router_source('sonos')
-                await self.drive.eject()
-            elif cmd == 'set_speaker':
-                await self.audio.set_output(data.get('sink', ''))
-            elif cmd == 'toggle_shuffle':
-                self.player.toggle_shuffle()
-                await self._broadcast_cd_update()
-            elif cmd == 'toggle_repeat':
-                self.player.toggle_repeat()
-                await self._broadcast_cd_update()
-            elif cmd == 'use_release':
-                await self._use_alternative_release(data.get('release_id', ''))
-            elif cmd == 'import':
-                await self._start_rip()
-            elif cmd == 'announce':
-                await self._announce_track()
-            else:
-                return web.json_response(
-                    {'status': 'error', 'message': f'Unknown: {cmd}'},
-                    status=400, headers=self._cors_headers())
-
-            return web.json_response(
-                {'status': 'ok', 'command': cmd, 'playback': self.player.get_status()},
-                headers=self._cors_headers())
-        except Exception as e:
-            return web.json_response(
-                {'status': 'error', 'message': str(e)},
-                status=500, headers=self._cors_headers())
+        # Start playback
+        await self.player.play()
+        await self.register('playing', navigate=True)
+        await self._broadcast_cd_update()
+        return {'command': 'cd', 'playback': self.player.get_status()}
 
     async def _use_alternative_release(self, release_id):
         """Switch metadata to an alternative MusicBrainz release."""
@@ -878,20 +848,6 @@ class CDService:
             headers=self._cors_headers())
 
 
-async def main():
-    service = CDService()
-    await service.start()
-
-    stop_event = asyncio.Event()
-    loop = asyncio.get_event_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, stop_event.set)
-
-    try:
-        await stop_event.wait()
-    finally:
-        await service.stop()
-
-
 if __name__ == '__main__':
-    asyncio.run(main())
+    service = CDService()
+    asyncio.run(service.run())

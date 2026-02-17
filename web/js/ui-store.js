@@ -1,3 +1,68 @@
+// Default PLAYING view slot content (used when no source overrides)
+const DEFAULT_ARTWORK_SLOT = `
+    <div class="playing-flipper">
+        <div class="playing-face playing-front">
+            <img class="playing-artwork" src="" alt="Album Art">
+        </div>
+        <div class="playing-face playing-back" style="display:none">
+            <img class="playing-artwork-back" src="" alt="">
+        </div>
+    </div>`;
+const DEFAULT_INFO_SLOT = `
+    <div id="media-title" class="media-view-title">—</div>
+    <div id="media-artist" class="media-view-artist">—</div>
+    <div id="media-album" class="media-view-album">—</div>
+`;
+const DEFAULT_PLAYING_PRESET = {
+    eventType: 'media_update',
+    onUpdate(container, data) {
+        const titleEl = container.querySelector('.media-view-title');
+        const artistEl = container.querySelector('.media-view-artist');
+        const albumEl = container.querySelector('.media-view-album');
+        if (titleEl) titleEl.textContent = data.title || '—';
+        if (artistEl) artistEl.textContent = data.artist || '—';
+        if (albumEl) albumEl.textContent = data.album || '—';
+        const img = container.querySelector('.playing-artwork');
+        if (img && window.ArtworkManager) {
+            window.ArtworkManager.displayArtwork(img, data.artwork, 'noArtwork');
+        }
+        // Back artwork (show/hide back face based on availability)
+        const backFace = container.querySelector('.playing-back');
+        const backImg = container.querySelector('.playing-artwork-back');
+        if (backFace && backImg) {
+            if (data.back_artwork) {
+                backImg.src = data.back_artwork;
+                backFace.style.display = '';
+            } else {
+                backFace.style.display = 'none';
+                // Un-flip if back was removed while flipped
+                const flipper = container.querySelector('.playing-flipper');
+                if (flipper) flipper.classList.remove('flipped');
+            }
+        }
+    },
+    onMount(container) {
+        const flipper = container.querySelector('.playing-flipper');
+        if (flipper) {
+            flipper._clickHandler = () => {
+                const back = flipper.querySelector('.playing-back');
+                if (back && back.style.display !== 'none') {
+                    flipper.classList.add('playing-flipper-snap');
+                    flipper.classList.toggle('flipped');
+                    setTimeout(() => flipper.classList.remove('playing-flipper-snap'), 200);
+                }
+            };
+            flipper.addEventListener('click', flipper._clickHandler);
+        }
+    },
+    onRemove(container) {
+        const flipper = container.querySelector('.playing-flipper');
+        if (flipper?._clickHandler) {
+            flipper.removeEventListener('click', flipper._clickHandler);
+        }
+    }
+};
+
 class UIStore {
     constructor() {
         this.wheelPointerAngle = 180;
@@ -5,7 +70,7 @@ class UIStore {
         this.isNowPlayingOverlayActive = false;
         this.selectedMenuItem = -1;
         
-        // Initialize laser position from constants (matches cursor-handler.js)
+        // Initialize laser position from constants (matches hardware-input.js)
         this.laserPosition = window.Constants?.laser?.defaultPosition || 93;
         
         // Debug info
@@ -107,12 +172,17 @@ class UIStore {
                 title: 'PLAYING',
                 content: `
                     <div id="now-playing" class="media-view">
-                        <div class="media-view-artwork cd-artwork-container">
-                            <div class="cd-flipper">
-                                <img id="now-playing-artwork" class="cd-face" src="" alt="Album Art">
+                        <div class="playing-artwork-slot media-view-artwork">
+                            <div class="playing-flipper">
+                                <div class="playing-face playing-front">
+                                    <img class="playing-artwork" src="" alt="Album Art">
+                                </div>
+                                <div class="playing-face playing-back" style="display:none">
+                                    <img class="playing-artwork-back" src="" alt="">
+                                </div>
                             </div>
                         </div>
-                        <div class="media-view-info">
+                        <div class="playing-info-slot media-view-info">
                             <div id="media-title" class="media-view-title">—</div>
                             <div id="media-artist" class="media-view-artist">—</div>
                             <div id="media-album" class="media-view-album">—</div>
@@ -120,6 +190,10 @@ class UIStore {
                     </div>`
             },
         };
+
+        // Active source tracking (source registry)
+        this.activeSource = null;          // id of active source, or null (HA fallback)
+        this.activePlayingPreset = DEFAULT_PLAYING_PRESET;
 
         // Set initial route
         this.currentRoute = 'menu/playing';
@@ -129,16 +203,19 @@ class UIStore {
         this.initializeUI();
         this.setupEventListeners();
         this.updateView();
-        
+
         // Ensure menu starts visible
         setTimeout(() => {
             this.setMenuVisible(true);
         }, 100);
-        
+
         // Media info will be received via WebSocket from media server
 
         // Set up Apple TV media info refresh for SHOWING view
         this.setupAppleTVMediaInfoRefresh();
+
+        // Fetch menu from router (async, non-blocking)
+        this._fetchMenu();
     }
     
     // Image preloading delegated to ArtworkManager
@@ -177,27 +254,35 @@ class UIStore {
         }
     }
     
-    // Update the now playing view with current media info
+    // Update the now playing view with current media info (Sonos/generic path)
     updateNowPlayingView() {
-        const artworkEl = document.getElementById('now-playing-artwork');
+        // Skip if active preset doesn't listen to media_update (e.g. CD is active)
+        // The active source's data is routed via routeToPlayingPreset in ws-dispatcher
+        if (this.activePlayingPreset?.eventType && this.activePlayingPreset.eventType !== 'media_update') {
+            return;
+        }
+
+        // Delegate to active playing preset if available
+        if (this.activePlayingPreset?.onUpdate) {
+            const container = document.getElementById('now-playing');
+            if (container) {
+                this.activePlayingPreset.onUpdate(container, this.mediaInfo);
+                return;
+            }
+        }
+
+        // Fallback: direct DOM update
+        const artworkEl = document.querySelector('#now-playing .playing-artwork');
         const titleEl = document.getElementById('media-title');
         const artistEl = document.getElementById('media-artist');
         const albumEl = document.getElementById('media-album');
-        const playPauseBtn = document.getElementById('play-pause');
 
         if (!titleEl || !artistEl || !albumEl) return;
 
-        // Update text elements
         titleEl.textContent = this.mediaInfo.title;
         artistEl.textContent = this.mediaInfo.artist;
         albumEl.textContent = this.mediaInfo.album;
 
-        // Update play/pause button based on state
-        if (playPauseBtn) {
-            playPauseBtn.textContent = this.mediaInfo.state === 'playing' ? '⏸' : '▶️';
-        }
-
-        // Use centralized artwork manager for display
         if (artworkEl && window.ArtworkManager) {
             window.ArtworkManager.displayArtwork(artworkEl, this.mediaInfo.artwork, 'noArtwork');
         }
@@ -272,6 +357,130 @@ class UIStore {
         setInterval(() => {
             this.fetchAppleTVMediaInfo();
         }, 5000);
+    }
+
+    // ── Router menu & source preset management ──
+
+    async _fetchMenu() {
+        try {
+            const resp = await fetch(`${window.AppConfig?.routerUrl || 'http://localhost:8770'}/router/menu`);
+            const data = await resp.json();
+            if (!data || !data.items) return;
+
+            // Load source view scripts on demand
+            for (const item of data.items) {
+                if (item.dynamic && item.preset && !window.SourcePresets?.[item.preset]) {
+                    await this._loadSourceScript(item.preset);
+                }
+            }
+
+            // Rebuild menu items from router response
+            const newItems = [];
+            for (const item of data.items) {
+                const path = `menu/${item.id}`;
+                const existing = this.menuItems.find(m => m.path === path);
+                if (existing) {
+                    newItems.push(existing);
+                } else if (item.dynamic && item.preset && window.SourcePresets?.[item.preset]) {
+                    // Dynamic source — register from preset
+                    const preset = window.SourcePresets[item.preset];
+                    newItems.push({ title: item.title, path: preset.item.path });
+                    if (preset.view) {
+                        this.views[preset.item.path] = preset.view;
+                    }
+                } else {
+                    newItems.push({ title: item.title, path });
+                }
+            }
+            this.menuItems = newItems;
+
+            // Sync to laser position mapper
+            if (window.LaserPositionMapper?.updateMenuItems) {
+                window.LaserPositionMapper.updateMenuItems(this.menuItems.filter(m => !m.hidden));
+            }
+
+            // Restore active source
+            if (data.active_source) {
+                this.activeSource = data.active_source;
+                this.setActivePlayingPreset(data.active_source);
+            }
+
+            this.renderMenuItems();
+            console.log(`[MENU] Loaded ${newItems.length} items from router`);
+        } catch (e) {
+            console.log('[MENU] Router unavailable, using defaults');
+        }
+    }
+
+    /**
+     * Dynamically load a source's view script (web/sources/{preset}/view.js).
+     */
+    _loadSourceScript(preset) {
+        return new Promise(resolve => {
+            const script = document.createElement('script');
+            script.src = `sources/${preset}/view.js`;
+            script.onload = () => {
+                console.log(`[MENU] Loaded source script: ${preset}`);
+                resolve();
+            };
+            script.onerror = () => {
+                console.warn(`[MENU] Source script not found: ${preset}`);
+                resolve();
+            };
+            document.head.appendChild(script);
+        });
+    }
+
+    /**
+     * Switch the PLAYING view to a source's preset (or default).
+     */
+    setActivePlayingPreset(sourceId) {
+        const container = document.getElementById('now-playing');
+        if (!container) {
+            // PLAYING view not currently rendered — just store the preset for later
+            const preset = sourceId && window.SourcePresets?.[sourceId]?.playing;
+            this.activePlayingPreset = preset || DEFAULT_PLAYING_PRESET;
+            return;
+        }
+
+        const artworkSlot = container.querySelector('.playing-artwork-slot');
+        const infoSlot = container.querySelector('.playing-info-slot');
+
+        // Cleanup old preset and default flipper handler
+        DEFAULT_PLAYING_PRESET.onRemove(container);
+        if (this.activePlayingPreset?.onRemove) {
+            this.activePlayingPreset.onRemove(container);
+        }
+
+        // Load new preset (or default)
+        const preset = sourceId && window.SourcePresets?.[sourceId]?.playing;
+        this.activePlayingPreset = preset || DEFAULT_PLAYING_PRESET;
+
+        // Override slots (or restore defaults)
+        if (artworkSlot) {
+            artworkSlot.innerHTML = this.activePlayingPreset.artworkSlot || DEFAULT_ARTWORK_SLOT;
+        }
+        if (infoSlot) {
+            infoSlot.innerHTML = this.activePlayingPreset.infoSlot || DEFAULT_INFO_SLOT;
+        }
+
+        // Default artwork slot includes a flipper — set up click-to-flip
+        if (!this.activePlayingPreset.artworkSlot) {
+            DEFAULT_PLAYING_PRESET.onMount(container);
+        }
+
+        if (this.activePlayingPreset.onMount) {
+            this.activePlayingPreset.onMount(container);
+        }
+    }
+
+    /**
+     * Push data to the active PLAYING preset.
+     */
+    updatePlaying(data) {
+        const container = document.getElementById('now-playing');
+        if (!container || !this.activePlayingPreset?.onUpdate) return;
+        this.activePlayingPreset.onUpdate(container, data);
     }
 
     // Update the SHOWING view (called when navigating to view)
@@ -615,10 +824,10 @@ class UIStore {
         }
         
         // Navigation wheel should NOT affect laser position - it's for softarc navigation within views
-        // topWheelPosition is handled by iframe forwarding in cursor-handler.js
+        // topWheelPosition is handled by iframe forwarding in hardware-input.js
         if (this.topWheelPosition !== 0) {
             console.log(`[DEBUG] Navigation wheel: ${this.topWheelPosition > 0 ? 'clockwise' : 'counterclockwise'} (topWheelPosition: ${this.topWheelPosition})`);
-            // Navigation wheel events are forwarded to iframe pages by cursor-handler.js
+            // Navigation wheel events are forwarded to iframe pages by hardware-input.js
             // They should NOT modify the laser position - that's the laser pointer's job
         }
         
@@ -700,8 +909,9 @@ class UIStore {
         }
 
         // Click feedback when navigating to a new page (not on every laser movement)
-        // Suppress click when CD artwork is flipping (nav wheel jitters laser)
-        if (viewChanged && !window.CDView?.isFlipping) {
+        // Suppress click when a source controller is flipping (nav wheel jitters laser)
+        const activeCtrl = this.activeSource && window.SourcePresets?.[this.activeSource]?.controller;
+        if (viewChanged && !activeCtrl?.isFlipping) {
             console.log(`[CLICK] View changed to ${effectivePath} - sending click`);
             this.sendClickCommand();
         }
@@ -834,8 +1044,8 @@ class UIStore {
         }
 
         // Teardown previous view's preset (e.g. CDView.destroy()) before replacing content
-        if (this._previousRoute && this._previousRoute !== this.currentRoute && window.MenuPresets) {
-            for (const preset of Object.values(window.MenuPresets)) {
+        if (this._previousRoute && this._previousRoute !== this.currentRoute && window.SourcePresets) {
+            for (const preset of Object.values(window.SourcePresets)) {
                 if (preset.item.path === this._previousRoute && preset.onRemove) {
                     preset.onRemove();
                 }
@@ -853,6 +1063,8 @@ class UIStore {
 
         // Immediately update with cached info for playing view
         if (this.currentRoute === 'menu/playing') {
+            // Apply active source's playing preset (swaps slots if needed)
+            this.setActivePlayingPreset(this.activeSource);
             this.updateNowPlayingView();
             // Media info will be pushed automatically by media server
         }
@@ -880,8 +1092,8 @@ class UIStore {
         this.setupContentScroll();
 
         // Fire onMount for dynamic menu presets (e.g. CD loading sequence)
-        if (window.MenuPresets) {
-            for (const preset of Object.values(window.MenuPresets)) {
+        if (window.SourcePresets) {
+            for (const preset of Object.values(window.SourcePresets)) {
                 if (preset.item.path === this.currentRoute && preset.onMount) {
                     preset.onMount();
                 }
@@ -1148,16 +1360,16 @@ class UIStore {
     }
 
     /**
-     * Test helper: add CD menu item (for console testing without MQTT)
+     * Test helper: add a source menu item (for console testing without router)
+     * Usage: uiStore.testAddSource('cd') or uiStore.testAddSource('demo')
      */
-    testAddCD() {
-        if (!window.MenuPresets?.cd) {
-            console.error('MenuPresets.cd not loaded');
+    testAddSource(sourceId) {
+        const preset = window.SourcePresets?.[sourceId];
+        if (!preset) {
+            console.error(`SourcePresets.${sourceId} not loaded`);
             return;
         }
-        const preset = window.MenuPresets.cd;
         this.addMenuItem(preset.item, preset.after, preset.view);
-        // Fire onAdd after DOM is ready
         setTimeout(() => {
             const container = document.getElementById('contentArea');
             if (preset.onAdd) preset.onAdd(container);
@@ -1165,14 +1377,15 @@ class UIStore {
     }
 
     /**
-     * Test helper: remove CD menu item
+     * Test helper: remove a source menu item
+     * Usage: uiStore.testRemoveSource('cd')
      */
-    testRemoveCD() {
-        if (!window.MenuPresets?.cd) {
-            console.error('MenuPresets.cd not loaded');
+    testRemoveSource(sourceId) {
+        const preset = window.SourcePresets?.[sourceId];
+        if (!preset) {
+            console.error(`SourcePresets.${sourceId} not loaded`);
             return;
         }
-        const preset = window.MenuPresets.cd;
         if (preset.onRemove) preset.onRemove();
         this.removeMenuItem(preset.item.path);
     }
@@ -1208,7 +1421,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Wait for artwork to load before hiding splash
     const waitForArtwork = () => {
-        const artworkEl = document.getElementById('now-playing-artwork');
+        const artworkEl = document.querySelector('#now-playing .playing-artwork');
         if (artworkEl && artworkEl.src && artworkEl.src !== '' && artworkEl.src !== window.location.href) {
             // Artwork src is set, wait for it to actually load
             if (artworkEl.complete && artworkEl.naturalHeight > 0) {

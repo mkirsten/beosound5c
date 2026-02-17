@@ -1,5 +1,5 @@
 [Unit]
-Description=BeoSound5c CD Source (playback, metadata, AirPlay)
+Description=BeoSound5c USB File Source (browse and play local audio files)
 After=network.target beo-input.service
 Wants=network.target
 
@@ -10,7 +10,7 @@ Group=kirsten
 WorkingDirectory=/home/kirsten/beosound5c/services
 EnvironmentFile=-/etc/beosound5c/config.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/sources/cd.py
+ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/sources/usb.py
 Restart=always
 RestartSec=5
 StandardOutput=journal

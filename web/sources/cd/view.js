@@ -545,7 +545,7 @@ window.CDView = (() => {
     // ── Metadata ──
 
     /**
-     * Called from cursor-handler on cd_update WebSocket events.
+     * Called from ws-dispatcher on cd_update WebSocket events.
      */
     function updateMetadata(data) {
         const prevArtwork = metadata?.artwork;
@@ -758,3 +758,82 @@ window.CDView = (() => {
         get isFlipping() { return flipTarget !== null; }
     };
 })();
+
+// ── CD Source Preset ──
+// Self-registers into the global SourcePresets registry so the UI knows
+// how to render the CD menu item and customise the PLAYING view.
+window.SourcePresets = window.SourcePresets || {};
+window.SourcePresets.cd = {
+    controller: window.CDView,
+    item: { title: 'CD', path: 'menu/cd' },
+    after: 'menu/music',
+    view: {
+        title: 'CD',
+        content: `
+            <div id="cd-view" class="media-view">
+                <div id="cd-loading" class="cd-loading-state">
+                    <div class="cd-disc"></div>
+                    <div class="cd-loading-text">Reading disc<span class="cd-dots"><span>.</span><span>.</span><span>.</span></span></div>
+                </div>
+                <div id="cd-artwork-area" class="media-view-artwork cd-artwork-container cd-hidden">
+                    <div id="cd-flipper" class="cd-flipper">
+                        <div id="cd-face-artwork" class="cd-face">
+                            <img id="cd-artwork-front" src="assets/cd-disc.png">
+                        </div>
+                        <div id="cd-face-back" class="cd-face cd-face-hidden">
+                            <img id="cd-artwork-back" src="">
+                        </div>
+                        <div id="cd-face-tracks" class="cd-face cd-face-hidden cd-face-list">
+                            <div class="cd-face-list-title"></div>
+                            <div class="cd-face-list-items"></div>
+                        </div>
+                        <div id="cd-face-settings" class="cd-face cd-face-hidden cd-face-list">
+                            <div class="cd-face-list-header"></div>
+                            <div class="cd-face-list-items"></div>
+                        </div>
+                    </div>
+                </div>
+                <div id="cd-info" class="media-view-info cd-hidden">
+                    <div class="media-view-title"></div>
+                    <div class="media-view-artist"></div>
+                    <div class="media-view-album"></div>
+                </div>
+            </div>`
+    },
+
+    onAdd() {},
+
+    onMount() {
+        if (window.CDView) window.CDView.init();
+    },
+
+    onRemove() {
+        if (window.CDView) window.CDView.destroy();
+    },
+
+    // PLAYING sub-preset: customises the PLAYING view when CD is active.
+    // Uses the default artwork slot (front/back flipper) — just provides data.
+    playing: {
+        eventType: 'cd_update',
+
+        onUpdate(container, data) {
+            const track = data.tracks?.[data.current_track - 1];
+            const titleEl = container.querySelector('.media-view-title');
+            const artistEl = container.querySelector('.media-view-artist');
+            const albumEl = container.querySelector('.media-view-album');
+            if (titleEl) titleEl.textContent = track?.title || `Track ${data.current_track}`;
+            if (artistEl) artistEl.textContent = data.artist || '—';
+            if (albumEl) albumEl.textContent = data.title || '—';
+            // Front artwork
+            const front = container.querySelector('.playing-artwork');
+            if (front) front.src = data.artwork || '';
+            // Back artwork (show/hide back face)
+            const backFace = container.querySelector('.playing-back');
+            const backImg = container.querySelector('.playing-artwork-back');
+            if (backFace && backImg && data.back_artwork) {
+                backImg.src = data.back_artwork;
+                backFace.style.display = '';
+            }
+        }
+    }
+};

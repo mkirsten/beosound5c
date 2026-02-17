@@ -8,6 +8,7 @@ import os
 import aiohttp
 import asyncio
 import logging
+from aiohttp import web
 from datetime import datetime
 from collections import defaultdict
 
@@ -24,6 +25,20 @@ logger = logging.getLogger('beo-masterlink')
 # Configuration variables
 BEOSOUND_DEVICE_NAME = os.getenv('DEVICE_NAME', 'BeoSound5c')
 ROUTER_URL = "http://localhost:8770/router/event"
+MIXER_PORT = int(os.getenv('MIXER_PORT', '8768'))
+
+# Hardware volume range
+RAW_VOL_MAX = 90  # safe max out of 0-127
+
+
+def _pct_to_raw(pct: float) -> int:
+    """Map 0-100% to 0-RAW_VOL_MAX."""
+    return max(0, min(RAW_VOL_MAX, int(pct * RAW_VOL_MAX / 100)))
+
+
+def _raw_to_pct(raw: int) -> float:
+    """Map 0-RAW_VOL_MAX back to 0-100%."""
+    return round(raw * 100 / RAW_VOL_MAX, 1)
 
 # Message processing settings
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
@@ -161,7 +176,9 @@ class PC2Device:
             'local': False,
             'distribute': False,
             'from_ml': False,
+            'volume_raw': 0,
         }
+        self._mixer_runner = None  # aiohttp AppRunner for cleanup
 
     def open(self):
         """Find and open the PC2 device"""
@@ -301,6 +318,7 @@ class PC2Device:
         try:
             asyncio.set_event_loop(self.loop)
             self.loop.run_until_complete(self._init_session())
+            self.loop.run_until_complete(self._start_mixer_http())
             self.loop.run_until_complete(self._async_sender_loop())
         except Exception as e:
             logger.error("Sender loop failed: %s", e, exc_info=True)
@@ -498,7 +516,20 @@ class PC2Device:
         for _ in range(abs(steps)):
             self.send_message(cmd)
             time.sleep(0.02)
+        # Best-effort tracking (relative, may drift)
+        self.mixer_state['volume_raw'] = max(0, min(RAW_VOL_MAX,
+            self.mixer_state['volume_raw'] + steps))
         logger.info("Volume %s by %d step(s)", "UP" if steps > 0 else "DOWN", abs(steps))
+
+    def set_volume(self, raw):
+        """Set absolute volume via CMD_SET_PARAMS (0xE3).
+
+        raw: 0–RAW_VOL_MAX (clamped). Bass/treble/balance neutral.
+        """
+        raw = max(0, min(RAW_VOL_MAX, int(raw)))
+        self.send_message([0xe3, raw, 0, 0, 0])
+        self.mixer_state['volume_raw'] = raw
+        logger.info("Volume set to raw %d (%.0f%%)", raw, _raw_to_pct(raw))
 
     def set_routing(self, local=False, distribute=False, from_ml=False):
         """Set audio routing. All False = audio off."""
@@ -528,9 +559,11 @@ class PC2Device:
         logger.info("Routing: local=%s distribute=%s from_ml=%s", local, distribute, from_ml)
 
     def audio_on(self):
-        """Convenience: power on speakers and route local audio."""
+        """Convenience: power on speakers, set safe volume, and route local audio."""
         self.speaker_power(True)
         time.sleep(0.05)
+        self.set_volume(_pct_to_raw(20))
+        time.sleep(0.02)
         self.set_routing(local=True)
 
     def audio_off(self):
@@ -539,9 +572,66 @@ class PC2Device:
         time.sleep(0.05)
         self.speaker_power(False)
 
+    # --- Mixer HTTP API (port 8768) ---
+
+    async def _handle_mixer_volume(self, request):
+        """POST /mixer/volume  {"volume": 0-100}"""
+        data = await request.json()
+        pct = float(data.get('volume', 0))
+        raw = _pct_to_raw(pct)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.set_volume, raw)
+        return web.json_response({
+            'ok': True, 'volume_pct': _raw_to_pct(raw), 'volume_raw': raw,
+        })
+
+    async def _handle_mixer_power(self, request):
+        """POST /mixer/power  {"on": true/false}"""
+        data = await request.json()
+        on = data.get('on', False)
+        loop = asyncio.get_running_loop()
+        if on:
+            await loop.run_in_executor(None, self.audio_on)
+        else:
+            await loop.run_in_executor(None, self.audio_off)
+        return web.json_response({'ok': True, 'speakers_on': on})
+
+    async def _handle_mixer_mute(self, request):
+        """POST /mixer/mute  {"muted": true/false}"""
+        data = await request.json()
+        muted = data.get('muted', False)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.speaker_mute, muted)
+        return web.json_response({'ok': True, 'muted': muted})
+
+    async def _handle_mixer_status(self, request):
+        """GET /mixer/status"""
+        state = dict(self.mixer_state)
+        state['volume_pct'] = _raw_to_pct(state['volume_raw'])
+        state['connected'] = self.connected
+        return web.json_response(state)
+
+    async def _start_mixer_http(self):
+        """Start the mixer HTTP API server (non-blocking)."""
+        app = web.Application()
+        app.router.add_post('/mixer/volume', self._handle_mixer_volume)
+        app.router.add_post('/mixer/power', self._handle_mixer_power)
+        app.router.add_post('/mixer/mute', self._handle_mixer_mute)
+        app.router.add_get('/mixer/status', self._handle_mixer_status)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', MIXER_PORT)
+        await site.start()
+        self._mixer_runner = runner
+        logger.info("Mixer HTTP API listening on port %d", MIXER_PORT)
+
     def stop_sniffing(self):
         """Stop the USB sniffer"""
         self.running = False
+
+        # Clean up mixer HTTP server
+        if self.loop and self._mixer_runner:
+            asyncio.run_coroutine_threadsafe(self._mixer_runner.cleanup(), self.loop)
 
         # Close aiohttp session
         if self.loop and self.session:
@@ -581,7 +671,7 @@ if __name__ == "__main__":
         pc2.set_address_filter()
 
         if audio_test:
-            logger.info("Audio test mode. Commands: on, off, vol+ [n], vol- [n], mute, unmute, distribute, local, quit")
+            logger.info("Audio test mode. Commands: on, off, vol+ [n], vol- [n], set <pct>, mute, unmute, distribute, local, quit")
             while True:
                 try:
                     line = input("> ").strip().lower()
@@ -604,6 +694,9 @@ if __name__ == "__main__":
                 elif cmd == 'vol-':
                     n = int(parts[1]) if len(parts) > 1 else 1
                     pc2.volume_adjust(-n)
+                elif cmd == 'set':
+                    pct = float(parts[1]) if len(parts) > 1 else 0
+                    pc2.set_volume(_pct_to_raw(pct))
                 elif cmd == 'mute':
                     pc2.speaker_mute(True)
                 elif cmd == 'unmute':

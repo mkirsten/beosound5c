@@ -1376,7 +1376,7 @@ fi
 
 # Check services (if they're supposed to be running)
 log_info "Checking service status..."
-SERVICES="beo-http beo-media beo-input beo-ui"
+SERVICES="beo-http beo-sonos beo-input beo-ui"
 for svc in $SERVICES; do
     if systemctl is-active --quiet "$svc" 2>/dev/null; then
         log_success "Service running: $svc"

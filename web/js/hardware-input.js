@@ -1,0 +1,475 @@
+// Hardware Input Handler
+// Processes physical input events: laser pointer, navigation wheel,
+// volume wheel, and button presses. Also manages cursor visibility,
+// pointer rendering, and volume arc overlay.
+
+// Configuration - uses Constants for timeout values
+const config = {
+    showMouseCursor: false,   // Hide mouse cursor on hardware device
+    wsUrl: AppConfig.websocket.input,  // Loaded from centralized config
+    skipFactor: 1,          // Process 1 out of every N events (higher = more skipping)
+    disableTransitions: true, // Disable CSS transitions on the pointer for responsiveness
+    bypassRAF: true,        // Bypass requestAnimationFrame for immediate updates
+    useShadowPointer: false, // Use a shadow pointer for immediate visual feedback
+    showDebugOverlay: true, // Show the debug overlay to help diagnose issues
+
+    // Timeouts from centralized Constants (with fallbacks)
+    get volumeProcessingDelay() {
+        return window.Constants?.timeouts?.volumeProcessing || 50;
+    },
+    get cursorHideDelay() {
+        return window.Constants?.timeouts?.cursorHide || 2000;
+    }
+};
+
+// Global variables for laser event optimization
+// Default position from Constants (fallback to 93)
+const defaultLaserPosition = window.Constants?.laser?.defaultPosition || 93;
+let lastLaserEvent = { position: defaultLaserPosition };
+let cursorHideTimeout = null;
+
+// Performance tracking
+let lastUpdateTime = 0;
+let frameTimeAvg = 0;
+let eventsProcessed = 0;
+
+// Pointer state
+let lastKnownPointerAngle = 180; // Default middle position
+let shadowPointer = null;
+
+// ── Cursor Visibility ──
+
+function showCursor() {
+    const cursorStyle = document.getElementById('cursor-style');
+    if (cursorStyle) {
+        cursorStyle.textContent = `
+            body, div, svg, path, ellipse { cursor: auto !important; }
+            #viewport { cursor: auto !important; }
+            .list-item { cursor: pointer !important; }
+            .flow-item { cursor: pointer !important; }
+        `;
+    }
+}
+
+function hideCursor() {
+    const cursorStyle = document.getElementById('cursor-style');
+    if (cursorStyle) {
+        cursorStyle.textContent = '* { cursor: none !important; }';
+    }
+}
+
+// ── Shadow Pointer ──
+
+function createShadowPointer() {
+    if (config.useShadowPointer) {
+        shadowPointer = document.createElement('div');
+        shadowPointer.id = 'shadow-pointer';
+        shadowPointer.style.cssText = `
+            position: fixed;
+            width: 20px;
+            height: 20px;
+            background-color: rgba(255, 0, 0, 0.5);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10000;
+            display: none;
+        `;
+        document.body.appendChild(shadowPointer);
+    }
+}
+
+function updateShadowPointer(angle) {
+    if (!config.useShadowPointer || !shadowPointer) return;
+
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
+    const radius = Math.min(centerX, centerY) * 0.8;
+
+    const angleRad = (angle - 180) * (Math.PI / 180);
+    const x = centerX + radius * Math.cos(angleRad);
+    const y = centerY + radius * Math.sin(angleRad);
+
+    shadowPointer.style.left = `${x}px`;
+    shadowPointer.style.top = `${y}px`;
+    shadowPointer.style.display = 'block';
+}
+
+// ── Transition Styles ──
+
+function updateTransitionStyles() {
+    const existingStyle = document.getElementById('pointer-transition-style');
+    if (existingStyle) existingStyle.remove();
+
+    if (config.disableTransitions) {
+        const transitionStyle = document.createElement('style');
+        transitionStyle.id = 'pointer-transition-style';
+        transitionStyle.textContent = `
+            /* Target common pointer selectors */
+            #laser-pointer,
+            .wheel-pointer,
+            [class*="pointer"],
+            [id*="pointer"],
+            [class*="cursor"],
+            [id*="cursor"],
+            .top-wheel-pointer,
+            g[transform],
+            [style*="transform"]:not(.playing-flipper):not(.playing-face):not(.cd-flipper):not(.cd-face):not(.cd-track-transition),
+            [transform],
+            *[style*="transition"]:not(.playing-flipper):not(.playing-face):not(.cd-flipper):not(.cd-face):not(.cd-track-transition),
+            *[style*="rotate"]:not(.playing-flipper):not(.playing-face):not(.cd-flipper):not(.cd-face),
+            path, line, polygon {
+                transition: none !important;
+                animation: none !important;
+                transition-property: none !important;
+                animation-duration: 0s !important;
+                transition-duration: 0s !important;
+                will-change: transform;
+                backface-visibility: hidden;
+                transform: translateZ(0);
+            }
+
+            /* Speed up rendering with hardware acceleration hints */
+            body, svg, #viewport {
+                will-change: transform;
+                backface-visibility: hidden;
+                transform: translateZ(0);
+            }
+        `;
+        document.head.appendChild(transitionStyle);
+    }
+}
+
+// ── Laser Processing ──
+
+function processLaserEvents() {
+    const now = performance.now();
+    const frameDelta = now - lastUpdateTime;
+
+    if (lastUpdateTime > 0) {
+        frameTimeAvg = frameTimeAvg * 0.9 + frameDelta * 0.1;
+    }
+    lastUpdateTime = now;
+
+    if (lastLaserEvent !== null) {
+        processLaserEvent(lastLaserEvent);
+    }
+
+    requestAnimationFrame(processLaserEvents);
+}
+
+function processLaserEvent(data) {
+    const pos = data.position;
+
+    if (!window.LaserPositionMapper) {
+        console.error('[LASER] LaserPositionMapper not loaded');
+        return;
+    }
+    const { laserPositionToAngle } = window.LaserPositionMapper;
+    const angle = laserPositionToAngle(pos);
+
+    lastKnownPointerAngle = angle;
+    updateShadowPointer(angle);
+    updateViaStore(angle, pos);
+
+    lastLaserEvent = null;
+    eventsProcessed++;
+}
+
+function updateViaStore(angle, laserPosition) {
+    const uiStore = window.uiStore;
+    if (!uiStore) return;
+
+    uiStore.wheelPointerAngle = angle;
+
+    if (laserPosition !== undefined) {
+        uiStore.laserPosition = laserPosition;
+    }
+
+    if (config.disableTransitions) {
+        if (typeof uiStore.forceUpdate === 'function') {
+            uiStore.forceUpdate();
+        }
+    }
+
+    if (uiStore.setLaserPosition) {
+        uiStore.setLaserPosition(laserPosition || lastLaserEvent?.position || 0);
+    }
+
+    uiStore.handleWheelChange();
+}
+
+// ── Navigation Wheel ──
+
+function handleNavEvent(uiStore, data) {
+    const currentPage = uiStore.currentRoute || 'unknown';
+
+    // Route nav events to active source controller
+    const navSourceId = currentPage.startsWith('menu/') ? currentPage.slice(5) : null;
+    const navSourceCtrl = navSourceId && window.SourcePresets?.[navSourceId]?.controller;
+    if (navSourceCtrl?.isActive && navSourceCtrl.handleNavEvent) {
+        if (navSourceCtrl.handleNavEvent(data)) return;
+    }
+
+    // Forward nav events to iframe pages that handle their own navigation
+    if (window.IframeMessenger && window.IframeMessenger.routeHasIframe(currentPage)) {
+        window.IframeMessenger.sendNavEvent(currentPage, data);
+        return;
+    }
+
+    uiStore.topWheelPosition = data.direction === 'clock' ? 1 : -1;
+    uiStore.handleWheelChange();
+}
+
+// ── Volume ──
+
+let currentVolume = 50;
+let volumeOutputDevice = '';
+let volumeHideTimer = null;
+let volumeSendTimer = null;
+const VOLUME_ARC_LENGTH = Math.PI * 274;
+
+function initVolumeArc() {
+    const arcPath = document.getElementById('volume-arc-path');
+    if (arcPath) {
+        arcPath.style.strokeDasharray = VOLUME_ARC_LENGTH;
+        arcPath.style.strokeDashoffset = VOLUME_ARC_LENGTH;
+    }
+    fetchVolumeFromRouter();
+}
+
+async function fetchVolumeFromRouter() {
+    try {
+        const resp = await fetch(`${AppConfig.routerUrl}/router/status`);
+        const data = await resp.json();
+        currentVolume = data.volume || 0;
+        volumeOutputDevice = data.output_device || '';
+        const deviceEl = document.getElementById('volume-device');
+        if (deviceEl) deviceEl.textContent = volumeOutputDevice;
+        updateVolumeArc(currentVolume);
+        console.log(`[VOLUME] Synced from router: ${currentVolume}% (${volumeOutputDevice})`);
+    } catch (e) {
+        console.warn('[VOLUME] Could not fetch router status:', e);
+    }
+}
+
+function sendVolumeToRouter(volume) {
+    if (volumeSendTimer) clearTimeout(volumeSendTimer);
+    volumeSendTimer = setTimeout(() => {
+        fetch(`${AppConfig.routerUrl}/router/volume`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({volume: Math.round(volume)})
+        }).catch(e => console.warn('[VOLUME] Router send failed:', e));
+        volumeSendTimer = null;
+    }, 50);
+}
+
+function updateVolumeArc(volume) {
+    const arcPath = document.getElementById('volume-arc-path');
+    if (!arcPath) return;
+    const arcFraction = 0.18 + (volume / 100) * (0.82 - 0.18);
+    arcPath.style.strokeDashoffset = VOLUME_ARC_LENGTH * (1 - arcFraction);
+}
+
+function handleVolumeEvent(uiStore, data) {
+    if (!uiStore) return;
+
+    const speed = data.speed || 10;
+    const direction = data.direction === 'clock' ? 1 : -1;
+
+    // Fast spin down → snap to 0
+    if (direction === -1 && speed > 25) {
+        currentVolume = 0;
+    } else {
+        // Non-linear: faster at low volumes, slower at high volumes
+        const scale = 1.5 - (currentVolume / 100) * 0.9;
+        const step = (speed / 14) * scale;
+        currentVolume = Math.max(0, Math.min(100, currentVolume + direction * step));
+    }
+
+    const overlay = document.getElementById('volume-overlay');
+    if (overlay) {
+        updateVolumeArc(currentVolume);
+        overlay.classList.add('visible');
+
+        if (volumeHideTimer) clearTimeout(volumeHideTimer);
+        volumeHideTimer = setTimeout(() => {
+            overlay.classList.remove('visible');
+            volumeHideTimer = null;
+        }, 500);
+    }
+
+    sendVolumeToRouter(currentVolume);
+    console.log(`[VOLUME] ${Math.round(currentVolume)}%`);
+}
+
+// ── Buttons ──
+
+function handleButtonEvent(uiStore, data) {
+    const currentPage = uiStore.currentRoute || 'unknown';
+    console.log(`[BUTTON] ${data.button} on ${currentPage}`);
+
+    // Active source controller captures buttons
+    const btnSourceId = currentPage.startsWith('menu/') ? currentPage.slice(5) : null;
+    const btnSourceCtrl = btnSourceId && window.SourcePresets?.[btnSourceId]?.controller;
+    if (btnSourceCtrl?.isActive && btnSourceCtrl.handleButton) {
+        if (btnSourceCtrl.handleButton(data.button.toLowerCase())) return;
+    }
+
+    // Check if camera overlay is active - intercept GO, LEFT, RIGHT buttons
+    if (window.CameraOverlayManager && window.CameraOverlayManager.isActive) {
+        const button = data.button.toLowerCase();
+        if (['go', 'left', 'right'].includes(button)) {
+            const handled = window.CameraOverlayManager.handleAction(button);
+            if (handled) {
+                console.log(`[BUTTON] Handled by camera overlay: ${button}`);
+                return;
+            }
+        }
+    }
+
+    // On security page, GO button opens camera overlay
+    if (currentPage === 'menu/security' && data.button.toLowerCase() === 'go') {
+        if (window.CameraOverlayManager) {
+            console.log('[BUTTON] Opening camera overlay from security page');
+            window.CameraOverlayManager.show();
+            return;
+        }
+    }
+
+    // Handle Playing view buttons in emulator mode
+    if (currentPage === 'menu/playing' && window.EmulatorBridge?.isInEmulator) {
+        const button = data.button.toLowerCase();
+        const actionMap = {
+            'left': 'prev_track',
+            'right': 'next_track',
+            'go': 'toggle_playback'
+        };
+
+        if (actionMap[button]) {
+            window.EmulatorBridge.notifyPlaybackControl(actionMap[button]);
+            return;
+        }
+    }
+
+    // Forward button events to iframe pages
+    if (window.IframeMessenger && window.IframeMessenger.routeHasIframe(currentPage)) {
+        window.IframeMessenger.sendButtonEvent(currentPage, data.button);
+        return;
+    }
+
+    // Send webhook for non-iframe contexts
+    const contextMap = {
+        'menu/security': 'security',
+        'menu/playing': 'now_playing',
+        'menu/showing': 'now_showing',
+        'menu/music': 'music',
+        'menu/settings': 'settings',
+        'menu/scenes': 'scenes'
+    };
+
+    const panelContext = contextMap[currentPage] || 'unknown';
+    sendWebhook(panelContext, data.button);
+}
+
+// ── Webhooks ──
+
+function sendWebhook(panelContext, button, id = '1') {
+    const webhookUrl = AppConfig.webhookUrl;
+
+    const payload = {
+        device_type: 'Panel',
+        device_name: AppConfig.deviceName || 'unknown',
+        panel_context: panelContext,
+        button: button,
+        id: id
+    };
+
+    console.log(`[WEBHOOK] Sending ${panelContext} POST to: ${webhookUrl}`);
+
+    if (window.uiStore && window.uiStore.logWebsocketMessage) {
+        window.uiStore.logWebsocketMessage(`Sending ${panelContext} webhook: ${button}`);
+    }
+
+    const startTime = Date.now();
+
+    fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        timeout: 2000
+    })
+    .then(response => {
+        const duration = Date.now() - startTime;
+        if (response.ok) {
+            console.log(`[WEBHOOK] SUCCESS: ${panelContext} ${button} (${duration}ms)`);
+        } else {
+            console.log(`[WEBHOOK] FAILED: ${panelContext} ${button} - HTTP ${response.status} (${duration}ms)`);
+        }
+    })
+    .catch(error => {
+        const duration = Date.now() - startTime;
+        console.log(`[WEBHOOK] ERROR: ${panelContext} ${button} - ${error.message} (${duration}ms)`);
+    });
+}
+
+// ── Initialization ──
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Cursor visibility style
+    const style = document.createElement('style');
+    style.id = 'cursor-style';
+
+    if (config.showMouseCursor) {
+        style.textContent = `
+            body, div, svg, path, ellipse { cursor: auto !important; }
+            #viewport { cursor: auto !important; }
+            .list-item { cursor: pointer !important; }
+            .flow-item { cursor: pointer !important; }
+            iframe, #security-iframe { cursor: auto !important; pointer-events: auto !important; z-index: 1000 !important; }
+        `;
+    } else {
+        style.textContent = `
+            *, iframe, #security-iframe { cursor: none !important; }
+            iframe, #security-iframe { pointer-events: auto !important; z-index: 1000 !important; }
+        `;
+        console.log('[CURSOR] Mouse cursor hidden');
+    }
+    document.head.appendChild(style);
+
+    // Disable pointer transitions for responsiveness
+    updateTransitionStyles();
+
+    // Process initial laser position
+    if (lastLaserEvent && lastLaserEvent.position) {
+        processLaserEvent(lastLaserEvent);
+    }
+    processLaserEvents();
+
+    // Shadow pointer for visual feedback
+    createShadowPointer();
+
+    // Volume arc overlay
+    initVolumeArc();
+
+    // Auto-hide cursor on inactivity
+    if (config.showMouseCursor) {
+        document.addEventListener('mousemove', () => {
+            showCursor();
+            if (cursorHideTimeout) clearTimeout(cursorHideTimeout);
+            cursorHideTimeout = setTimeout(hideCursor, config.cursorHideDelay);
+        });
+    }
+
+    // Debug click events on security iframe
+    document.addEventListener('click', (e) => {
+        const securityIframe = document.getElementById('security-iframe');
+        if (securityIframe) {
+            console.log(`[CLICK DEBUG] Click on:`, e.target.tagName, e.target.id || 'no-id');
+            if (e.target === securityIframe || e.target.closest('#security-iframe')) {
+                console.log(`[CLICK DEBUG] Security iframe clicked!`);
+            }
+        }
+    }, true);
+});

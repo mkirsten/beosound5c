@@ -525,13 +525,54 @@ html, body {
   100%     { opacity: 0; }
 }
 
-/* CD-specific: add 3D perspective for flip animation, allow overflow for rotation */
-.cd-artwork-container {
+/* ── Playing View Flip (generic, used by any source's PLAYING preset) ── */
+
+.playing-artwork-slot {
   perspective: 800px;
   overflow: visible;
 }
 
-/* ── 3D Flip ── */
+.playing-flipper {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+}
+
+.playing-flipper-snap {
+  transition: transform 150ms ease-out;
+}
+
+.playing-flipper.flipped {
+  transform: rotateY(180deg);
+}
+
+.playing-face {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  backface-visibility: hidden;
+}
+
+.playing-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.playing-back {
+  transform: rotateY(180deg);
+}
+
+/* ── CD View Flip (4-face: artwork, back, tracks, settings) ── */
+
+.cd-artwork-container {
+  perspective: 800px;
+  overflow: visible;
+}
 
 .cd-flipper {
   width: 100%;
@@ -540,7 +581,6 @@ html, body {
   transform-style: preserve-3d;
 }
 
-/* Snap/commit animation (added temporarily by JS) */
 .cd-flipper-snap {
   transition: transform 150ms ease-out;
 }

@@ -1,5 +1,5 @@
 [Unit]
-Description=BeoSound5c MasterLink Sniffer including IR data
+Description=BeoSound5c MasterLink Sniffer + Mixer HTTP API
 After=network.target
 Wants=network.target
 
