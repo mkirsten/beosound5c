@@ -201,8 +201,12 @@
             cursor: not-allowed;
         }
 
-        /* Logs section */
-        .logs-section .log-services {
+        /* Logs (inside debug section) */
+        .debug-logs {
+            margin-top: 25px;
+        }
+
+        .debug-logs .log-services {
             display: flex;
             gap: 12px;
             margin-bottom: 15px;
@@ -235,7 +239,7 @@
             font-size: 10px;
             line-height: 1.4;
             color: #0f0;
-            height: 400px;
+            height: 250px;
             overflow-y: auto;
             white-space: pre-wrap;
             word-break: break-all;
@@ -643,7 +647,6 @@
         <nav class="section-nav">
             <div class="section-tab active" data-section="info">Info</div>
             <div class="section-tab" data-section="debug">Debug</div>
-            <div class="section-tab" data-section="logs">Logs</div>
             <div class="section-tab" data-section="services">Services</div>
             <div class="section-tab" data-section="remotes">Remotes</div>
             <div class="section-tab" data-section="people">People</div>
@@ -841,24 +844,24 @@
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Logs Section -->
-        <div class="section-content logs-section" id="logs">
-            <div class="log-services" id="log-services">
-                <div class="log-service-btn active" data-service="beo-masterlink">masterlink</div>
-                <div class="log-service-btn" data-service="beo-bluetooth">bluetooth</div>
-                <div class="log-service-btn" data-service="beo-input">input</div>
-                <div class="log-service-btn" data-service="beo-media">media</div>
-                <div class="log-service-btn" data-service="beo-http">http</div>
-                <div class="log-service-btn" data-service="beo-ui">ui</div>
-                <div class="log-service-btn" data-service="beo-cd">cd</div>
-                <div class="log-service-btn" data-service="beo-spotify-fetch">spotify</div>
+            <!-- Logs (embedded in debug) -->
+            <div class="debug-logs">
+                <div class="log-services" id="log-services">
+                    <div class="log-service-btn active" data-service="beo-masterlink">masterlink</div>
+                    <div class="log-service-btn" data-service="beo-bluetooth">bluetooth</div>
+                    <div class="log-service-btn" data-service="beo-router">router</div>
+                    <div class="log-service-btn" data-service="beo-sonos">sonos</div>
+                    <div class="log-service-btn" data-service="beo-cd">cd</div>
+                    <div class="log-service-btn" data-service="beo-input">input</div>
+                    <div class="log-service-btn" data-service="beo-http">http</div>
+                    <div class="log-service-btn" data-service="beo-ui">ui</div>
+                </div>
+                <div class="log-output" id="log-output">
+                    <span class="log-loading">Connecting to log stream...</span>
+                </div>
+                <div class="section-hint"><span class="live-indicator"></span>Live &nbsp; <span class="key">GO</span> Switch service</div>
             </div>
-            <div class="log-output" id="log-output">
-                <span class="log-loading">Connecting to log stream...</span>
-            </div>
-            <div class="section-hint"><span class="live-indicator"></span>Live &nbsp; <span class="key">GO</span> Switch service &nbsp; <span class="key">WHEEL</span> Scroll</div>
         </div>
 
         <!-- Services Section -->
@@ -872,13 +875,21 @@
                     <span class="name">beo-bluetooth</span>
                     <span class="status-dot" id="dot-bluetooth"></span>
                 </div>
+                <div class="service-item" data-service="beo-router">
+                    <span class="name">beo-router</span>
+                    <span class="status-dot" id="dot-router"></span>
+                </div>
+                <div class="service-item" data-service="beo-sonos">
+                    <span class="name">beo-sonos</span>
+                    <span class="status-dot" id="dot-sonos"></span>
+                </div>
+                <div class="service-item" data-service="beo-cd">
+                    <span class="name">beo-cd</span>
+                    <span class="status-dot" id="dot-cd"></span>
+                </div>
                 <div class="service-item" data-service="beo-input">
                     <span class="name">beo-input</span>
                     <span class="status-dot" id="dot-input"></span>
-                </div>
-                <div class="service-item" data-service="beo-media">
-                    <span class="name">beo-media</span>
-                    <span class="status-dot" id="dot-media"></span>
                 </div>
                 <div class="service-item" data-service="beo-http">
                     <span class="name">beo-http</span>
@@ -887,10 +898,6 @@
                 <div class="service-item" data-service="beo-ui">
                     <span class="name">beo-ui</span>
                     <span class="status-dot" id="dot-ui"></span>
-                </div>
-                <div class="service-item" data-service="beo-cd">
-                    <span class="name">beo-cd</span>
-                    <span class="status-dot" id="dot-cd"></span>
                 </div>
                 <div class="service-item" data-service="beo-spotify-fetch">
                     <span class="name">beo-spotify-fetch (timer)</span>
@@ -1054,9 +1061,9 @@
     <script>
         class SystemPanel {
             constructor() {
-                this.sections = ['info', 'debug', 'logs', 'services', 'remotes', 'people', 'output'];
+                this.sections = ['info', 'debug', 'services', 'remotes', 'people', 'output'];
                 this.currentSection = 0;
-                this.logServices = ['beo-masterlink', 'beo-bluetooth', 'beo-input', 'beo-media', 'beo-http', 'beo-ui', 'beo-cd', 'beo-spotify-fetch'];
+                this.logServices = ['beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-sonos', 'beo-cd', 'beo-input', 'beo-http', 'beo-ui'];
                 this.currentLogService = 0;
                 this.serviceItems = document.querySelectorAll('#services .service-item');
                 this.currentServiceItem = 0;
@@ -1216,7 +1223,8 @@
                     ws.onopen = () => {
                         mediaEl.textContent = 'Connected';
                         mediaEl.className = 'value status-ok';
-                        document.getElementById('dot-media').className = 'status-dot running';
+                        const dotSonos = document.getElementById('dot-sonos');
+                        if (dotSonos) dotSonos.className = 'status-dot running';
                     };
 
                     ws.onmessage = (event) => {
@@ -1577,7 +1585,7 @@
                 } else if (button === 'go') {
                     if (section === 'services') {
                         this.restartSelectedService();
-                    } else if (section === 'logs') {
+                    } else if (section === 'debug') {
                         this.currentLogService = (this.currentLogService + 1) % this.logServices.length;
                         this.startLogStream(this.logServices[this.currentLogService]);
                     } else if (section === 'remotes') {
@@ -1599,15 +1607,7 @@
 
                 const section = this.sections[this.currentSection];
 
-                if (section === 'logs') {
-                    const logOutput = document.getElementById('log-output');
-                    const scrollAmount = Math.min(speed * 15, 90);
-                    if (direction === 'counter') {
-                        logOutput.scrollTop -= scrollAmount;
-                    } else if (direction === 'clock') {
-                        logOutput.scrollTop += scrollAmount;
-                    }
-                } else if (section === 'services') {
+                if (section === 'services') {
                     // Single item navigation
                     if (direction === 'counter') {
                         this.currentServiceItem = Math.max(0, this.currentServiceItem - 1);
@@ -1653,13 +1653,11 @@
                     content.classList.toggle('active', this.sections.indexOf(content.id) === this.currentSection);
                 });
 
-                // Start log stream when entering logs section
-                if (this.sections[this.currentSection] === 'logs' && !this.isStreaming) {
-                    this.startLogStream(this.logServices[this.currentLogService]);
-                }
-
-                // Poll network status only when debug section is active
+                // Poll network status and start log stream when debug section is active
                 if (this.sections[this.currentSection] === 'debug') {
+                    if (!this.isStreaming) {
+                        this.startLogStream(this.logServices[this.currentLogService]);
+                    }
                     this.fetchNetworkStatus();
                     this.networkPollInterval = setInterval(() => this.fetchNetworkStatus(), 5000);
                 } else {

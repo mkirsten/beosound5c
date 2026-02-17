@@ -360,6 +360,7 @@ class SonosArtworkViewer:
 
 
 ROUTER_VOLUME_REPORT_URL = "http://localhost:8770/router/volume/report"
+ROUTER_PLAYBACK_OVERRIDE_URL = "http://localhost:8770/router/playback_override"
 
 
 class MediaServer:
@@ -515,6 +516,11 @@ class MediaServer:
                             await self.fetch_media_data()
                             # Prefetch upcoming tracks in background
                             asyncio.create_task(self.sonos_viewer.prefetch_upcoming_artwork(count=PREFETCH_COUNT))
+
+                    # Notify router when Sonos media changes — lets the router
+                    # clear stale active_source when external playback takes over
+                    if track_changed:
+                        asyncio.create_task(self._notify_router_playback_override())
 
                     current_position = position
 
@@ -699,6 +705,28 @@ class MediaServer:
                         logger.debug(f"Router volume report returned {response.status}")
         except Exception as e:
             logger.debug(f"Could not report volume to router: {e}")
+
+    async def _notify_router_playback_override(self):
+        """Notify the router that Sonos media changed externally.
+
+        The router will clear active_source if no BS5c source updated recently
+        (grace period prevents CD track advances from being misidentified).
+        """
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    ROUTER_PLAYBACK_OVERRIDE_URL,
+                    json={},
+                    timeout=aiohttp.ClientTimeout(total=2)
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        if result.get('cleared'):
+                            logger.info("Router active source cleared (playback override)")
+                        else:
+                            logger.debug(f"Playback override not applied: {result.get('reason')}")
+        except Exception as e:
+            logger.debug(f"Could not notify router of playback override: {e}")
 
 def signal_handler(signum, frame):
     """Handle shutdown signals."""

@@ -567,132 +567,81 @@ html, body {
   transform: rotateY(180deg);
 }
 
-/* ── CD View Flip (4-face: artwork, back, tracks, settings) ── */
+/* ── CD Arc Track Browser (matches softarc layout exactly) ── */
 
-.cd-artwork-container {
-  perspective: 800px;
-  overflow: visible;
-}
-
-.cd-flipper {
-  width: 100%;
-  height: 100%;
+.cd-arc-container {
   position: relative;
-  transform-style: preserve-3d;
-}
-
-.cd-flipper-snap {
-  transition: transform 150ms ease-out;
-}
-
-.cd-face {
   width: 100%;
   height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Matches .arc-item: same width, gap, layout */
+.cd-arc-item {
   position: absolute;
-  top: 0;
-  left: 0;
-  backface-visibility: hidden;
-}
-
-.cd-face img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 8px;
-}
-
-.cd-face.cd-face-hidden {
-  display: none;
-}
-
-/* ── Face List (tracks / settings) ── */
-
-.cd-face-list {
   display: flex;
-  flex-direction: column;
-  text-align: left;
-  overflow-y: auto;
-  scrollbar-width: none;
-  padding: 16px;
-  box-sizing: border-box;
+  align-items: center;
+  gap: 1rem;
+  pointer-events: none;
+  width: 280px;
+  justify-content: space-between;
+  will-change: transform;
 }
-.cd-face-list::-webkit-scrollbar { display: none; }
 
-.cd-face-list-title {
-  font-size: 20px;
+/* Matches .item-name: right-aligned text, flex:1 */
+.cd-arc-item-name {
+  text-align: right;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  color: white;
+  font-weight: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cd-arc-item-name.selected {
+  font-size: 1.125rem;
   font-weight: bold;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255,255,255,0.15);
 }
 
-.cd-face-list-header {
-  font-size: 16px;
-  color: #888;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-}
-
-.cd-face-list-items {
-  display: flex;
-  flex-direction: column;
-}
-
-.cd-face-list-item {
-  display: flex;
-  gap: 12px;
-  padding: 6px 4px;
-  font-size: 15px;
-  color: #ccc;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  transition: color 0.15s ease, background 0.15s ease;
-}
-
-.cd-face-list-item-selected {
-  color: #fff;
-  background: rgba(255,255,255,0.08);
-}
-
-.cd-face-list-item-playing {
+.cd-arc-item-playing .cd-arc-item-name {
   color: rgba(102, 153, 255, 1);
 }
 
-.cd-face-track-num {
-  width: 24px;
-  text-align: right;
-  opacity: 0.5;
+/* Matches .item-image: 128px square, same border-radius */
+.cd-arc-item-badge {
+  width: 8rem;
+  height: 8rem;
   flex-shrink: 0;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.5);
 }
 
-.cd-face-track-name {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.cd-arc-item-selected .cd-arc-item-badge {
+  background: rgba(255, 255, 255, 0.10);
+  color: #fff;
+  font-weight: 400;
 }
 
-.cd-face-track-dur {
-  opacity: 0.4;
-  flex-shrink: 0;
-  font-size: 13px;
+.cd-arc-item-playing .cd-arc-item-badge {
+  background: rgba(102, 153, 255, 0.15);
+  color: rgba(102, 153, 255, 1);
 }
 
-.cd-face-list-item-playing .cd-face-track-num {
-  opacity: 1;
-}
-
-/* Track change text transitions */
-.cd-track-transition {
-  transition: opacity 250ms ease, transform 250ms ease;
-}
-.cd-track-exit {
-  opacity: 0;
-  transform: translateY(-12px);
-}
-.cd-track-enter {
-  opacity: 0;
-  transform: translateY(12px);
+.cd-arc-item-eject .cd-arc-item-badge {
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 2.5rem;
 }
 
 

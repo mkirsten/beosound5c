@@ -114,10 +114,10 @@ function updateTransitionStyles() {
             [id*="cursor"],
             .top-wheel-pointer,
             g[transform],
-            [style*="transform"]:not(.playing-flipper):not(.playing-face):not(.cd-flipper):not(.cd-face):not(.cd-track-transition),
+            [style*="transform"]:not(.playing-flipper):not(.playing-face):not(.cd-arc-item):not(.cd-track-transition),
             [transform],
-            *[style*="transition"]:not(.playing-flipper):not(.playing-face):not(.cd-flipper):not(.cd-face):not(.cd-track-transition),
-            *[style*="rotate"]:not(.playing-flipper):not(.playing-face):not(.cd-flipper):not(.cd-face),
+            *[style*="transition"]:not(.playing-flipper):not(.playing-face):not(.cd-arc-item):not(.cd-track-transition),
+            *[style*="rotate"]:not(.playing-flipper):not(.playing-face):not(.cd-arc-item),
             path, line, polygon {
                 transition: none !important;
                 animation: none !important;
@@ -204,11 +204,19 @@ function updateViaStore(angle, laserPosition) {
 function handleNavEvent(uiStore, data) {
     const currentPage = uiStore.currentRoute || 'unknown';
 
-    // Route nav events to active source controller
+    // Route nav events to active source controller (by page)
     const navSourceId = currentPage.startsWith('menu/') ? currentPage.slice(5) : null;
     const navSourceCtrl = navSourceId && window.SourcePresets?.[navSourceId]?.controller;
     if (navSourceCtrl?.isActive && navSourceCtrl.handleNavEvent) {
         if (navSourceCtrl.handleNavEvent(data)) return;
+    }
+
+    // PLAYING page: route to active source controller
+    if (currentPage === 'menu/playing' && uiStore.activeSource) {
+        const activeCtrl = window.SourcePresets?.[uiStore.activeSource]?.controller;
+        if (activeCtrl?.isActive && activeCtrl.handleNavEvent) {
+            if (activeCtrl.handleNavEvent(data)) return;
+        }
     }
 
     // Forward nav events to iframe pages that handle their own navigation
@@ -310,11 +318,19 @@ function handleButtonEvent(uiStore, data) {
     const currentPage = uiStore.currentRoute || 'unknown';
     console.log(`[BUTTON] ${data.button} on ${currentPage}`);
 
-    // Active source controller captures buttons
+    // Active source controller captures buttons (by page)
     const btnSourceId = currentPage.startsWith('menu/') ? currentPage.slice(5) : null;
     const btnSourceCtrl = btnSourceId && window.SourcePresets?.[btnSourceId]?.controller;
     if (btnSourceCtrl?.isActive && btnSourceCtrl.handleButton) {
         if (btnSourceCtrl.handleButton(data.button.toLowerCase())) return;
+    }
+
+    // PLAYING page: route to active source controller
+    if (currentPage === 'menu/playing' && uiStore.activeSource) {
+        const activeCtrl = window.SourcePresets?.[uiStore.activeSource]?.controller;
+        if (activeCtrl?.isActive && activeCtrl.handleButton) {
+            if (activeCtrl.handleButton(data.button.toLowerCase())) return;
+        }
     }
 
     // Check if camera overlay is active - intercept GO, LEFT, RIGHT buttons

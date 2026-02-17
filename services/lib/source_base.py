@@ -60,6 +60,7 @@ class SourceBase:
                 "name": self.name,
                 "command_url": f"http://localhost:{self.port}/command",
                 "menu_preset": self.id,
+                "handles": list(self.action_map.keys()),
             })
         if navigate:
             payload["navigate"] = True

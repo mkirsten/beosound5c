@@ -432,7 +432,7 @@ class BluetoothHIDService:
         payload.update(extra)
 
         # Digit buttons → playlist lookup (matches masterlink.py behaviour)
-        if action in ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9"):
+        if device_type == "Audio" and action in ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9"):
             payload["digit"] = int(action)
             uri = get_playlist_uri(int(action))
             if uri:

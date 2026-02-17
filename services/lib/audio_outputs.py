@@ -13,6 +13,7 @@ Usage:
     sink = audio.find_sink(type="bluetooth")     # find by type
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -145,6 +146,32 @@ class AudioOutputs:
                 continue
             return output
         return None
+
+    async def ensure_output(self, ip):
+        """Ensure the AirPlay sink for the given IP exists and is the default.
+
+        Waits up to 5s for PipeWire to rediscover the speaker if it disappeared.
+        Returns True if the sink is ready, False if it couldn't be found/set.
+        """
+        if not ip:
+            return False
+
+        sink = self.find_sink(ip=ip)
+        if sink and sink.get("active"):
+            return True
+        if sink:
+            return await self.set_output(sink["name"])
+
+        # Sink gone — wait for PipeWire to rediscover it
+        for attempt in range(5):
+            await asyncio.sleep(1)
+            sink = self.find_sink(ip=ip)
+            if sink:
+                log.info("AirPlay sink reappeared after %ds", attempt + 1)
+                return await self.set_output(sink["name"])
+
+        log.warning("AirPlay sink for %s not found after 5s", ip)
+        return False
 
     async def set_output(self, sink_name):
         """Switch default audio output and move active streams.

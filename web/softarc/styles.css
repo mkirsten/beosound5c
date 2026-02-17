@@ -110,10 +110,18 @@ body {
     transition: all 75ms ease-out;
 }
 
-/* Remove blue glowing border from selected items */
-/* .item-image-container.selected {
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.7);
-} */
+/* Blue highlight for selected leaf items (actionable, not folders) */
+.arc-item.selected.leaf .item-name {
+    background: linear-gradient(135deg, rgba(80, 140, 255, 1), rgba(120, 170, 255, 0.85));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.arc-item.selected.leaf .item-image {
+    box-shadow: 0 0 0 3px rgba(80, 140, 255, 0.6), 0 0 12px rgba(80, 140, 255, 0.25);
+    border-radius: 0.75rem;
+}
 
 /* The actual image element */
 .item-image {

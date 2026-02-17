@@ -164,7 +164,7 @@ def get_system_info() -> dict:
             info['git_tag'] = '--'
 
         # Service status
-        services = ['beo-http', 'beo-ui', 'beo-sonos', 'beo-input', 'beo-bluetooth', 'beo-masterlink', 'beo-cd', 'beo-spotify-fetch']
+        services = ['beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-sonos', 'beo-cd', 'beo-input', 'beo-http', 'beo-ui', 'beo-spotify-fetch']
         info['services'] = {}
         for svc in services:
             # For timers, check the timer status
@@ -368,7 +368,7 @@ def restart_service(action: str):
         if action == 'reboot':
             subprocess.Popen(['sudo', 'reboot'])
         elif action == 'restart-all':
-            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-http', 'beo-ui', 'beo-sonos', 'beo-input', 'beo-bluetooth', 'beo-masterlink'])
+            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-sonos', 'beo-cd', 'beo-input', 'beo-http', 'beo-ui'])
         elif action.startswith('restart-'):
             service = 'beo-' + action.replace('restart-', '')
             subprocess.Popen(['sudo', 'systemctl', 'restart', service])

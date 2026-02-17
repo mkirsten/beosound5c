@@ -821,21 +821,28 @@ class ArcList {
             itemElement.dataset.itemId = item.id; // Add unique identifier
             
             // Add selected class if this is the center item
-            if (Math.abs(item.index - this.currentIndex) < 0.5) {
+            const isSelected = Math.abs(item.index - this.currentIndex) < 0.5;
+            if (isSelected) {
                 itemElement.classList.add('selected');
             }
-            
+
+            // Leaf detection: item has no children (not a drillable folder)
+            const isLeaf = this.viewMode !== 'parent'
+                || !item[this.config.parentKey]
+                || item[this.config.parentKey].length === 0;
+            if (isLeaf) itemElement.classList.add('leaf');
+
             // Create and configure the image - EXACTLY like music.html
             const imageContainer = document.createElement('div');
             imageContainer.className = 'item-image-container';
-            if (itemElement.classList.contains('selected')) {
+            if (isSelected) {
                 imageContainer.classList.add('selected');
             }
-            
+
             // Create image EXACTLY like music.html
             const nameEl = document.createElement('div');
             nameEl.className = 'item-name';
-            if (!itemElement.classList.contains('selected')) {
+            if (!isSelected) {
                 nameEl.classList.add('unselected');
             } else {
                 nameEl.classList.add('selected');
@@ -906,21 +913,24 @@ class ArcList {
             itemElement.dataset.childItem = 'true'; // Mark as child item for easy removal
             
             // Add selected class if this is the center item
-            if (Math.abs(item.index - this.currentIndex) < 0.5) {
+            const isSelected = Math.abs(item.index - this.currentIndex) < 0.5;
+            if (isSelected) {
                 itemElement.classList.add('selected');
             }
-            
+            // Child items are always leaf (actionable, not folders)
+            itemElement.classList.add('leaf');
+
             // Create and configure the image
             const imageContainer = document.createElement('div');
             imageContainer.className = 'item-image-container';
-            if (itemElement.classList.contains('selected')) {
+            if (isSelected) {
                 imageContainer.classList.add('selected');
             }
-            
+
             // Create name element with proper classes from the start
             const nameEl = document.createElement('div');
             nameEl.className = 'item-name';
-            if (!itemElement.classList.contains('selected')) {
+            if (!isSelected) {
                 nameEl.classList.add('unselected');
             } else {
                 nameEl.classList.add('selected');

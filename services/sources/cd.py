@@ -274,6 +274,7 @@ class CDPlayer:
         # Callbacks — set by CDService
         self._on_track_end = None
         self._on_pause_timeout = None
+        self._on_before_play = None
 
     async def play_track(self, track_num):
         self._stopped_explicitly = True  # stop() during play_track is not end-of-track
@@ -281,6 +282,8 @@ class CDPlayer:
         self._stopped_explicitly = False
         self.current_track = track_num
         self._cancel_pause_timer()
+        if self._on_before_play:
+            await self._on_before_play()
         try:
             env = os.environ.copy()
             env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
@@ -318,6 +321,8 @@ class CDPlayer:
     async def play(self):
         if self.state == 'paused':
             self._cancel_pause_timer()
+            if self._on_before_play:
+                await self._on_before_play()
             self._mpv_command('cycle', 'pause')
             self.state = 'playing'
         elif self.state == 'stopped':
@@ -444,6 +449,8 @@ class CDService(SourceBase):
         "prev": "prev",
         "right": "next",
         "left": "prev",
+        "up": "next",
+        "down": "prev",
         "stop": "stop",
         "info": "announce",
     }
@@ -464,9 +471,10 @@ class CDService(SourceBase):
     # ── SourceBase hooks ──
 
     async def on_start(self):
-        # Wire player callbacks for auto-advance and pause timeout
+        # Wire player callbacks for auto-advance, pause timeout, and AirPlay reconnect
         self.player._on_track_end = self._on_track_end
         self.player._on_pause_timeout = self._on_pause_timeout
+        self.player._on_before_play = self._ensure_airplay
 
         await self.drive.start_polling(
             on_drive_change=self._on_drive_change,
@@ -595,6 +603,15 @@ class CDService(SourceBase):
                 log.info(f"Default AirPlay -> {sink['label']}")
                 return
         log.warning(f"Sonos AirPlay sink for {sonos_ip} not found")
+
+    async def _ensure_airplay(self):
+        """Pre-play check: ensure the AirPlay sink is still alive."""
+        sonos_ip = os.getenv('SONOS_IP', '')
+        if not sonos_ip:
+            return
+        ok = await self.audio.ensure_output(ip=sonos_ip)
+        if not ok:
+            log.warning("AirPlay sink not available — audio may play to wrong output")
 
     # ── Drive event handlers ──
 

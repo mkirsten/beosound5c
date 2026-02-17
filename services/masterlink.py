@@ -375,9 +375,9 @@ class PC2Device:
             'timestamp': datetime.now().isoformat()
         }
 
-        # Handle digit buttons - look up playlist and send play_playlist action
+        # Handle digit buttons - look up playlist (Audio mode only; Light/Video digits go straight to HA)
         action = webhook_data['action']
-        if action in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
+        if webhook_data.get('device_type') == 'Audio' and action in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
             digit = int(action)
             webhook_data['digit'] = digit
             playlist_uri = get_playlist_uri(digit)

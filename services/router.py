@@ -16,6 +16,7 @@ import logging
 import os
 import signal
 import sys
+import time
 
 import aiohttp
 from aiohttp import web
@@ -142,6 +143,12 @@ class SourceRegistry:
         elif state == "playing":
             # Activate this source
             if self._active_id != id:
+                # Stop the previously active source (if any)
+                prev = self._sources.get(self._active_id) if self._active_id else None
+                if prev and prev.state in ("playing", "paused") and prev.command_url:
+                    logger.info("Stopping previous source: %s", prev.id)
+                    await router._forward_to_source(prev, {"action": "stop"})
+
                 self._active_id = id
                 await router._broadcast("source_change", {
                     "active_source": id, "source_name": source.name
@@ -201,6 +208,16 @@ class SourceRegistry:
             return False  # digits are checked separately via payload
         return False
 
+    async def clear_active_source(self, router: "EventRouter"):
+        """Clear the active source (e.g. when external playback overrides it)."""
+        if self._active_id is None:
+            return False
+        old_id = self._active_id
+        self._active_id = None
+        await router._broadcast("source_change", {"active_source": None})
+        logger.info("Active source cleared (was: %s)", old_id)
+        return True
+
     def all_available(self) -> list[Source]:
         """Return all sources that are not gone."""
         return [s for s in self._sources.values() if s.state != "gone"]
@@ -219,6 +236,7 @@ class EventRouter:
         self._session: aiohttp.ClientSession | None = None
         self._volume = None           # VolumeAdapter instance
         self._config = {}
+        self._last_source_update_time = 0  # monotonic time of last source state update
 
     def _load_config(self) -> dict:
         path = os.getenv("ROUTER_CONFIG", "/etc/beosound5c/router.json")
@@ -235,7 +253,7 @@ class EventRouter:
                     "cd": {
                         "after": "music",
                         "handles": ["play", "pause", "next", "prev", "stop",
-                                    "go", "left", "right", "digits", "info"],
+                                    "go", "left", "right", "up", "down", "digits", "info"],
                     }
                 },
             }
@@ -297,17 +315,18 @@ class EventRouter:
     async def route_event(self, payload: dict):
         """Route an incoming event to the right destination."""
         action = payload.get("action", "")
+        device_type = payload.get("device_type", "")
         active = self.registry.active_source
 
-        # 1. Active source handles this action? → forward raw event
-        if active and active.state in ("playing", "paused") and action in active.handles:
+        # 1. Active source handles this action? → forward (Audio mode only)
+        if device_type == "Audio" and active and active.state in ("playing", "paused") and action in active.handles:
             logger.info("-> %s: %s (active source)", active.id, action)
             await self._forward_to_source(active, payload)
             return
 
-        # 2. Digit buttons → forward to active source if it handles "digits"
+        # 2. Digit buttons → forward to active source (Audio mode only)
         digit = payload.get("digit")
-        if digit is not None and active and active.state in ("playing", "paused") and "digits" in active.handles:
+        if device_type == "Audio" and digit is not None and active and active.state in ("playing", "paused") and "digits" in active.handles:
             logger.info("-> %s: digit %d (active source)", active.id, digit)
             await self._forward_to_source(active, payload)
             return
@@ -319,17 +338,32 @@ class EventRouter:
             await self._forward_to_source(source_by_action, payload)
             return
 
-        # 4. Volume keys — handle locally via adapter
-        if action in ("volup", "voldown"):
+        # 4. Volume keys — handle locally via adapter (Audio mode only)
+        if action in ("volup", "voldown") and device_type == "Audio":
             delta = VOLUME_STEP if action == "volup" else -VOLUME_STEP
             new_vol = max(0, min(100, self.volume + delta))
             logger.info("-> volume: %.0f%% -> %.0f%% (%s)", self.volume, new_vol, action)
             await self.set_volume(new_vol)
             return
 
-        # 5. Everything else → HA
+        # 5. Views that handle buttons locally (iframes) — suppress HA forwarding
+        LOCAL_BUTTON_VIEWS = {"menu/system", "menu/security"}
+        if self.active_view in LOCAL_BUTTON_VIEWS and action in (
+            "go", "left", "right", "up", "down",
+        ):
+            logger.info("-> suppressed: %s on %s (handled by UI)", action, self.active_view)
+            return
+
+        # 6. Everything else → HA
         logger.info("-> HA: %s (%s)", action, payload.get("device_type", ""))
         await self.transport.send_event(payload)
+
+        # If play/go reaches HA fallback, the user chose a non-source action
+        # (e.g. selected a Sonos playlist from MUSIC page). Clear active source
+        # so the PLAYING view reverts to showing Sonos media.
+        # TODO: Route playback commands directly through SoCo instead of HA
+        if action in ("play", "go") and self.registry.active_id:
+            await self.registry.clear_active_source(self)
 
     async def _forward_to_source(self, source: Source, payload: dict):
         """Forward a raw event payload to a source's command endpoint."""
@@ -430,6 +464,9 @@ async def handle_source(request: web.Request) -> web.Response:
 
     result = await router_instance.registry.update(src_id, state, router_instance, **fields)
 
+    # Track when sources last updated (used by playback_override grace period)
+    router_instance._last_source_update_time = time.monotonic()
+
     return web.json_response({
         "status": "ok",
         "source": src_id,
@@ -488,6 +525,33 @@ async def handle_view(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "active_view": view})
 
 
+SOURCE_OVERRIDE_GRACE = 10  # seconds — ignore overrides if a source updated recently
+
+
+async def handle_playback_override(request: web.Request) -> web.Response:
+    """POST /router/playback_override — external player reports media changed.
+
+    Called by beo-sonos when Sonos switches to different content.  Clears
+    active_source so the PLAYING view reverts to Sonos media, BUT only if no
+    source updated its state recently (grace period prevents CD auto-advance
+    from being misidentified as an external takeover).
+    """
+    if router_instance.registry.active_id is None:
+        return web.json_response({"status": "ok", "cleared": False, "reason": "no_active_source"})
+
+    elapsed = time.monotonic() - router_instance._last_source_update_time
+    if elapsed < SOURCE_OVERRIDE_GRACE:
+        logger.info("Playback override ignored — source updated %.1fs ago (grace: %ds)",
+                     elapsed, SOURCE_OVERRIDE_GRACE)
+        return web.json_response({
+            "status": "ok", "cleared": False, "reason": "grace_period",
+            "elapsed": round(elapsed, 1),
+        })
+
+    await router_instance.registry.clear_active_source(router_instance)
+    return web.json_response({"status": "ok", "cleared": True})
+
+
 async def handle_status(request: web.Request) -> web.Response:
     """GET /router/status — return current routing state."""
     active = router_instance.registry.active_source
@@ -536,6 +600,7 @@ def create_app() -> web.Application:
     app.router.add_post("/router/view", handle_view)
     app.router.add_post("/router/volume", handle_volume_set)
     app.router.add_post("/router/volume/report", handle_volume_report)
+    app.router.add_post("/router/playback_override", handle_playback_override)
     app.router.add_get("/router/status", handle_status)
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
