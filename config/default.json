@@ -30,7 +30,7 @@
     { "id": "church_off", "name": "All off", "icon": "power", "color": "#c55" }
   ],
 
-  "sonos": { "ip": "192.168.0.190" },
+  "player": { "type": "sonos", "ip": "192.168.0.190" },
   "bluetooth": { "remote_mac": "" },
   "home_assistant": {
     "url": "http://homeassistant.local:8123",
