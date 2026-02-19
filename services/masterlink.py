@@ -15,8 +15,6 @@ from collections import defaultdict
 # Ensure services/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Shared playlist lookup (single source of truth)
-from playlist_lookup import get_playlist_uri
 from lib.config import cfg
 from lib.watchdog import watchdog_loop
 
@@ -380,19 +378,6 @@ class PC2Device:
             'count': message.get('count', 1),
             'timestamp': datetime.now().isoformat()
         }
-
-        # Handle digit buttons - look up playlist (Audio mode only; Light/Video digits go straight to HA)
-        action = webhook_data['action']
-        if webhook_data.get('device_type') == 'Audio' and action in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-            digit = int(action)
-            webhook_data['digit'] = digit
-            playlist_uri = get_playlist_uri(digit)
-            if playlist_uri:
-                logger.info("Digit %d -> %s", digit, playlist_uri)
-                webhook_data['action'] = 'play_playlist'
-                webhook_data['playlist_uri'] = playlist_uri
-            else:
-                logger.info("No playlist found for digit %d", digit)
 
         try:
             async with self.session.post(

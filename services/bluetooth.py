@@ -35,7 +35,6 @@ import aiohttp
 
 # Ensure services/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from playlist_lookup import get_playlist_uri
 from lib.config import cfg
 from lib.watchdog import watchdog_loop
 
@@ -363,6 +362,7 @@ class BluetoothHIDService:
             elif action == "music":
                 self.current_mode = "Audio"
                 logger.info("Mode -> Audio")
+                await self._dispatch("music", "Audio")
             return
 
         # --- Dispatch with current mode ---
@@ -411,16 +411,6 @@ class BluetoothHIDService:
             "device_type": device_type,
         }
         payload.update(extra)
-
-        # Digit buttons → playlist lookup (matches masterlink.py behaviour)
-        if device_type == "Audio" and action in ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9"):
-            payload["digit"] = int(action)
-            uri = get_playlist_uri(int(action))
-            if uri:
-                logger.info("[PLAYLIST] Digit %s -> %s", action, uri)
-                payload["action"] = "play_playlist"
-                payload["playlist_uri"] = uri
-                payload["device_type"] = "Audio"
 
         et = f" [{extra['event_type']}]" if "event_type" in extra else ""
         logger.info("-> %s (%s)%s", payload["action"], payload["device_type"], et)

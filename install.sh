@@ -683,40 +683,67 @@ if [ ! -f "$CONFIG_FILE" ]; then
     DEVICE_NAME="${DEVICE_NAME:-BeoSound5c}"
 
     # -------------------------------------------------------------------------
-    # Sonos IP - with network discovery
+    # Player Configuration
     # -------------------------------------------------------------------------
     echo ""
-    log_section "Sonos Configuration"
+    log_section "Player Configuration"
 
-    # Scan for Sonos devices
-    mapfile -t sonos_results < <(scan_sonos_devices)
+    echo "Select the network player type:"
+    echo ""
+    echo "  1) Sonos      - Sonos speaker (most common)"
+    echo "  2) BlueSound  - BlueSound player"
+    echo "  3) None       - No network player"
+    echo ""
 
-    if [ ${#sonos_results[@]} -gt 0 ]; then
-        # Format results for display
-        sonos_display=()
-        sonos_ips=()
-        for result in "${sonos_results[@]}"; do
-            ip=$(echo "$result" | cut -d'|' -f1)
-            name=$(echo "$result" | cut -d'|' -f2)
-            sonos_display+=("$name ($ip)")
-            sonos_ips+=("$ip")
-        done
+    PLAYER_TYPE="sonos"
+    PLAYER_IP=""
 
-        log_success "Found ${#sonos_results[@]} Sonos device(s)!"
+    while true; do
+        read -p "Select player type [1-3, default 1]: " PLAYER_CHOICE
+        PLAYER_CHOICE="${PLAYER_CHOICE:-1}"
+        case "$PLAYER_CHOICE" in
+            1) PLAYER_TYPE="sonos"; break ;;
+            2) PLAYER_TYPE="bluesound"; break ;;
+            3) PLAYER_TYPE="none"; break ;;
+            *) echo "Invalid selection. Please enter 1, 2, or 3." ;;
+        esac
+    done
 
-        if selection=$(select_from_list "Select Sonos speaker to control:" "${sonos_display[@]}"); then
-            # Extract IP from selection
-            SONOS_IP=$(echo "$selection" | grep -oP '\(([0-9.]+)\)' | tr -d '()')
+    if [[ "$PLAYER_TYPE" == "sonos" ]]; then
+        # Scan for Sonos devices
+        mapfile -t sonos_results < <(scan_sonos_devices)
+
+        if [ ${#sonos_results[@]} -gt 0 ]; then
+            # Format results for display
+            sonos_display=()
+            sonos_ips=()
+            for result in "${sonos_results[@]}"; do
+                ip=$(echo "$result" | cut -d'|' -f1)
+                name=$(echo "$result" | cut -d'|' -f2)
+                sonos_display+=("$name ($ip)")
+                sonos_ips+=("$ip")
+            done
+
+            log_success "Found ${#sonos_results[@]} Sonos device(s)!"
+
+            if selection=$(select_from_list "Select Sonos speaker to control:" "${sonos_display[@]}"); then
+                # Extract IP from selection
+                PLAYER_IP=$(echo "$selection" | grep -oP '\(([0-9.]+)\)' | tr -d '()')
+            else
+                read -p "Enter Sonos speaker IP address: " PLAYER_IP
+            fi
         else
-            read -p "Enter Sonos speaker IP address: " SONOS_IP
+            log_warn "No Sonos devices found on the network"
+            log_info "Make sure your Sonos speaker is powered on and connected to the same network"
+            read -p "Enter Sonos speaker IP address: " PLAYER_IP
         fi
-    else
-        log_warn "No Sonos devices found on the network"
-        log_info "Make sure your Sonos speaker is powered on and connected to the same network"
-        read -p "Enter Sonos speaker IP address: " SONOS_IP
+        PLAYER_IP="${PLAYER_IP:-192.168.1.100}"
+    elif [[ "$PLAYER_TYPE" == "bluesound" ]]; then
+        read -p "Enter BlueSound player IP address: " PLAYER_IP
+        PLAYER_IP="${PLAYER_IP:-192.168.1.100}"
     fi
-    SONOS_IP="${SONOS_IP:-192.168.1.100}"
-    log_success "Sonos IP: $SONOS_IP"
+
+    log_success "Player: $PLAYER_TYPE${PLAYER_IP:+ @ $PLAYER_IP}"
 
     # -------------------------------------------------------------------------
     # Home Assistant URL - with network discovery
@@ -1198,8 +1225,8 @@ if [ ! -f "$CONFIG_FILE" ]; then
         read -p "ESPHome controller hostname [$DEFAULT_VOLUME_HOST]: " VOLUME_HOST
         VOLUME_HOST="${VOLUME_HOST:-$DEFAULT_VOLUME_HOST}"
     else
-        VOLUME_HOST="$SONOS_IP"
-        log_info "Using Sonos IP ($SONOS_IP) for volume control"
+        VOLUME_HOST="$PLAYER_IP"
+        log_info "Using player IP ($PLAYER_IP) for volume control"
     fi
 
     read -p "Maximum volume percentage [70]: " VOLUME_MAX
@@ -1234,7 +1261,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
 
   "scenes": [],
 
-  "sonos": { "ip": "$SONOS_IP" },
+  "player": { "type": "$PLAYER_TYPE", "ip": "$PLAYER_IP" },
   "bluetooth": { "remote_mac": "$BEOREMOTE_MAC" },
   "home_assistant": {
     "url": "$HA_URL",
@@ -1373,7 +1400,7 @@ fi
 
 # Check services (if they're supposed to be running)
 log_info "Checking service status..."
-SERVICES="beo-http beo-sonos beo-input beo-ui"
+SERVICES="beo-http beo-player-sonos beo-input beo-ui"
 for svc in $SERVICES; do
     if systemctl is-active --quiet "$svc" 2>/dev/null; then
         log_success "Service running: $svc"
@@ -1399,7 +1426,8 @@ fi
 # For the reconfigure=no path, read them back from the JSON file.
 if [ -f "$CONFIG_FILE" ] && [ -z "$DEVICE_NAME" ]; then
     DEVICE_NAME=$(jq -r '.device // empty' "$CONFIG_FILE" 2>/dev/null)
-    SONOS_IP=$(jq -r '.sonos.ip // empty' "$CONFIG_FILE" 2>/dev/null)
+    PLAYER_TYPE=$(jq -r '.player.type // empty' "$CONFIG_FILE" 2>/dev/null)
+    PLAYER_IP=$(jq -r '.player.ip // empty' "$CONFIG_FILE" 2>/dev/null)
     HA_URL=$(jq -r '.home_assistant.url // empty' "$CONFIG_FILE" 2>/dev/null)
     TRANSPORT_MODE=$(jq -r '.transport.mode // empty' "$CONFIG_FILE" 2>/dev/null)
     MQTT_BROKER=$(jq -r '.transport.mqtt_broker // empty' "$CONFIG_FILE" 2>/dev/null)
@@ -1425,7 +1453,7 @@ echo -e "${CYAN}║${NC}                                                        
 echo -e "${CYAN}║${NC}  ${YELLOW}Configuration Summary${NC}                                    ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  Device Name:      ${GREEN}${DEVICE_NAME:-Not set}${NC}"
-echo -e "${CYAN}║${NC}  Sonos IP:         ${GREEN}${SONOS_IP:-Not set}${NC}"
+echo -e "${CYAN}║${NC}  Player:           ${GREEN}${PLAYER_TYPE:-Not set}${PLAYER_IP:+ @ $PLAYER_IP}${NC}"
 echo -e "${CYAN}║${NC}  Home Assistant:   ${GREEN}${HA_URL:-Not set}${NC}"
 if [ -n "$HA_TOKEN" ] && [ "$HA_TOKEN" != "" ]; then
 echo -e "${CYAN}║${NC}  HA Token:         ${GREEN}Configured${NC}"

@@ -16,7 +16,6 @@ import logging
 import os
 import signal
 import sys
-import time
 
 import aiohttp
 from aiohttp import web
@@ -45,11 +44,12 @@ INPUT_WEBHOOK_URL = "http://localhost:8767/webhook"
 STATIC_VIEWS = {"showing", "system", "security", "scenes", "playing"}
 
 # Source handles defaults (used when a source registers without specifying handles)
+_DIGITS = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
 DEFAULT_SOURCE_HANDLES = {
     "cd": {"play", "pause", "next", "prev", "stop", "go", "left", "right",
-           "up", "down", "digits", "info"},
+           "up", "down", "info"} | _DIGITS,
     "spotify": {"play", "pause", "next", "prev", "stop", "go", "left", "right",
-                "up", "down"},
+                "up", "down"} | _DIGITS,
     "usb": {"play", "pause", "next", "prev", "stop", "go", "left", "right",
             "up", "down"},
     "demo": {"play", "pause", "next", "prev", "stop", "go"},
@@ -75,7 +75,7 @@ class Source:
         self.command_url = ""          # HTTP endpoint for forwarding events
         self.handles = handles         # set of action names this source handles
         self.menu_preset = id          # SourcePresets key in the UI
-        self.player = "local"          # "local" or "sonos" — who renders audio
+        self.player = "local"          # "local" or "remote" — who renders audio
         self.state = "gone"            # gone | available | playing | paused
         self.from_config = False       # True if pre-created from config.json
         self.initial_hidden = False    # True = hidden until service registers (e.g. CD)
@@ -281,7 +281,6 @@ class EventRouter:
         self._session: aiohttp.ClientSession | None = None
         self._volume = None           # VolumeAdapter instance
         self._menu_order: list[dict] = []  # parsed menu from config
-        self._last_source_update_time = 0  # monotonic time of last source state update
 
     def _parse_menu(self):
         """Parse the menu section from config.json into an ordered list.
@@ -409,14 +408,7 @@ class EventRouter:
             await self._forward_to_source(active, payload)
             return
 
-        # 2. Digit buttons → forward to active source (Audio mode only)
-        digit = payload.get("digit")
-        if device_type == "Audio" and digit is not None and active and active.state in ("playing", "paused") and "digits" in active.handles:
-            logger.info("-> %s: digit %d (active source)", active.id, digit)
-            await self._forward_to_source(active, payload)
-            return
-
-        # 3. Action matches a registered source id? (e.g., "cd" button)
+        # 2. Action matches a registered source id? (e.g., "cd" button)
         source_by_action = self.registry.get(action)
         if source_by_action and source_by_action.state != "gone" and source_by_action.command_url:
             logger.info("-> %s: source button", action)
@@ -475,9 +467,11 @@ class EventRouter:
         except Exception as e:
             logger.warning("%s unreachable: %s", source.id, e)
 
-    async def set_volume(self, volume: float):
+    async def set_volume(self, volume: float, broadcast: bool = True):
         """Set volume (0-100). Routes to the appropriate output."""
         self.volume = max(0, min(100, volume))
+        if broadcast:
+            asyncio.ensure_future(self._broadcast_volume())
         if not await self._volume.is_on():
             logger.info("Output is OFF — skipping volume command (%.0f%%)", self.volume)
             return
@@ -487,6 +481,11 @@ class EventRouter:
         """A device reports its current volume (e.g. Sonos says 'I'm at 40%')."""
         self.volume = max(0, min(100, volume))
         logger.info("Volume reported: %.0f%%", self.volume)
+        await self._broadcast_volume()
+
+    async def _broadcast_volume(self):
+        """Push current volume to UI clients so the arc stays in sync."""
+        await self._broadcast("volume_update", {"volume": round(self.volume)})
 
     def _get_after(self, source_id: str) -> str | None:
         """Find the menu item that precedes this source in the config order.
@@ -572,9 +571,6 @@ async def handle_source(request: web.Request) -> web.Response:
 
     result = await router_instance.registry.update(src_id, state, router_instance, **fields)
 
-    # Track when sources last updated (used by playback_override grace period)
-    router_instance._last_source_update_time = time.monotonic()
-
     return web.json_response({
         "status": "ok",
         "source": src_id,
@@ -589,7 +585,7 @@ async def handle_menu(request: web.Request) -> web.Response:
 
 
 async def handle_volume_set(request: web.Request) -> web.Response:
-    """POST /router/volume — UI sets volume."""
+    """POST /router/volume — UI sets volume (no broadcast back to UI)."""
     try:
         data = await request.json()
     except (json.JSONDecodeError, Exception):
@@ -599,7 +595,8 @@ async def handle_volume_set(request: web.Request) -> web.Response:
     if volume is None or not isinstance(volume, (int, float)):
         return web.json_response({"error": "missing or invalid 'volume'"}, status=400)
 
-    await router_instance.set_volume(float(volume))
+    # broadcast=False: the UI already shows the change locally
+    await router_instance.set_volume(float(volume), broadcast=False)
     return web.json_response({"status": "ok", "volume": router_instance.volume})
 
 

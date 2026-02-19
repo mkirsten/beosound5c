@@ -13,7 +13,7 @@ Usage:
     from lib.config import cfg
 
     device_name  = cfg("device", default="BeoSound5c")
-    sonos_ip     = cfg("sonos", "ip", default="192.168.0.190")
+    player_ip    = cfg("player", "ip", default="192.168.0.190")
     volume_max   = cfg("volume", "max", default=70)
     menu         = cfg("menu")  # returns the whole dict
 """
@@ -33,6 +33,21 @@ _SEARCH_PATHS = [
 ]
 
 
+def _validate(config: dict, path: str) -> None:
+    """Warn about missing or suspicious config values."""
+    if not config.get("device"):
+        logger.warning("Config %s: missing 'device' name", path)
+    if not config.get("menu"):
+        logger.warning("Config %s: missing 'menu' section — UI will use fallback menu", path)
+    ha = config.get("home_assistant") or {}
+    if not ha.get("webhook_url"):
+        logger.warning("Config %s: missing home_assistant.webhook_url — HA integration disabled", path)
+    vol = config.get("volume") or {}
+    vol_type = vol.get("type", "esphome")
+    if vol_type not in ("esphome", "beolab5", "sonos", "powerlink", "c4amp", "hdmi", "spdif", "rca"):
+        logger.warning("Config %s: unknown volume.type '%s'", path, vol_type)
+
+
 def load_config() -> dict:
     """Load config from the first JSON file found. Cached after first call."""
     global _config
@@ -44,6 +59,7 @@ def load_config() -> dict:
             with open(path) as f:
                 _config = json.load(f)
                 logger.info("Config loaded from %s", path)
+                _validate(_config, path)
                 return _config
         except FileNotFoundError:
             continue
@@ -60,7 +76,7 @@ def cfg(section: str, key: str | None = None, *, default=None):
     """Read a config value.
 
     cfg("device")                → config["device"]
-    cfg("sonos", "ip")           → config["sonos"]["ip"]
+    cfg("player", "ip")          → config["player"]["ip"]
     cfg("volume", "max", default=70)  → config["volume"]["max"] or 70
     """
     config = load_config()

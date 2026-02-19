@@ -28,7 +28,7 @@ transport = Transport()
 BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/kirsten/beosound5c')
 
 # Media server connection
-MEDIA_SERVER_URL = 'ws://localhost:8766'
+MEDIA_SERVER_URL = 'ws://localhost:8766/ws'
 media_server_ws = None
 
 # ——— track current "byte1" state (LED/backlight bits) ———
@@ -167,7 +167,7 @@ def get_system_info() -> dict:
             info['git_tag'] = '--'
 
         # Service status
-        services = ['beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-sonos', 'beo-cd-source', 'beo-input', 'beo-http', 'beo-ui', 'beo-spotify-fetch']
+        services = ['beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-player-sonos', 'beo-cd-source', 'beo-input', 'beo-http', 'beo-ui', 'beo-spotify-fetch']
         info['services'] = {}
         for svc in services:
             # For timers, check the timer status
@@ -367,7 +367,7 @@ def restart_service(action: str):
         if action == 'reboot':
             subprocess.Popen(['sudo', 'reboot'])
         elif action == 'restart-all':
-            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-sonos', 'beo-cd-source', 'beo-input', 'beo-http', 'beo-ui'])
+            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-player-sonos', 'beo-cd-source', 'beo-input', 'beo-http', 'beo-ui'])
         elif action.startswith('restart-'):
             service = 'beo-' + action.replace('restart-', '')
             # CD source: eject disc first, use correct service name
