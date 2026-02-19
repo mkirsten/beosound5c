@@ -3,10 +3,9 @@
 
   "menu": {
     "PLAYING": "playing",
-    "CD": "cd",
+    "CD": { "id": "cd", "hidden": true },
     "USB": { "id": "usb", "paths": ["/mnt/usb-music"] },
-    "DEMO": "demo",
-    "MUSIC": "music",
+    "SPOTIFY": "spotify",
     "SCENES": "scenes",
     "SECURITY": { "id": "security", "dashboard": "dashboard-cameras/home" },
     "SYSTEM": "system",
@@ -45,5 +44,6 @@
     "step": 3,
     "output_name": "Sonos"
   },
-  "cd": { "device": "/dev/sr0" }
+  "cd": { "device": "/dev/sr0" },
+  "spotify": { "client_id": "" }
 }

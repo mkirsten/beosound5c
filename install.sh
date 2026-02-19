@@ -74,7 +74,8 @@ done
 
 INSTALL_DIR="/home/$INSTALL_USER/beosound5c"
 CONFIG_DIR="/etc/beosound5c"
-CONFIG_FILE="$CONFIG_DIR/config.env"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+SECRETS_FILE="$CONFIG_DIR/secrets.env"
 PLYMOUTH_THEME_DIR="/usr/share/plymouth/themes/beosound5c"
 
 # Show welcome banner
@@ -416,6 +417,27 @@ else
     sudo -u "$INSTALL_USER" mkdir -p "/home/$INSTALL_USER/.local/state"
     sudo -u "$INSTALL_USER" ln -s /tmp "$WIREPLUMBER_DIR"
     log_success "WirePlumber state redirected to tmpfs"
+fi
+
+# --- Disable WirePlumber Bluetooth audio monitor ---
+# The BS5c only uses BLE HID (handled by kernel HOGP), not Bluetooth audio.
+# WirePlumber's bluez monitor continuously registers/unregisters A2DP endpoints
+# with BlueZ, causing bluetoothd to burn ~40% CPU and adding latency to HID events.
+WP_BT_OVERRIDE="/home/$INSTALL_USER/.config/wireplumber/bluetooth.lua.d"
+WP_BT_SYSTEM="/usr/share/wireplumber/bluetooth.lua.d"
+if [ -d "$WP_BT_SYSTEM" ]; then
+    if [ -f "$WP_BT_OVERRIDE/90-enable-all.lua" ] && grep -q "disabled" "$WP_BT_OVERRIDE/90-enable-all.lua" 2>/dev/null; then
+        log_info "WirePlumber Bluetooth monitor already disabled"
+    else
+        log_info "Disabling WirePlumber Bluetooth audio monitor..."
+        sudo -u "$INSTALL_USER" mkdir -p "$WP_BT_OVERRIDE"
+        cp "$WP_BT_SYSTEM/00-functions.lua" "$WP_BT_OVERRIDE/"
+        chown "$INSTALL_USER:$INSTALL_USER" "$WP_BT_OVERRIDE/00-functions.lua"
+        echo '-- Bluetooth audio monitor disabled (BS5c only uses BLE HID, not A2DP)' | sudo -u "$INSTALL_USER" tee "$WP_BT_OVERRIDE/90-enable-all.lua" > /dev/null
+        log_success "WirePlumber Bluetooth monitor disabled (saves ~40% CPU on bluetoothd)"
+    fi
+else
+    log_info "WirePlumber bluetooth.lua.d not found — skipping"
 fi
 
 # --- Symlink ~/.config/chromium to tmpfs (catches crashpad handler writes) ---
@@ -765,7 +787,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
 
     if [ -z "$HA_TOKEN" ]; then
         log_warn "No token provided - some features will be unavailable"
-        log_info "You can add a token later by editing: $CONFIG_FILE"
+        log_info "You can add a token later by editing: $SECRETS_FILE"
     else
         log_success "Token configured"
     fi
@@ -1031,13 +1053,14 @@ if [ ! -f "$CONFIG_FILE" ]; then
                 SETUP_EXIT_CODE=$?
 
                 if [ $SETUP_EXIT_CODE -eq 0 ]; then
-                    # Check if credentials were saved
-                    SPOTIFY_CONFIG="$INSTALL_DIR/services/config.env"
-                    if [ -f "$SPOTIFY_CONFIG" ] && grep -q "SPOTIFY_REFRESH_TOKEN" "$SPOTIFY_CONFIG"; then
-                        # Read the values
-                        SPOTIFY_CLIENT_ID=$(grep "^SPOTIFY_CLIENT_ID=" "$SPOTIFY_CONFIG" | cut -d'"' -f2)
-                        SPOTIFY_CLIENT_SECRET=$(grep "^SPOTIFY_CLIENT_SECRET=" "$SPOTIFY_CONFIG" | cut -d'"' -f2)
-                        SPOTIFY_REFRESH_TOKEN=$(grep "^SPOTIFY_REFRESH_TOKEN=" "$SPOTIFY_CONFIG" | cut -d'"' -f2)
+                    # Check if tokens were saved to the token store
+                    SPOTIFY_TOKENS="/etc/beosound5c/spotify_tokens.json"
+                    if [ ! -f "$SPOTIFY_TOKENS" ]; then
+                        SPOTIFY_TOKENS="$INSTALL_DIR/tools/spotify/spotify_tokens.json"
+                    fi
+                    if [ -f "$SPOTIFY_TOKENS" ]; then
+                        SPOTIFY_CLIENT_ID=$(jq -r '.client_id // empty' "$SPOTIFY_TOKENS" 2>/dev/null)
+                        SPOTIFY_REFRESH_TOKEN=$(jq -r '.refresh_token // empty' "$SPOTIFY_TOKENS" 2>/dev/null)
 
                         if [ -n "$SPOTIFY_REFRESH_TOKEN" ]; then
                             log_success "Spotify configured successfully!"
@@ -1185,104 +1208,78 @@ if [ ! -f "$CONFIG_FILE" ]; then
     log_success "Output: $OUTPUT_NAME, volume: $VOLUME_TYPE @ $VOLUME_HOST (max $VOLUME_MAX%%)"
 
     # -------------------------------------------------------------------------
-    # Write configuration file
+    # Write config.json
     # -------------------------------------------------------------------------
     echo ""
     log_info "Writing configuration to $CONFIG_FILE..."
+
+    # Build menu — include SECURITY only if a dashboard was configured
+    MENU_JSON='"PLAYING": "playing", "CD": { "id": "cd", "hidden": true }, "USB": { "id": "usb", "paths": ["/mnt/usb-music"] }, "SPOTIFY": "spotify", "SCENES": "scenes"'
+    if [ -n "$HA_SECURITY_DASHBOARD" ]; then
+        MENU_JSON="$MENU_JSON, \"SECURITY\": { \"id\": \"security\", \"dashboard\": \"$HA_SECURITY_DASHBOARD\" }"
+    fi
+    MENU_JSON="$MENU_JSON, \"SYSTEM\": \"system\", \"SHOWING\": \"showing\""
+
+    # Build transport section
+    TRANSPORT_JSON="\"mode\": \"$TRANSPORT_MODE\""
+    if [[ "$TRANSPORT_MODE" == "mqtt" || "$TRANSPORT_MODE" == "both" ]]; then
+        TRANSPORT_JSON="$TRANSPORT_JSON, \"mqtt_broker\": \"$MQTT_BROKER\", \"mqtt_port\": $MQTT_PORT"
+    fi
+
     cat > "$CONFIG_FILE" << EOF
-# BeoSound 5c Configuration
-# Generated by install.sh on $(date)
+{
+  "device": "$DEVICE_NAME",
 
-# =============================================================================
-# Device Configuration
-# =============================================================================
+  "menu": { $MENU_JSON },
 
-# Location identifier (sent to Home Assistant webhooks)
-DEVICE_NAME="$DEVICE_NAME"
+  "scenes": [],
 
-# Base path for BeoSound 5c installation
-BS5C_BASE_PATH="$INSTALL_DIR"
-
-# =============================================================================
-# Sonos Configuration
-# =============================================================================
-
-# Sonos speaker IP address
-SONOS_IP="$SONOS_IP"
-
-# =============================================================================
-# Home Assistant Configuration
-# =============================================================================
-
-# Home Assistant base URL
-HA_URL="$HA_URL"
-
-# Home Assistant webhook URL for BeoSound 5c events
-HA_WEBHOOK_URL="$HA_WEBHOOK_URL"
-
-# Home Assistant dashboard for SECURITY page (without leading slash)
-HA_SECURITY_DASHBOARD="$HA_SECURITY_DASHBOARD"
-
-# Home Assistant Long-Lived Access Token (for API access)
-HA_TOKEN="$HA_TOKEN"
-
-# =============================================================================
-# Bluetooth Configuration
-# =============================================================================
-
-# Bluetooth device name (how this device appears to others)
-BT_DEVICE_NAME="$BT_DEVICE_NAME"
-
-# BeoRemote One Bluetooth MAC address
-BEOREMOTE_MAC="$BEOREMOTE_MAC"
-
-# =============================================================================
-# Transport Configuration
-# =============================================================================
-
-# Transport mode: webhook (HTTP POST), mqtt, or both
-TRANSPORT_MODE="$TRANSPORT_MODE"
-
-# MQTT broker settings (only used when TRANSPORT_MODE includes mqtt)
-MQTT_BROKER="$MQTT_BROKER"
-MQTT_PORT="$MQTT_PORT"
-MQTT_USER="$MQTT_USER"
-MQTT_PASSWORD="$MQTT_PASSWORD"
-
-# =============================================================================
-# Audio Output Configuration
-# =============================================================================
-
-# Display name for the output (shown in the UI volume overlay)
-OUTPUT_NAME="$OUTPUT_NAME"
-
-# Volume control type: "esphome" or "sonos"
-VOLUME_TYPE="$VOLUME_TYPE"
-
-# Volume target host
-VOLUME_HOST="$VOLUME_HOST"
-
-# Maximum volume percentage (0-100)
-VOLUME_MAX="$VOLUME_MAX"
-
-# =============================================================================
-# Spotify Configuration
-# =============================================================================
-
-# Spotify API credentials (set up via tools/spotify/setup_spotify.py)
-SPOTIFY_CLIENT_ID="$SPOTIFY_CLIENT_ID"
-SPOTIFY_CLIENT_SECRET="$SPOTIFY_CLIENT_SECRET"
-SPOTIFY_REFRESH_TOKEN="$SPOTIFY_REFRESH_TOKEN"
+  "sonos": { "ip": "$SONOS_IP" },
+  "bluetooth": { "remote_mac": "$BEOREMOTE_MAC" },
+  "home_assistant": {
+    "url": "$HA_URL",
+    "webhook_url": "$HA_WEBHOOK_URL"
+  },
+  "transport": { $TRANSPORT_JSON },
+  "volume": {
+    "type": "$VOLUME_TYPE",
+    "host": "$VOLUME_HOST",
+    "max": $VOLUME_MAX,
+    "step": 3,
+    "output_name": "$OUTPUT_NAME"
+  },
+  "cd": { "device": "/dev/sr0" },
+  "spotify": { "client_id": "$SPOTIFY_CLIENT_ID" }
+}
 EOF
 
     chmod 644 "$CONFIG_FILE"
     log_success "Configuration saved to $CONFIG_FILE"
-fi
 
-# Update config.env.example with dynamic username in BS5C_BASE_PATH
-EXAMPLE_CONFIG="$INSTALL_DIR/services/config.env.example"
-if [ -f "$EXAMPLE_CONFIG" ]; then
-    sed -i "s|BS5C_BASE_PATH=\"/home/[^\"]*\"|BS5C_BASE_PATH=\"$INSTALL_DIR\"|g" "$EXAMPLE_CONFIG"
+    # -------------------------------------------------------------------------
+    # Write secrets.env
+    # -------------------------------------------------------------------------
+    log_info "Writing secrets to $SECRETS_FILE..."
+    cat > "$SECRETS_FILE" << EOF
+# BeoSound 5c Secrets
+# Generated by install.sh on $(date)
+
+# Home Assistant Long-Lived Access Token
+HA_TOKEN="$HA_TOKEN"
+
+# MQTT credentials (only needed if transport.mode includes "mqtt")
+MQTT_USER="$MQTT_USER"
+MQTT_PASSWORD="$MQTT_PASSWORD"
+EOF
+
+    chmod 600 "$SECRETS_FILE"
+    log_success "Secrets saved to $SECRETS_FILE"
+
+    # Also copy config.json into web/json/ so the UI can load it
+    mkdir -p "$INSTALL_DIR/web/json"
+    cp "$CONFIG_FILE" "$INSTALL_DIR/web/json/config.json"
+    chown "$INSTALL_USER:$INSTALL_USER" "$INSTALL_DIR/web/json/config.json"
+    log_success "Config copied to web/json/config.json for UI"
 fi
 
 # =============================================================================
@@ -1398,8 +1395,23 @@ fi
 # =============================================================================
 
 # Load configuration to display summary
-if [ -f "$CONFIG_FILE" ]; then
-    source "$CONFIG_FILE"
+# Variables are already set from the interactive prompts above.
+# For the reconfigure=no path, read them back from the JSON file.
+if [ -f "$CONFIG_FILE" ] && [ -z "$DEVICE_NAME" ]; then
+    DEVICE_NAME=$(jq -r '.device // empty' "$CONFIG_FILE" 2>/dev/null)
+    SONOS_IP=$(jq -r '.sonos.ip // empty' "$CONFIG_FILE" 2>/dev/null)
+    HA_URL=$(jq -r '.home_assistant.url // empty' "$CONFIG_FILE" 2>/dev/null)
+    TRANSPORT_MODE=$(jq -r '.transport.mode // empty' "$CONFIG_FILE" 2>/dev/null)
+    MQTT_BROKER=$(jq -r '.transport.mqtt_broker // empty' "$CONFIG_FILE" 2>/dev/null)
+    MQTT_PORT=$(jq -r '.transport.mqtt_port // empty' "$CONFIG_FILE" 2>/dev/null)
+    OUTPUT_NAME=$(jq -r '.volume.output_name // empty' "$CONFIG_FILE" 2>/dev/null)
+    VOLUME_TYPE=$(jq -r '.volume.type // empty' "$CONFIG_FILE" 2>/dev/null)
+    VOLUME_HOST=$(jq -r '.volume.host // empty' "$CONFIG_FILE" 2>/dev/null)
+    VOLUME_MAX=$(jq -r '.volume.max // empty' "$CONFIG_FILE" 2>/dev/null)
+    BEOREMOTE_MAC=$(jq -r '.bluetooth.remote_mac // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -f "$SECRETS_FILE" ] && [ -z "$HA_TOKEN" ]; then
+    HA_TOKEN=$(grep '^HA_TOKEN=' "$SECRETS_FILE" 2>/dev/null | cut -d'"' -f2)
 fi
 
 echo ""
@@ -1457,6 +1469,7 @@ echo -e "${CYAN}║${NC}                                                        
 echo -e "${CYAN}║${NC}  ${YELLOW}File Locations${NC}                                            ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  Config:  ${GREEN}${CONFIG_FILE}${NC}"
+echo -e "${CYAN}║${NC}  Secrets: ${GREEN}${SECRETS_FILE}${NC}"
 echo -e "${CYAN}║${NC}  Install: ${GREEN}${INSTALL_DIR}${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}╠══════════════════════════════════════════════════════════╣${NC}"
@@ -1483,7 +1496,8 @@ echo -e "${CYAN}║${NC}                                                        
 echo -e "${CYAN}╠══════════════════════════════════════════════════════════╣${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  ${YELLOW}To modify settings later:${NC}                                ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     ${GREEN}sudo nano ${CONFIG_FILE}${NC}"
+echo -e "${CYAN}║${NC}     ${GREEN}sudo nano ${CONFIG_FILE}${NC}  (settings)"
+echo -e "${CYAN}║${NC}     ${GREEN}sudo nano ${SECRETS_FILE}${NC}  (credentials)"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  ${YELLOW}Useful commands:${NC}                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}     ${GREEN}sudo systemctl restart beo-*${NC}      Restart services     ${CYAN}║${NC}"

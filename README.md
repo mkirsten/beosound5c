@@ -18,24 +18,32 @@ The web interface includes built-in hardware emulation using keyboard and mouse/
 # Start web server
 cd web && python3 -m http.server 8000
 
-# Optional: Start Sonos player for artwork
-cd services && python3 players/sonos.py
-
 # Open http://localhost:8000
 ```
+
+The UI works fully without any backend services. Hardware input is simulated with keyboard and mouse.
 
 **Controls:**
 - Laser pointer: Mouse wheel / trackpad scroll
 - Navigation wheel: Arrow Up/Down
+- Volume: PageUp/PageDown or +/-
 - Buttons: Arrow Left/Right, Enter
 
-For Sonos integration in emulator mode, configure the Sonos IP in `services/config.env` (copy from `services/config.env.example`).
+**Optional — Sonos artwork and metadata (in a second terminal):**
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install soco pillow websockets aiohttp
+cd services && python3 players/sonos.py
+```
+
+Set your Sonos speaker IP in `config/default.json` under `sonos.ip` before starting the service.
 
 ### Install on Raspberry Pi 5
 
 Tested on [Raspberry Pi 5 8GB](https://www.raspberrypi.com/products/raspberry-pi-5/), but lower RAM versions should work fine.
 
-1. Flash **Raspberry Pi OS Lite (64-bit)** and enable SSH
+1. Flash **Raspberry Pi OS Bookworm Lite (64-bit)** using [Raspberry Pi Imager](https://www.raspberrypi.com/software/). Click the settings icon (gear) to enable SSH and set your username/password before writing.
 2. Clone and run the installer:
 
 ```bash
@@ -48,31 +56,57 @@ The installer handles everything: packages, USB permissions, display config, ser
 
 ## Configuration
 
-Configuration is set during installation and stored in `/etc/beosound5c/config.env`.
+Configuration lives in two files on the device:
 
-See [`services/config.env.example`](services/config.env.example) for all available options:
+- **`/etc/beosound5c/config.json`** — all settings (device name, Sonos IP, menu, scenes, volume, transport)
+- **`/etc/beosound5c/secrets.env`** — credentials only (HA token, MQTT password)
 
-```bash
-# Required
-DEVICE_NAME="Living Room"           # Identifies this unit in Home Assistant
-HA_URL="http://homeassistant.local:8123"
-SONOS_IP="192.168.1.100"
+The installer creates both during setup. To reconfigure: edit `/etc/beosound5c/config.json`, then `sudo systemctl restart beo-*`.
 
-# Transport: how BS5c communicates with Home Assistant
-TRANSPORT_MODE="mqtt"               # webhook, mqtt, or both
-HA_WEBHOOK_URL="http://homeassistant.local:8123/api/webhook/beosound5c"  # for webhook mode
-MQTT_BROKER="homeassistant.local"   # for mqtt mode
-MQTT_PORT="1883"
-MQTT_USER=""
-MQTT_PASSWORD=""
+### config.json
 
-# Optional
-HA_SECURITY_DASHBOARD="dashboard-cameras/home"  # HA dashboard for SECURITY page
-BEOREMOTE_MAC="00:00:00:00:00:00"   # BeoRemote One Bluetooth MAC
-SPOTIFY_USER_ID=""                   # For playlist fetching
+The installer creates this interactively during setup. Here's the full structure for reference:
+
+```json
+{
+  "device": "Living Room",
+
+  "menu": {
+    "PLAYING": "playing",
+    "CD": "cd",
+    "SPOTIFY": "spotify",
+    "MUSIC": "music",
+    "SCENES": "scenes",
+    "SYSTEM": "system"
+  },
+
+  "scenes": [
+    { "id": "dinner", "name": "Dinner", "icon": "fork-knife", "color": "#fa0" },
+    { "id": "all_off", "name": "All off", "icon": "power", "color": "#c55" }
+  ],
+
+  "sonos": { "ip": "192.168.1.100" },
+  "bluetooth": { "remote_mac": "" },
+  "home_assistant": {
+    "url": "http://homeassistant.local:8123",
+    "webhook_url": "http://homeassistant.local:8123/api/webhook/beosound5c"
+  },
+  "transport": { "mode": "mqtt", "mqtt_broker": "homeassistant.local" },
+  "volume": {
+    "type": "sonos",
+    "host": "192.168.1.100",
+    "max": 70,
+    "step": 3,
+    "output_name": "Sonos"
+  },
+  "cd": { "device": "/dev/sr0" },
+  "spotify": { "client_id": "" }
+}
 ```
 
-To reconfigure: `sudo nano /etc/beosound5c/config.env` then restart services.
+### secrets.env
+
+Credentials live separately in `/etc/beosound5c/secrets.env` (created by the installer). See [`config/secrets.env.example`](config/secrets.env.example) for the template.
 
 ## Services
 
@@ -81,7 +115,7 @@ To reconfigure: `sudo nano /etc/beosound5c/config.env` then restart services.
 | `beo-input` | [`services/input.py`](services/input.py) | USB HID driver for BS5 rotary encoder, buttons, and laser pointer |
 | `beo-router` | [`services/router.py`](services/router.py) | Event router: dispatches remote events to HA or the active source, controls volume |
 | `beo-sonos` | [`services/players/sonos.py`](services/players/sonos.py) | Sonos player monitor: artwork, metadata, volume reporting |
-| `beo-cd` | [`services/sources/cd.py`](services/sources/cd.py) | CD player: disc detection, MusicBrainz metadata, mpv playback |
+| `beo-cd-source` | [`services/sources/cd.py`](services/sources/cd.py) | CD player: disc detection, MusicBrainz metadata, mpv playback |
 | `beo-masterlink` | [`services/masterlink.py`](services/masterlink.py) | USB sniffer for B&O IR and MasterLink bus commands |
 | `beo-bluetooth` | [`services/bluetooth.py`](services/bluetooth.py) | HID service for BeoRemote One wireless control |
 | `beo-http` | — | Simple HTTP server for static files |
@@ -89,35 +123,47 @@ To reconfigure: `sudo nano /etc/beosound5c/config.env` then restart services.
 
 Service definitions: [`services/system/`](services/system/)
 
-### Sources, players, and volume adapters
+## Audio
 
-The backend separates three concerns that can combine independently:
+Each BS5c is configured with one audio output. The installer asks you to choose during setup.
 
-- **Sources** ([`services/sources/`](services/sources/)) own content and playback. A source registers with the router, gets a menu item, and receives remote control events when active. CD playback is a source; Spotify and USB are planned.
+| Output | Requirements |
+|---|---|
+| Sonos | Any Sonos speaker (S1 or S2, any generation) |
+| PowerLink | B&O PowerLink speakers + PC2/MasterLink USB interface |
+| HDMI | Amplifier or device with HDMI audio input |
+| Optical / Toslink | S/PDIF HAT (e.g. HiFiBerry Digi) |
+| RCA | DAC HAT with RCA out |
+| AirPlay | Any AirPlay-compatible speaker |
 
-- **Players** ([`services/players/`](services/players/)) monitor external playback devices. A player watches what's happening on a device (track info, artwork, volume) and reports it to the UI. It doesn't provide content — the content could come from any source, or from someone's phone.
+Sources (CD, USB, Spotify, Demo) register with the router and appear in the menu automatically. The remote's media keys are forwarded to whichever source is currently active.
 
-- **Volume adapters** ([`services/lib/volume_adapters/`](services/lib/volume_adapters/)) control the physical audio output. The router sends volume commands through whichever adapter matches the configured output (BeoLab 5 speakers via ESP32, or Sonos directly).
-
-These three are independent. For example: **cd.py** (source) plays a CD through mpv, sending audio to Sonos via AirPlay. **sonos.py** (player) sees the Sonos playing and shows artwork in the UI. **BeoLab5Volume** (adapter) controls the volume on the BeoLab 5 speakers. Swap any piece — play Spotify instead of CD, use a different speaker — and the others don't change.
+For details on each output, playback modes, sources, and volume adapters, see **[Audio Setup Options](docs/audio-setup.md)**.
 
 ## Directory Structure
 
 ```
+config/                     # Per-device configuration
+├── default.json            #   Dev fallback
+├── secrets.env.example     #   Credentials template
+└── <device>.json           #   One per device (deployed to /etc/beosound5c/)
 services/                   # Backend services
 ├── sources/                # Content providers (register with router)
-│   ├── cd.py               #   CD player (beo-cd)
-│   ├── spotify.py          #   Spotify Connect (stub)
-│   └── usb.py              #   USB file playback (stub)
+│   ├── cd.py               #   CD player (beo-cd-source)
+│   ├── spotify.py          #   Spotify source (beo-spotify)
+│   └── usb.py              #   USB file playback (beo-usb-source)
 ├── players/                # External playback monitors
 │   └── sonos.py            #   Sonos monitor (beo-sonos)
 ├── lib/
 │   ├── volume_adapters/    # Pluggable volume output control
 │   │   ├── beolab5.py      #   BeoLab 5 via ESP32 REST API
 │   │   ├── sonos.py        #   Sonos via SoCo
-│   │   ├── powerlink.py    #   B&O PowerLink (stub)
-│   │   └── digital_out.py  #   HDMI/S/PDIF (stub)
+│   │   ├── hdmi.py         #   HDMI (ALSA software volume)
+│   │   ├── spdif.py        #   S/PDIF / Optical (ALSA software volume)
+│   │   ├── rca.py          #   RCA DAC (ALSA software volume)
+│   │   └── powerlink.py    #   B&O PowerLink via masterlink.py
 │   ├── transport.py        # HA communication (webhook/MQTT)
+│   ├── config.py           # Shared JSON config loader
 │   └── audio_outputs.py    # PipeWire sink discovery
 ├── router.py               # Event router (beo-router)
 ├── input.py                # USB HID input (beo-input)
@@ -133,11 +179,11 @@ tools/                      # Spotify OAuth, USB debugging, BLE testing
 
 ## Home Assistant Integration
 
-BeoSound 5c communicates with Home Assistant via **MQTT** (recommended) or **HTTP webhooks**. The transport is configured via `TRANSPORT_MODE` in `config.env`. The installer will prompt you to choose.
+BeoSound 5c communicates with Home Assistant via **MQTT** (recommended) or **HTTP webhooks**. The transport is configured via `transport.mode` in `config.json`. The installer will prompt you to choose.
 
 ### MQTT Setup (recommended)
 
-Requires an MQTT broker — the [Mosquitto add-on](https://github.com/home-assistant/addons/tree/master/mosquitto) works well. Create a user for the BS5c in the add-on config, then set `TRANSPORT_MODE="mqtt"` with your broker credentials.
+Requires an MQTT broker — the [Mosquitto add-on](https://github.com/home-assistant/addons/tree/master/mosquitto) works well. Create a user for the BS5c in the add-on config, then set `transport.mode` to `"mqtt"` in `config.json` with your broker hostname. MQTT credentials go in `secrets.env`.
 
 MQTT topics use the pattern `beosound5c/{device}/out|in|status`:
 
@@ -185,6 +231,32 @@ homeassistant:
 **Security note**: These settings allow the BeoSound 5c to embed Home Assistant pages without authentication. Only add IPs you trust to `trusted_networks` and `cors_allowed_origins`. This is intended for devices on your local network.
 
 See [`homeassistant/example-automation.yaml`](homeassistant/example-automation.yaml) for complete automation examples covering both MQTT and webhook transports.
+
+## Development
+
+### Repo Layout
+
+```
+config/
+├── default.json          # Fallback for local development
+├── <device>.json         # Per-device config (gitignored)
+└── secrets.env.example   # Credentials template
+```
+
+For multi-device setups, create a JSON file per device in `config/` (e.g. `config/living-room.json`). The deploy script copies the matching config to `/etc/beosound5c/config.json` on the target.
+
+### Deploying Updates
+
+```bash
+# Sync files and restart services
+./deploy.sh                    # default: beo-http + beo-ui
+./deploy.sh beo-sonos          # restart a specific service
+./deploy.sh beo-*              # restart all beo services
+./deploy.sh --no-restart       # sync files only
+
+# Target a specific device
+BEOSOUND5C_HOSTS="my-device.local" ./deploy.sh
+```
 
 ## Acknowledgments
 
