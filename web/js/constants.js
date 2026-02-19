@@ -70,20 +70,19 @@ const Constants = {
         logThrottle: 1000
     },
 
-    // Menu items (canonical source of truth)
+    // Menu items (static views only — dynamic sources like Spotify, CD are added by the router)
     menuItems: [
-        { title: 'SHOWING', path: 'menu/showing' },
-        { title: 'SYSTEM', path: 'menu/system' },
-        { title: 'SECURITY', path: 'menu/security' },
+        { title: 'PLAYING', path: 'menu/playing' },
         { title: 'SCENES', path: 'menu/scenes' },
-        { title: 'MUSIC', path: 'menu/music' },
-        { title: 'PLAYING', path: 'menu/playing' }
+        { title: 'SECURITY', path: 'menu/security' },
+        { title: 'SYSTEM', path: 'menu/system' },
+        { title: 'SHOWING', path: 'menu/showing' }
     ],
 
-    // Iframe mappings
+    // Iframe mappings (IDs match the preloaded iframe elements)
     iframes: {
-        'menu/music': 'music-iframe',
-        'menu/scenes': 'scenes-iframe',
+        'menu/spotify': 'preload-spotify',
+        'menu/scenes': 'preload-scenes',
         'menu/system': 'system-iframe'
     },
 

@@ -899,9 +899,9 @@
                     <span class="name">beo-ui</span>
                     <span class="status-dot" id="dot-ui"></span>
                 </div>
-                <div class="service-item" data-service="beo-spotify-fetch">
-                    <span class="name">beo-spotify-fetch (timer)</span>
-                    <span class="status-dot" id="dot-spotify-fetch"></span>
+                <div class="service-item" data-service="beo-spotify">
+                    <span class="name">beo-spotify</span>
+                    <span class="status-dot" id="dot-spotify"></span>
                 </div>
                 <div class="service-item separator" data-service="all">
                     <span class="name">Restart All Services</span>
@@ -911,13 +911,17 @@
                     <span class="name">Reboot System</span>
                     <span class="status-dot"></span>
                 </div>
+                <div class="service-item separator" data-action="logout-spotify">
+                    <span class="name">Spotify — Logout</span>
+                    <span class="status-dot" id="dot-spotify-account"></span>
+                </div>
             </div>
             <div class="services-legend">
                 <div class="legend-item"><span class="dot green"></span> Running</div>
                 <div class="legend-item"><span class="dot yellow"></span> Issue</div>
                 <div class="legend-item"><span class="dot red"></span> Stopped</div>
             </div>
-            <div class="section-hint"><span class="key">GO</span> Restart selected</div>
+            <div class="section-hint"><span class="key">GO</span> Restart / Logout selected</div>
         </div>
 
         <!-- Remotes Section -->
@@ -1693,6 +1697,13 @@
             restartSelectedService() {
                 const selectedItem = this.serviceItems[this.currentServiceItem];
                 const service = selectedItem.dataset.service;
+                const action = selectedItem.dataset.action;
+
+                // Handle account logout actions
+                if (action === 'logout-spotify') {
+                    this.logoutSpotify(selectedItem);
+                    return;
+                }
 
                 selectedItem.style.background = '#332200';
                 setTimeout(() => { selectedItem.style.background = ''; }, 400);
@@ -1717,6 +1728,24 @@
                         command: 'restart_service',
                         params: { action: action }
                     }));
+                }
+            }
+
+            async logoutSpotify(item) {
+                item.style.background = '#332200';
+                setTimeout(() => { item.style.background = ''; }, 400);
+
+                try {
+                    const resp = await fetch('http://localhost:8771/logout', { method: 'POST' });
+                    if (resp.ok) {
+                        const dot = document.getElementById('dot-spotify-account');
+                        if (dot) dot.className = 'status-dot stopped';
+                        item.querySelector('.name').textContent = 'Spotify — Logged out';
+                        // Notify spotify iframe to reload (will show QR setup)
+                        window.parent.postMessage({ type: 'reload-source', source: 'spotify' }, '*');
+                    }
+                } catch (e) {
+                    console.error('[SYSTEM] Spotify logout failed:', e);
                 }
             }
 
@@ -1901,6 +1930,25 @@
                     }
                 } catch (e) {
                     console.error('[SPOTIFY] Error fetching info:', e);
+                }
+
+                // Check Spotify account status via beo-spotify service
+                try {
+                    const statusResp = await fetch('http://localhost:8771/status');
+                    if (statusResp.ok) {
+                        const status = await statusResp.json();
+                        const dot = document.getElementById('dot-spotify-account');
+                        const logoutItem = document.querySelector('[data-action="logout-spotify"] .name');
+                        if (dot) {
+                            dot.className = status.has_credentials ? 'status-dot running' : 'status-dot stopped';
+                        }
+                        if (logoutItem) {
+                            logoutItem.textContent = status.has_credentials
+                                ? 'Spotify — Logout' : 'Spotify — Not connected';
+                        }
+                    }
+                } catch (e) {
+                    // beo-spotify not running
                 }
             }
 

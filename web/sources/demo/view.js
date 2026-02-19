@@ -107,7 +107,7 @@ window.SourcePresets = window.SourcePresets || {};
 window.SourcePresets.demo = {
     controller: window.DemoView,
     item: { title: 'DEMO', path: 'menu/demo' },
-    after: 'menu/music',
+    after: 'menu/playing',
     view: {
         title: 'DEMO',
         content: `

@@ -131,8 +131,8 @@ class LaserPointerSimulator {
             
             // Debug logging for initial position
             if (window.LaserPositionMapper) {
-                const viewInfo = window.LaserPositionMapper.getViewForLaserPosition(roundedPosition);
-                console.log(`[DUMMY-HW] Initial: position ${roundedPosition} -> ${viewInfo.path} (${viewInfo.reason})`);
+                const result = window.LaserPositionMapper.resolveMenuSelection(roundedPosition);
+                console.log(`[DUMMY-HW] Initial: position ${roundedPosition} -> ${result.path} (idx ${result.selectedIndex})`);
             }
         }, 100);
     }
@@ -182,8 +182,8 @@ class LaserPointerSimulator {
                 
                 // Debug logging (can be removed later)
                 if (window.LaserPositionMapper) {
-                    const viewInfo = window.LaserPositionMapper.getViewForLaserPosition(roundedPosition);
-                    console.log(`[DUMMY-HW] Scroll: position ${roundedPosition} -> ${viewInfo.path} (${viewInfo.reason})`);
+                    const result = window.LaserPositionMapper.resolveMenuSelection(roundedPosition);
+                    console.log(`[DUMMY-HW] Scroll: position ${roundedPosition} -> ${result.path} (idx ${result.selectedIndex})`);
                 }
             }
             

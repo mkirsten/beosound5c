@@ -788,7 +788,7 @@ window.SourcePresets = window.SourcePresets || {};
 window.SourcePresets.cd = {
     controller: window.CDView,
     item: { title: 'CD', path: 'menu/cd' },
-    after: 'menu/music',
+    after: 'menu/playing',
     view: {
         title: 'CD',
         content: `

@@ -83,8 +83,6 @@ class UIStore {
     constructor() {
         this.wheelPointerAngle = 180;
         this.topWheelPosition = 0;
-        this.isNowPlayingOverlayActive = false;
-        this.selectedMenuItem = -1;
         
         // Initialize laser position from constants (matches hardware-input.js)
         this.laserPosition = window.Constants?.laser?.defaultPosition || 93;
@@ -115,14 +113,13 @@ class UIStore {
         
         // Artwork cache delegated to ArtworkManager
         
-        // Menu items from centralized constants
+        // Menu items from centralized constants (static views only — sources added by router)
         this.menuItems = (window.Constants?.menuItems || [
-            {title: 'SHOWING', path: 'menu/showing'},
-            {title: 'SYSTEM', path: 'menu/system'},
-            {title: 'SECURITY', path: 'menu/security'},
+            {title: 'PLAYING', path: 'menu/playing'},
             {title: 'SCENES', path: 'menu/scenes'},
-            {title: 'MUSIC', path: 'menu/music'},
-            {title: 'PLAYING', path: 'menu/playing'}
+            {title: 'SECURITY', path: 'menu/security'},
+            {title: 'SYSTEM', path: 'menu/system'},
+            {title: 'SHOWING', path: 'menu/showing'}
         ]).map(item => ({title: item.title, path: item.path}));
 
         // Get constants from centralized config
@@ -151,14 +148,6 @@ class UIStore {
                             <div id="apple-tv-state">Unknown</div>
                         </div>
                     </div>`
-            },
-            'menu/music': {
-                title: 'Playlists',
-                content: `
-                    <div id="music-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                    </div>
-                `,
-                preloadId: 'preload-music'
             },
             'menu/system': {
                 title: 'System',
@@ -394,18 +383,17 @@ class UIStore {
             const newItems = [];
             for (const item of data.items) {
                 const path = `menu/${item.id}`;
-                const existing = this.menuItems.find(m => m.path === path);
-                if (existing) {
-                    newItems.push(existing);
-                } else if (item.dynamic && item.preset && window.SourcePresets?.[item.preset]) {
-                    // Dynamic source — register from preset
+
+                // Dynamic sources: always register view from preset (even if menu item already exists)
+                if (item.dynamic && item.preset && window.SourcePresets?.[item.preset]) {
                     const preset = window.SourcePresets[item.preset];
-                    newItems.push({ title: item.title, path: preset.item.path });
+                    newItems.push({ title: item.title, path: preset.item.path, hidden: !!item.hidden });
                     if (preset.view) {
                         this.views[preset.item.path] = preset.view;
                     }
                 } else {
-                    newItems.push({ title: item.title, path });
+                    const existing = this.menuItems.find(m => m.path === path);
+                    newItems.push(existing || { title: item.title, path, hidden: !!item.hidden });
                 }
             }
             this.menuItems = newItems;
@@ -532,7 +520,7 @@ class UIStore {
     // Preload iframe content in background for instant navigation
     preloadIframes() {
         const iframesToPreload = [
-            { id: 'preload-music', src: 'softarc/music.html' },
+            { id: 'preload-spotify', src: 'softarc/spotify.html' },
             { id: 'preload-scenes', src: 'softarc/scenes.html' },
             { id: 'preload-security', src: 'softarc/security.html' }
         ];
@@ -565,7 +553,7 @@ class UIStore {
     attachPreloadedIframe(preloadId) {
         // Map preload IDs to container IDs
         const containerMap = {
-            'preload-music': 'music-container',
+            'preload-spotify': 'spotify-container',
             'preload-scenes': 'scenes-container',
             'preload-security': 'security-container'
         };
@@ -595,7 +583,7 @@ class UIStore {
         } else {
             // Fallback: create iframe if preload failed
             const srcMap = {
-                'preload-music': 'softarc/music.html',
+                'preload-spotify': 'softarc/spotify.html',
                 'preload-scenes': 'softarc/scenes.html',
                 'preload-security': 'softarc/security.html'
             };
@@ -645,7 +633,7 @@ class UIStore {
             itemElement.dataset.path = item.path;
             itemElement.textContent = item.title;
 
-            const itemAngle = this.getStartItemAngle() + index * this.angleStep;
+            const itemAngle = this.getStartItemAngle() + (visibleItems.length - 1 - index) * this.angleStep;
             const position = arcs.getArcPoint(this.radius, 20, itemAngle);
 
             Object.assign(itemElement.style, {
@@ -658,15 +646,15 @@ class UIStore {
             });
 
             itemElement.addEventListener('mouseenter', () => {
-                // Always update pointer angle and check selection (isSelectedItem has its own overlay logic)
-                console.log(`[HOVER DEBUG] Mouse entered item ${index} (${item.title}) - setting angle to ${itemAngle}`);
                 this.wheelPointerAngle = itemAngle;
-                // Legacy method removed - using laser position system
+                if (window.LaserPositionMapper) {
+                    this.laserPosition = Math.round(window.LaserPositionMapper.angleToLaserPosition(itemAngle));
+                }
                 this.handleWheelChange();
             });
 
-            // Check if this item should be selected based on laser position
-            if (this.isSelectedItemForLaserPosition(index, visibleItems)) {
+            // Highlight if this item matches the last selected path
+            if (item.path === this._lastSelectedPath) {
                 itemElement.classList.add('selectedItem');
             }
 
@@ -680,42 +668,27 @@ class UIStore {
         return 180 - totalSpan / 2;
     }
 
-    
-    isSelectedItemForLaserPosition(index, items) {
-        // Use laser position mapper to determine if this menu item should be highlighted
-        if (!this.laserPosition || !window.LaserPositionMapper) {
-            return false;
-        }
-
-        const { getViewForLaserPosition } = window.LaserPositionMapper;
-        const viewInfo = getViewForLaserPosition(this.laserPosition);
-
-        // Only highlight if we're in a menu view (not overlay) and this is the selected item
-        if (viewInfo.isOverlay) {
-            return false;
-        }
-
-        // Check if this menu item matches the current view
-        const list = items || this.menuItems;
-        const expectedPath = list[index].path;
-        return viewInfo.path === expectedPath;
-    }
-    
-    updateMenuHighlighting() {
-        // Efficiently update menu item highlighting without recreating DOM elements
+    /**
+     * Bold the menu item at selectedIndex; click when selectedPath changes.
+     */
+    _applyMenuHighlight(selectedIndex, selectedPath) {
         const menuContainer = document.getElementById('menuItems');
         if (!menuContainer) return;
 
-        const visibleItems = this.menuItems.filter(m => !m.hidden);
         const menuElements = menuContainer.querySelectorAll('.list-item');
-
-        menuElements.forEach((itemElement, index) => {
-            if (this.isSelectedItemForLaserPosition(index, visibleItems)) {
-                itemElement.classList.add('selectedItem');
+        menuElements.forEach((el, i) => {
+            if (i === selectedIndex) {
+                el.classList.add('selectedItem');
             } else {
-                itemElement.classList.remove('selectedItem');
+                el.classList.remove('selectedItem');
             }
         });
+
+        // Click exactly when the bolded item changes — one click per highlight change
+        if (selectedPath && selectedPath !== this._lastSelectedPath) {
+            this.sendClickCommand();
+        }
+        this._lastSelectedPath = selectedPath;
     }
 
 
@@ -801,16 +774,19 @@ class UIStore {
             const rect = mainMenu.getBoundingClientRect();
             const centerX = arcs.cx - rect.left;
             const centerY = arcs.cy - rect.top;
-            
+
             const dx = event.clientX - rect.left - centerX;
             const dy = event.clientY - rect.top - centerY;
             let angle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
             if (angle < 0) angle += 360;
 
-            if ((angle >= 158 && angle <= 202) || 
+            if ((angle >= 158 && angle <= 202) ||
                 (angle >= 0 && angle <= 30) ||
                 (angle >= 330 && angle <= 360)) {
                 this.wheelPointerAngle = angle;
+                if (window.LaserPositionMapper) {
+                    this.laserPosition = Math.round(window.LaserPositionMapper.angleToLaserPosition(angle));
+                }
                 this.handleWheelChange();
             }
         });
@@ -822,10 +798,13 @@ class UIStore {
             const clickedItem = event.target.closest('.list-item');
             if (!clickedItem) return;
 
-            const index = Array.from(clickedItem.parentElement.children).indexOf(clickedItem);
-            const itemAngle = this.getStartItemAngle() + index * this.angleStep;
+            const children = Array.from(clickedItem.parentElement.children);
+            const index = children.indexOf(clickedItem);
+            const itemAngle = this.getStartItemAngle() + (children.length - 1 - index) * this.angleStep;
             this.wheelPointerAngle = itemAngle;
-            // Legacy method removed - using laser position system
+            if (window.LaserPositionMapper) {
+                this.laserPosition = Math.round(window.LaserPositionMapper.angleToLaserPosition(itemAngle));
+            }
             this.handleWheelChange();
             
             // Send click command to server
@@ -834,110 +813,38 @@ class UIStore {
     }
 
     handleWheelChange() {
-        // Ensure wheelPointerAngle is within valid bounds (150-210)
-        const oldAngle = this.wheelPointerAngle;
         this.wheelPointerAngle = Math.max(150, Math.min(210, this.wheelPointerAngle));
-        
-        // Debug logging for fast scrolling
-        if (Math.abs(oldAngle - this.wheelPointerAngle) > 5) {
-            console.log(`[DEBUG] Fast scroll detected: ${oldAngle.toFixed(1)} -> ${this.wheelPointerAngle.toFixed(1)}`);
-        }
-        
-        // Navigation wheel should NOT affect laser position - it's for softarc navigation within views
-        // topWheelPosition is handled by iframe forwarding in hardware-input.js
-        if (this.topWheelPosition !== 0) {
-            console.log(`[DEBUG] Navigation wheel: ${this.topWheelPosition > 0 ? 'clockwise' : 'counterclockwise'} (topWheelPosition: ${this.topWheelPosition})`);
-            // Navigation wheel events are forwarded to iframe pages by hardware-input.js
-            // They should NOT modify the laser position - that's the laser pointer's job
-        }
-        
-        // Laser position system is now the only supported method
+
         if (!this.laserPosition || !window.LaserPositionMapper) {
             console.error('[UI] Laser position system required but not available');
             return;
         }
-        
-        this.handleWheelChangeWithMapper();
 
-        this.updatePointer();
-        this.renderMenuItems();
-        this.topWheelPosition = 0;
-    }
-    
-    handleWheelChangeWithMapper() {
-        const { getViewForLaserPosition } = window.LaserPositionMapper;
-        
-        // Get view mapping from laser position
-        const viewInfo = getViewForLaserPosition(this.laserPosition);
-        
-        // Ensure we have valid view info
-        if (!viewInfo || !viewInfo.path) {
-            console.error(`[DEBUG] Invalid view info for position ${this.laserPosition}:`, viewInfo);
-            return;
-        }
-        
-        console.log(`[DEBUG] Laser position ${this.laserPosition} -> ${viewInfo.path} (${viewInfo.reason})`);
-        
-        // Handle menu visibility based on whether we're in an overlay
-        if (viewInfo.isOverlay) {
-            // Should hide menu
-            if (this.menuVisible) {
-                this.setMenuVisible(false);
-            }
-        } else {
-            // Should show menu
-            if (!this.menuVisible) {
-                this.setMenuVisible(true);
-            }
-        }
-        
-        // Hysteresis: prevent rapid switching when laser is near boundary between adjacent items
-        let effectivePath = viewInfo.path;
-        if (effectivePath !== this.currentRoute && !viewInfo.isOverlay) {
-            const visibleItems = this.menuItems.filter(m => !m.hidden);
-            const currentIdx = visibleItems.findIndex(m => m.path === this.currentRoute);
-            if (currentIdx !== -1) {
-                const currentAngle = this.getStartItemAngle() + currentIdx * this.angleStep;
-                const distFromCurrent = Math.abs(viewInfo.angle - currentAngle);
-                // Require moving past the midpoint by an extra margin before switching
-                const threshold = this.angleStep / 2 + 0.8;
-                if (distFromCurrent < threshold) {
-                    effectivePath = this.currentRoute;
-                }
-            }
+        const result = window.LaserPositionMapper.resolveMenuSelection(this.laserPosition);
+
+        // Determine effective path — overlays navigate to PLAYING/SHOWING
+        let effectivePath = result.path;
+        if (result.isOverlay) {
+            effectivePath = result.angle >= 200 ? 'menu/playing' : 'menu/showing';
         }
 
-        const viewChanged = this.currentRoute !== effectivePath;
+        // Menu visibility
+        if (result.isOverlay && this.menuVisible) {
+            this.setMenuVisible(false);
+        } else if (!result.isOverlay && !this.menuVisible) {
+            this.setMenuVisible(true);
+        }
 
-        console.log(`[DEBUG] Position ${this.laserPosition} -> ${effectivePath} (${viewInfo.reason}) ${viewChanged ? '[NAVIGATE]' : '[SAME]'}`);
-
-        if (viewChanged) {
+        // Navigate when the effective path differs from currentRoute
+        if (effectivePath && effectivePath !== this.currentRoute) {
             this.navigateToView(effectivePath);
         }
-        
-        // Update state AFTER navigation (not before) to track current position
-        if (viewInfo.isOverlay) {
-            this.isNowPlayingOverlayActive = true;
-        } else {
-            // Not in overlay zone
-            this.isNowPlayingOverlayActive = false;
-            
-            // Update selected menu item state
-            if (viewInfo.menuItem) {
-                this.selectedMenuItem = viewInfo.menuItem.index;
-            }
-        }
 
-        // Click feedback when navigating to a new page (not on every laser movement)
-        // Suppress click when a source controller is flipping (nav wheel jitters laser)
-        const activeCtrl = this.activeSource && window.SourcePresets?.[this.activeSource]?.controller;
-        if (viewChanged && !activeCtrl?.isFlipping) {
-            console.log(`[CLICK] View changed to ${effectivePath} - sending click`);
-            this.sendClickCommand();
-        }
+        // Bold + click (only for non-overlay menu items)
+        this._applyMenuHighlight(result.selectedIndex, result.path);
 
-        // Update menu highlighting to reflect current laser position
-        this.updateMenuHighlighting();
+        this.updatePointer();
+        this.topWheelPosition = 0;
     }
     
 
@@ -1012,18 +919,22 @@ class UIStore {
         // Update route immediately to prevent repeated navigation triggers
         this.currentRoute = path;
 
+        // Gate iframe click messages during navigation (prevents spurious clicks
+        // from softarc checkForSelectionClick when preloaded iframes are attached)
+        this._navGuardUntil = Date.now() + 600;
+
         // Report view to router so BeoRemote buttons are routed correctly
         this.reportViewToRouter(path);
 
         // For overlay transitions, update immediately to prevent content hiding
         const isOverlayTransition = path === 'menu/playing' || path === 'menu/showing';
 
-        // When arriving at PLAYING, tell the music iframe to reload its data so
-        // playlist additions/removals from the Spotify fetch are picked up.
+        // When arriving at PLAYING, tell the spotify iframe to reload its data so
+        // playlist additions/removals are picked up.
         if (path === 'menu/playing') {
-            const musicIframe = document.getElementById('preload-music');
-            if (musicIframe?.contentWindow) {
-                musicIframe.contentWindow.postMessage({ type: 'reload-data' }, '*');
+            const spotifyIframe = document.getElementById('preload-spotify');
+            if (spotifyIframe?.contentWindow) {
+                spotifyIframe.contentWindow.postMessage({ type: 'reload-data' }, '*');
             }
         }
 
@@ -1073,6 +984,15 @@ class UIStore {
         }
         this._previousRoute = this.currentRoute;
 
+        // Rescue preloaded iframes before replacing content (prevents reload + stale init clicks)
+        const preloadContainer = document.getElementById('iframe-preload-container');
+        if (preloadContainer) {
+            contentArea.querySelectorAll('iframe[id^="preload-"]').forEach(iframe => {
+                iframe.style.cssText = 'width:1024px;height:768px;border:none;';
+                preloadContainer.appendChild(iframe);
+            });
+        }
+
         // Update content while it's faded out
         contentArea.innerHTML = view.content;
 
@@ -1083,7 +1003,8 @@ class UIStore {
 
         // Immediately update with cached info for playing view
         if (this.currentRoute === 'menu/playing') {
-            // Apply active source's playing preset (swaps slots if needed)
+            // Force re-apply preset — content was just rebuilt so slots need re-injection
+            this.activePlayingPreset = null;
             this.setActivePlayingPreset(this.activeSource);
             this.updateNowPlayingView();
             // Media info will be pushed automatically by media server
@@ -1221,7 +1142,7 @@ class UIStore {
     /**
      * Add a menu item dynamically at runtime.
      * @param {object} item - {title, path} for the new menu item
-     * @param {string} afterPath - Insert after this path (e.g. 'menu/music')
+     * @param {string} afterPath - Insert after this path (e.g. 'menu/playing')
      * @param {object} [viewDef] - Optional view definition {title, content}
      */
     addMenuItem(item, afterPath, viewDef) {
@@ -1330,7 +1251,7 @@ class UIStore {
             itemElement.dataset.path = item.path;
             itemElement.textContent = item.title;
 
-            const itemAngle = this.getStartItemAngle() + index * this.angleStep;
+            const itemAngle = this.getStartItemAngle() + (visibleItems.length - 1 - index) * this.angleStep;
             const position = arcs.getArcPoint(this.radius, 20, itemAngle);
 
             Object.assign(itemElement.style, {
@@ -1344,10 +1265,13 @@ class UIStore {
 
             itemElement.addEventListener('mouseenter', () => {
                 this.wheelPointerAngle = itemAngle;
+                if (window.LaserPositionMapper) {
+                    this.laserPosition = Math.round(window.LaserPositionMapper.angleToLaserPosition(itemAngle));
+                }
                 this.handleWheelChange();
             });
 
-            if (this.isSelectedItemForLaserPosition(index, visibleItems)) {
+            if (item.path === this._lastSelectedPath) {
                 itemElement.classList.add('selectedItem');
             }
 
@@ -1462,12 +1386,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Fallback: hide splash after max wait time regardless
     setTimeout(hideSplash, 3000);
 
-    // Relay messages from child iframes (e.g. system panel requesting music reload)
+    // Relay messages from child iframes
     window.addEventListener('message', (event) => {
         if (event.data?.type === 'reload-playlists') {
-            const musicIframe = document.getElementById('preload-music');
-            if (musicIframe?.contentWindow) {
-                musicIframe.contentWindow.postMessage({ type: 'reload-data' }, '*');
+            const spotifyIframe = document.getElementById('preload-spotify');
+            if (spotifyIframe?.contentWindow) {
+                spotifyIframe.contentWindow.postMessage({ type: 'reload-data' }, '*');
+            }
+        } else if (event.data?.type === 'click') {
+            // Only forward iframe clicks after navigation has settled
+            if (!uiStore._navGuardUntil || Date.now() > uiStore._navGuardUntil) {
+                uiStore.sendClickCommand();
             }
         }
     });

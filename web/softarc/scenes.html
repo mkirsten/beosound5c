@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scenes - Beosound 5c</title>
-    
+
     <!-- Favicons -->
     <link rel="icon" type="image/x-icon" href="../assets/favicons/favicon.ico">
     <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicons/favicon-16x16.png">
@@ -14,80 +14,70 @@
     <link rel="icon" type="image/png" sizes="512x512" href="../assets/favicons/android-chrome-512x512.png">
     <link rel="manifest" href="../assets/favicons/site.webmanifest">
     <meta name="theme-color" content="#000000">
-    
+
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="../assets/phosphor/phosphor.css">
 </head>
 <body>
     <div id="app">
         <div class="counter">
+            <div id="counter-path"></div>
             <span id="current-item">1</span> / <span id="total-items">8</span>
         </div>
         <div class="hierarchy-depth-1" id="hierarchy-background"></div>
         <div class="arc-container" id="arc-container"></div>
     </div>
 
-    <!-- Configuration (loaded from parent) -->
     <script src="../js/config.js"></script>
-    <!-- Emulator bridge for communicating with parent emulator -->
     <script src="../js/emulator-bridge.js"></script>
-    <!-- Main JavaScript file that handles all functionality -->
-    <script src="script.js"></script>
+    <script src="script-v2.js"></script>
     <script>
-        // Scenes-specific configuration
+        // Map a scene object to an ArcList item (supports both icon and legacy image)
+        function mapScene(scene) {
+            const item = { id: scene.id, name: scene.name, actionable: true };
+            if (scene.icon) {
+                item.icon = scene.icon;
+                item.color = scene.color || '#fff';
+            } else if (scene.image) {
+                item.image = scene.image;
+            }
+            if (scene.scenes) item.scenes = scene.scenes;
+            return item;
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
             try {
-                console.log('Scenes: Starting initialization...');
-                console.log('AppConfig:', typeof AppConfig !== 'undefined' ? 'loaded' : 'MISSING');
-
-                // Map a scene object to an ArcList item (supports both icon and legacy image)
-                function mapScene(scene) {
-                    const item = { id: scene.id, name: scene.name };
-                    if (scene.icon) {
-                        item.icon = scene.icon;
-                        item.color = scene.color || '#fff';
-                    } else if (scene.image) {
-                        item.image = scene.image;
-                    }
-                    if (scene.scenes) item.scenes = scene.scenes;
-                    return item;
-                }
-
                 let scenesData;
                 if (typeof AppConfig !== 'undefined' && AppConfig.scenes) {
-                    // New unified config — scenes array in AppConfig
                     scenesData = AppConfig.scenes;
-                    console.log('Scenes: Using AppConfig.scenes,', scenesData.length, 'items');
                 } else {
-                    // Legacy fallback — load from separate file
-                    const dataSource = (typeof AppConfig !== 'undefined' && AppConfig.scenesFile)
-                        ? AppConfig.scenesFile
-                        : '../json/scenes.json';
-                    console.log('Scenes: Loading from', dataSource);
-                    const resp = await fetch(dataSource)
-                        .then(r => r.ok ? r : fetch('../json/scenes.example.json'));
-                    scenesData = await resp.json();
-                    console.log('Scenes: Loaded', scenesData.length, 'items');
+                    // Load scenes from config.json (../json/ works from softarc iframe)
+                    // Falls back to example scenes if no config found
+                    let resp = await fetch('../json/config.json').catch(() => null);
+                    if (resp && resp.ok) {
+                        const config = await resp.json();
+                        scenesData = config.scenes;
+                    }
+                    if (!scenesData) {
+                        const fallback = (typeof AppConfig !== 'undefined' && AppConfig.scenesFile)
+                            ? AppConfig.scenesFile
+                            : '../json/scenes.example.json';
+                        resp = await fetch(fallback);
+                        scenesData = await resp.json();
+                    }
                 }
 
-                const scenesConfig = {
-                    dataSource: '__inline__',
+                new ArcList({
                     inlineData: scenesData,
-                    dataType: 'scenes',
-                    viewMode: 'hierarchical',
-                    parentKey: 'scenes',
-                    parentNameKey: 'name',
+                    levels: [{
+                        itemMapper: mapScene,
+                        childrenKey: 'scenes',
+                        isContainer: (item) => item.scenes?.length > 0,
+                    }],  // Single level reused recursively — scenes can nest infinitely
                     storagePrefix: 'scenes_arclist',
-                    title: 'Scenes',
                     context: 'scenes',
-                    itemMapper: (data) => data.map(mapScene),
-                    childNameMapper: mapScene,
-                    webhookUrl: typeof AppConfig !== 'undefined' ? AppConfig.webhookUrl : null
-                };
-
-                console.log('Scenes: Creating ArcList...');
-                new ArcList(scenesConfig);
-                console.log('Scenes: ArcList created');
+                    webhookUrl: typeof AppConfig !== 'undefined' ? AppConfig.webhookUrl : null,
+                });
             } catch (error) {
                 console.error('Scenes initialization error:', error);
                 document.body.innerHTML = '<div style="color:red;padding:20px;">Error: ' + error.message + '</div>';
@@ -95,4 +85,4 @@
         });
     </script>
 </body>
-</html> 
+</html>

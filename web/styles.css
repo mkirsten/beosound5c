@@ -196,6 +196,77 @@ html, body {
   opacity: 0.8;
 }
 
+/* ── Immersive PLAYING mode ──
+   Pure CSS transform on artwork — no layout changes, GPU-accelerated.
+   JS drives all visual state via inline styles (laser tracking = no transition,
+   idle/exit = CSS transition enabled via .immersive-transitioning class).
+
+   Artwork normal center: content-area (410, 300) = screen (590, 320)
+   Immersive center:      content-area (167, 350) = screen (347, 370)
+   → translate(-243px, 50px) scale(1.21)
+   Result: 595×595 artwork, left edge ≈ screen x50, right ≈ x645. Within 870 cutoff.
+   Overlay info at content-area left 495 = screen 675. Width 160 → ends at 835. OK.
+*/
+
+/* Allow artwork to overflow container when transforming left */
+#now-playing.immersive-active {
+  overflow: visible;
+}
+
+/* Override base "transition: all" while immersive — prevents unwanted
+   transitions on transform/opacity during media updates (song changes).
+   Tracking/transitioning rules below override this when active. */
+#now-playing.immersive-active .media-view-artwork {
+  transition: none;
+}
+#now-playing.immersive-active .media-view-info {
+  transition: none;
+}
+
+/* Short transition during laser tracking — smooths discrete hardware steps */
+#now-playing.immersive-tracking .media-view-artwork {
+  transition: transform 100ms ease-out;
+}
+#now-playing.immersive-tracking .media-view-info {
+  transition: opacity 100ms ease-out;
+}
+
+/* Longer transitions when entering/exiting via idle timer */
+#now-playing.immersive-transitioning .media-view-artwork {
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#now-playing.immersive-transitioning .media-view-info {
+  transition: opacity 0.3s ease;
+}
+
+/* Immersive info overlay (created by immersive-mode.js) */
+.immersive-info {
+  position: absolute;
+  left: 495px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 160px;
+  text-align: left;
+  color: white;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.immersive-info-title  { font-size: 26px; font-weight: bold; margin-bottom: 12px; }
+.immersive-info-artist { font-size: 18px; margin-bottom: 8px; }
+.immersive-info-album  { font-size: 15px; opacity: 0.8; }
+
+.immersive-info-title,
+.immersive-info-artist,
+.immersive-info-album {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.25s ease;
+}
+
 /* PLAYING + CD view backgrounds */
 #now-playing,
 #cd-view {
@@ -724,4 +795,103 @@ html, body {
   font-weight: 300;
   color: rgba(255, 255, 255, 0.6);
   letter-spacing: 1px;
+}
+
+/* ── Spotify Source ── */
+
+.spotify-arc-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.spotify-arc-item {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 96px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform-origin: left center;
+  transition: none;
+  will-change: transform, opacity;
+}
+
+.spotify-arc-image {
+  width: 80px;
+  height: 80px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.spotify-arc-placeholder {
+  width: 80px;
+  height: 80px;
+  border-radius: 4px;
+  background: #222;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: #666;
+  flex-shrink: 0;
+}
+
+.spotify-arc-icon {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  color: #999;
+  background: #1a1a1a;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.spotify-arc-label {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 16px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 500px;
+  line-height: 1.3;
+}
+
+.spotify-arc-sublabel {
+  display: block;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 300;
+}
+
+.spotify-arc-selected .spotify-arc-label {
+  color: #fff;
+  font-weight: 400;
+}
+
+.spotify-arc-selected .spotify-arc-image {
+  box-shadow: 0 0 20px rgba(30, 215, 96, 0.3);
+}
+
+.spotify-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: #666;
+  font-size: 16px;
+  font-weight: 300;
+  line-height: 2;
 }

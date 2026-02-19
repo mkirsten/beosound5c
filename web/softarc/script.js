@@ -29,7 +29,7 @@ class ArcList {
             
             // UI configuration
             title: config.title || 'Arc List',
-            context: config.context || 'music',
+            context: config.context || 'scenes',
             
             // Default values
             ...config
@@ -806,7 +806,7 @@ class ArcList {
                 return;
             }
             
-            // Create main container for this item - EXACTLY like music.html
+            // Create main container for this item
             const itemElement = document.createElement('div');
             itemElement.className = 'arc-item';
             itemElement.dataset.itemId = item.id; // Add unique identifier
@@ -823,14 +823,14 @@ class ArcList {
                 || item[this.config.parentKey].length === 0;
             if (isLeaf) itemElement.classList.add('leaf');
 
-            // Create and configure the image - EXACTLY like music.html
+            // Create and configure the image
             const imageContainer = document.createElement('div');
             imageContainer.className = 'item-image-container';
             if (isSelected) {
                 imageContainer.classList.add('selected');
             }
 
-            // Create image EXACTLY like music.html
+            // Create image element
             const nameEl = document.createElement('div');
             nameEl.className = 'item-name';
             if (!isSelected) {
@@ -858,7 +858,7 @@ class ArcList {
                 imgEl.style.setProperty('filter', 'none', 'important');
             }
             
-            // Add elements to the item container - EXACTLY like music.html
+            // Add elements to the item container
             itemElement.appendChild(nameEl);
             itemElement.appendChild(imgEl);
             
@@ -1116,28 +1116,19 @@ class ArcList {
      * Send click command back to server (rate limited)
      */
     sendClickCommand() {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-        
         try {
             const now = Date.now();
-            const CLICK_THROTTLE_MS = 50; // 50ms throttle
-            
-            // Rate limiting: only send if at least 50ms have passed since last send
-            if (now - (this.lastClickTime || 0) < CLICK_THROTTLE_MS) {
-                return;
-            }
-            
+            const CLICK_THROTTLE_MS = 50;
+            if (now - (this.lastClickTime || 0) < CLICK_THROTTLE_MS) return;
             this.lastClickTime = now;
-            
-            const message = {
-                type: 'command',
-                command: 'click',
-                params: {}
-            };
-            
-            this.ws.send(JSON.stringify(message));
+
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({ type: 'command', command: 'click', params: {} }));
+            } else if (window.parent !== window) {
+                window.parent.postMessage({ type: 'click' }, '*');
+            }
         } catch (error) {
-            // Silently fail if sending fails
+            // Silently fail
         }
     }
     
@@ -2152,8 +2143,8 @@ class ArcList {
             id = currentItem.id;
             itemName = currentItem.name || currentItem[this.config.parentNameKey];
             
-            // For music context, prepend Spotify URI prefix for playlists
-            if (this.config.context === 'music') {
+            // For spotify context, prepend Spotify URI prefix for playlists
+            if (this.config.context === 'spotify') {
                 id = `spotify:playlist:${id}`;
                 console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for playlist: ${itemName}, Spotify ID: ${id}`);
             } else {
@@ -2180,13 +2171,13 @@ class ArcList {
             id = currentChild.id;
             itemName = currentChild.name || currentChild.title;
             
-            // For music context, prepend Spotify URI prefix for tracks and include parent playlist ID
-            if (this.config.context === 'music') {
+            // For spotify context, prepend Spotify URI prefix for tracks and include parent playlist ID
+            if (this.config.context === 'spotify') {
                 id = `spotify:track:${id}`;
                 const parentPlaylistId = `spotify:playlist:${this.selectedParent.id}`;
                 console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for track: ${itemName}, Spotify ID: ${id}, Parent Playlist: ${parentPlaylistId}`);
                 
-                // Include parent_id for music tracks
+                // Include parent_id for spotify tracks
                 webhookData = {
                     device_type: "Panel",
                     device_name: this.getDeviceName(),
@@ -2198,7 +2189,7 @@ class ArcList {
             } else {
                 console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for child item: ${itemName}, ID: ${id}`);
                 
-                // Use standardized format for non-music child items
+                // Use standardized format for non-spotify child items
                 webhookData = {
                     device_type: "Panel",
                     device_name: this.getDeviceName(),
@@ -2253,7 +2244,7 @@ class ArcList {
 
         if (this.config.context === 'scenes') {
             window.EmulatorBridge.notifySceneActivated(id, itemName);
-        } else if (this.config.context === 'music') {
+        } else if (this.config.context === 'spotify') {
             if (this.viewMode === 'parent' || this.viewMode === 'single') {
                 window.EmulatorBridge.notifyPlaylistSelected(
                     this.parentData[this.currentIndex]?.id,
