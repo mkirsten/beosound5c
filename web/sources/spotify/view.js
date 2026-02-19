@@ -31,15 +31,16 @@ window.SpotifyView = (() => {
     let currentPlaylist = null;    // playlist object when in tracks mode
     let savedPlaylistIndex = 0;
 
-    // Softarc constants (exact match with CD view)
-    const SCROLL_SPEED = 0.5;
-    const SCROLL_STEP = 0.5;
-    const SNAP_DELAY = 1000;
-    const MIDDLE_INDEX = 4;
-    const BASE_ITEM_SIZE = 128;
-    const MAX_RADIUS = 220;
-    const HORIZONTAL_MULTIPLIER = 0.35;
-    const BASE_X_OFFSET = 100;
+    // Softarc constants (shared via ArcMath)
+    const _ac = ArcMath.getConstants();
+    const SCROLL_SPEED = _ac.scrollSpeed;
+    const SCROLL_STEP = _ac.scrollStep;
+    const SNAP_DELAY = _ac.snapDelay;
+    const MIDDLE_INDEX = _ac.middleIndex;
+    const BASE_ITEM_SIZE = _ac.baseItemSize;
+    const MAX_RADIUS = _ac.maxRadius;
+    const HORIZONTAL_MULTIPLIER = _ac.horizontalMultiplier;
+    const BASE_X_OFFSET = _ac.baseXOffset;
 
     function resetState() {
         if (arcSnapTimer) clearTimeout(arcSnapTimer);
@@ -401,8 +402,8 @@ window.SourcePresets.spotify = {
         if (window.SpotifyView) window.SpotifyView.destroy();
     },
 
-    // PLAYING sub-preset: use media_update from beo-sonos (handles artwork perfectly)
-    // When Sonos is the output, beo-sonos polls and broadcasts artwork/metadata.
+    // PLAYING sub-preset: use media_update from beo-player-sonos (handles artwork perfectly)
+    // When Sonos is the output, beo-player-sonos polls and broadcasts artwork/metadata.
     // For librespot fallback, spotify.py sends media_update in the same format.
     playing: {
         eventType: 'media_update'

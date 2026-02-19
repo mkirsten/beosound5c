@@ -35,11 +35,12 @@ class ArcList {
             ...config
         };
         
-        // ===== ANIMATION PARAMETERS =====
-        this.SCROLL_SPEED = 0.5; // How fast scrolling animation happens (0.1 = slow, 0.3 = fast)
-        this.SCROLL_STEP = 0.5; // How much to scroll per key press (changed from 0.2 to 1 for better navigation)
-        this.SNAP_DELAY = 1000; // Milliseconds to wait before snapping to closest item (reduced from 1000)
-        this.MIDDLE_INDEX = 4; // How many items to show on each side of center (4 = 9 total items visible)
+        // ===== ANIMATION PARAMETERS (from centralized Constants.softarc) =====
+        const _sa = (window.parent?.Constants || window.Constants)?.softarc || {};
+        this.SCROLL_SPEED = _sa.scrollSpeed ?? 0.5;
+        this.SCROLL_STEP = _sa.scrollStep ?? 0.5;
+        this.SNAP_DELAY = _sa.snapDelay ?? 1000;
+        this.MIDDLE_INDEX = _sa.middleIndex ?? 4;
         
         // ===== STATE VARIABLES =====
         this.items = []; // Current items to display
@@ -368,11 +369,11 @@ class ArcList {
         this.connectWebSocket();
         
         // Save state periodically and on page unload
-        setInterval(() => this.saveState(), 1000); // Save every second
+        this._saveInterval = setInterval(() => this.saveState(), 1000);
         window.addEventListener('beforeunload', () => this.saveState());
-        
+
         // Listen for events from parent window (when in iframe)
-        window.addEventListener('message', (event) => {
+        this._messageHandler = (event) => {
             if (event.data && event.data.type === 'button') {
                 this.handleButtonFromParent(event.data.button);
             } else if (event.data && event.data.type === 'nav') {
@@ -382,7 +383,8 @@ class ArcList {
             } else if (event.data && event.data.type === 'reload-data') {
                 this.reloadData();
             }
-        });
+        };
+        window.addEventListener('message', this._messageHandler);
     }
     
     /**
@@ -601,60 +603,13 @@ class ArcList {
      * Returns array of items with their visual properties (position, scale, opacity, etc.)
      */
     getVisibleItems() {
-        const visibleItems = [];
-        
-        // Calculate the range of items to show (centered around currentIndex)
-        const centerIndex = Math.round(this.currentIndex);
-        
-        // Show items from -MIDDLE_INDEX to +MIDDLE_INDEX relative to center
-        for (let relativePos = -this.MIDDLE_INDEX; relativePos <= this.MIDDLE_INDEX; relativePos++) {
-            const itemIndex = centerIndex + relativePos;
-            
-            // Skip if item doesn't exist in our data
-            if (itemIndex < 0 || itemIndex >= this.items.length) {
-                continue;
-            }
-            
-            // Calculate the actual relative position considering smooth scrolling
-            const actualRelativePos = relativePos - (this.currentIndex - centerIndex);
-            const absPosition = Math.abs(actualRelativePos);
-            
-            // ===== VISUAL EFFECTS =====
-            const scale = Math.max(0.4, 1.0 - (absPosition * 0.15)); // Calculate scale first
-            const opacity = 1; // Always full opacity for all items
-            const blur = 0; // No blur for now
-            
-            // ===== ARC POSITIONING CALCULATIONS =====
-            // 🎯 ARC SHAPE CONTROL - Adjust these values to change the arc appearance:
-            const maxRadius = 220; // Horizontal offset for spacing (higher = more spread out)
-            const horizontalMultiplier = 0.35; // How much items curve to the right (0.1 = straight, 0.5 = very curved)
-            const baseXOffset = 100; // 🎯 BASE X POSITION - Move entire arc left/right (higher = more to the right)
-            const x = baseXOffset + (Math.abs(actualRelativePos) * maxRadius * horizontalMultiplier); // Horizontal spacing multiplier
-            
-            // 🎯 VERTICAL SPACING CONTROL - Adjust these values to change vertical spacing:
-            const baseItemSize = 128; // Base size in pixels
-            const scaledItemSize = baseItemSize * scale; // Actual size after scaling
-            const minSpacing = scaledItemSize + 20; // Add 20px padding between items
-            const y = actualRelativePos * minSpacing; // Dynamic spacing based on scale
-            
-            // Add item to visible list with all its properties
-            visibleItems.push({
-                ...this.items[itemIndex], // Include original item data (id, name, image)
-                index: itemIndex, // Original index in the items array
-                relativePosition: actualRelativePos, // Position relative to center
-                x, // Horizontal position
-                y, // Vertical position
-                scale, // Size multiplier
-                opacity, // Transparency
-                blur, // Blur amount
-                isSelected: Math.abs(actualRelativePos) < 0.5 // Is this the center/selected item?
-            });
-        }
-        
-        // Sort by relative position to ensure consistent order
-        visibleItems.sort((a, b) => a.relativePosition - b.relativePosition);
-        
-        return visibleItems;
+        return ArcMath.getVisibleItems(this.currentIndex, this.items, {
+            middleIndex: this.MIDDLE_INDEX,
+        }).map(item => ({
+            ...item,
+            opacity: 1,
+            blur: 0,
+        }));
     }
     
     /**
@@ -975,10 +930,22 @@ class ArcList {
      */
     destroy() {
         if (this.animationFrame) {
-            cancelAnimationFrame(this.animationFrame); // Stop animation loop
+            cancelAnimationFrame(this.animationFrame);
         }
         if (this.snapTimer) {
-            clearTimeout(this.snapTimer); // Clear auto-snap timer
+            clearTimeout(this.snapTimer);
+        }
+        if (this._saveInterval) {
+            clearInterval(this._saveInterval);
+            this._saveInterval = null;
+        }
+        if (this._messageHandler) {
+            window.removeEventListener('message', this._messageHandler);
+            this._messageHandler = null;
+        }
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
         }
     }
     

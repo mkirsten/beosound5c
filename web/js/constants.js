@@ -86,6 +86,18 @@ const Constants = {
         'menu/system': 'system-iframe'
     },
 
+    // Softarc positioning (shared by ArcList, CD view, Spotify view, etc.)
+    softarc: {
+        scrollSpeed: 0.5,
+        scrollStep: 0.5,
+        snapDelay: 1000,
+        middleIndex: 4,
+        baseItemSize: 128,
+        maxRadius: 220,
+        horizontalMultiplier: 0.35,
+        baseXOffset: 100
+    },
+
     // Placeholder artwork SVGs
     placeholders: {
         noArtwork: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23333'/%3E%3Ctext x='100' y='100' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3ENo Artwork%3C/text%3E%3Ctext x='100' y='120' font-family='Arial' font-size='14' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3EAvailable%3C/text%3E%3C/svg%3E",
@@ -106,6 +118,7 @@ Object.freeze(Constants.timeouts);
 Object.freeze(Constants.animations);
 Object.freeze(Constants.websocket);
 Object.freeze(Constants.iframes);
+Object.freeze(Constants.softarc);
 Object.freeze(Constants.placeholders);
 Constants.menuItems.forEach(item => Object.freeze(item));
 Object.freeze(Constants.menuItems);

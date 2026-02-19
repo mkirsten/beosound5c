@@ -115,14 +115,15 @@ class LaserPointerSimulator {
         this.MAX_LASER_POS = laser.maxPosition || 123;
         this.currentLaserPosition = laser.defaultPosition || 93;
         this.isEnabled = false;
+        this._boundWheelHandler = this.handleWheelEvent.bind(this);
     }
 
     enable() {
         if (this.isEnabled) return;
         this.isEnabled = true;
-        
+
         // Add wheel event listener
-        document.addEventListener('wheel', this.handleWheelEvent.bind(this), { passive: false });
+        document.addEventListener('wheel', this._boundWheelHandler, { passive: false });
         
         // Send initial laser position to set the starting view
         setTimeout(() => {
@@ -140,8 +141,8 @@ class LaserPointerSimulator {
     disable() {
         if (!this.isEnabled) return;
         this.isEnabled = false;
-        
-        document.removeEventListener('wheel', this.handleWheelEvent.bind(this));
+
+        document.removeEventListener('wheel', this._boundWheelHandler);
     }
 
     handleWheelEvent(event) {
@@ -198,21 +199,22 @@ class KeyboardSimulator {
     constructor(server) {
         this.server = server;
         this.isEnabled = false;
+        this._boundKeyDown = this.handleKeyDown.bind(this);
     }
 
     enable() {
         if (this.isEnabled) return;
         this.isEnabled = true;
-        
+
         // Add keyboard event listener
-        document.addEventListener('keydown', this.handleKeyDown.bind(this));
+        document.addEventListener('keydown', this._boundKeyDown);
     }
 
     disable() {
         if (!this.isEnabled) return;
         this.isEnabled = false;
-        
-        document.removeEventListener('keydown', this.handleKeyDown.bind(this));
+
+        document.removeEventListener('keydown', this._boundKeyDown);
     }
 
     handleKeyDown(event) {

@@ -35,17 +35,16 @@ class ArcList {
             onGo: config.onGo || null,
         };
 
-        // ===== ANIMATION PARAMETERS =====
-        this.SCROLL_SPEED = 0.5;
-        this.SCROLL_STEP = 0.5;
-        this.SNAP_DELAY = 1000;
-        this.MIDDLE_INDEX = 4;
-
-        // ===== ARC POSITIONING =====
-        this.BASE_X_OFFSET = 100;
-        this.MAX_RADIUS = 220;
-        this.HORIZONTAL_MULTIPLIER = 0.35;
-        this.BASE_ITEM_SIZE = 128;
+        // ===== ARC POSITIONING (from centralized Constants.softarc) =====
+        const _sa = (window.parent?.Constants || window.Constants)?.softarc || {};
+        this.SCROLL_SPEED = _sa.scrollSpeed ?? 0.5;
+        this.SCROLL_STEP = _sa.scrollStep ?? 0.5;
+        this.SNAP_DELAY = _sa.snapDelay ?? 1000;
+        this.MIDDLE_INDEX = _sa.middleIndex ?? 4;
+        this.BASE_X_OFFSET = _sa.baseXOffset ?? 100;
+        this.MAX_RADIUS = _sa.maxRadius ?? 220;
+        this.HORIZONTAL_MULTIPLIER = _sa.horizontalMultiplier ?? 0.35;
+        this.BASE_ITEM_SIZE = _sa.baseItemSize ?? 128;
 
         // ===== BREADCRUMB POSITIONS =====
         this.BREADCRUMB_SLOTS = [
@@ -728,11 +727,11 @@ class ArcList {
         this.connectWebSocket();
 
         // Periodic save + unload save
-        setInterval(() => this.saveState(), 1000);
+        this._saveInterval = setInterval(() => this.saveState(), 1000);
         window.addEventListener('beforeunload', () => this.saveState());
 
         // postMessage from parent iframe
-        window.addEventListener('message', (event) => {
+        this._messageHandler = (event) => {
             if (event.data?.type === 'button') {
                 this.handleButton(event.data.button || event.data.data?.button);
             } else if (event.data?.type === 'nav') {
@@ -747,7 +746,8 @@ class ArcList {
             } else if (event.data?.type === 'reload-data') {
                 this.reloadData();
             }
-        });
+        };
+        window.addEventListener('message', this._messageHandler);
     }
 
     handleKeyPress(e) {
@@ -871,32 +871,15 @@ class ArcList {
     // ─── RENDERING ───────────────────────────────────────────────────
 
     getVisibleItems() {
-        const visibleItems = [];
-        const centerIndex = Math.round(this.currentIndex);
-
-        for (let relativePos = -this.MIDDLE_INDEX; relativePos <= this.MIDDLE_INDEX; relativePos++) {
-            const itemIndex = centerIndex + relativePos;
-            if (itemIndex < 0 || itemIndex >= this.items.length) continue;
-
-            const actualRelativePos = relativePos - (this.currentIndex - centerIndex);
-            const absPosition = Math.abs(actualRelativePos);
-
-            const scale = Math.max(0.4, 1.0 - (absPosition * 0.15));
-            const x = this.BASE_X_OFFSET + (Math.abs(actualRelativePos) * this.MAX_RADIUS * this.HORIZONTAL_MULTIPLIER);
-            const scaledItemSize = this.BASE_ITEM_SIZE * scale;
-            const y = actualRelativePos * (scaledItemSize + 20);
-
-            visibleItems.push({
-                ...this.items[itemIndex],
-                index: itemIndex,
-                relativePosition: actualRelativePos,
-                x, y, scale,
-                isSelected: Math.abs(actualRelativePos) < 0.5,
-            });
-        }
-
-        visibleItems.sort((a, b) => a.relativePosition - b.relativePosition);
-        return visibleItems;
+        const items = ArcMath.getVisibleItems(this.currentIndex, this.items, {
+            middleIndex:          this.MIDDLE_INDEX,
+            baseXOffset:          this.BASE_X_OFFSET,
+            maxRadius:            this.MAX_RADIUS,
+            horizontalMultiplier: this.HORIZONTAL_MULTIPLIER,
+            baseItemSize:         this.BASE_ITEM_SIZE,
+        });
+        items.sort((a, b) => a.relativePosition - b.relativePosition);
+        return items;
     }
 
     render() {
@@ -1243,6 +1226,18 @@ class ArcList {
     destroy() {
         if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
         if (this.snapTimer) clearTimeout(this.snapTimer);
+        if (this._saveInterval) {
+            clearInterval(this._saveInterval);
+            this._saveInterval = null;
+        }
+        if (this._messageHandler) {
+            window.removeEventListener('message', this._messageHandler);
+            this._messageHandler = null;
+        }
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
     }
 }
 

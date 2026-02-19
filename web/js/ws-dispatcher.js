@@ -73,6 +73,10 @@ function processWebSocketEvent(message) {
             handleSourceChange(uiStore, data);
             break;
 
+        case 'volume_update':
+            handleVolumeUpdate(data);
+            break;
+
         default:
             // Generic source update: "{sourceId}_update" → SourcePresets[sourceId].controller
             if (type.endsWith('_update')) {
@@ -197,7 +201,7 @@ async function handleMenuItemEvent(uiStore, data) {
 function handleSourceChange(uiStore, data) {
     const sourceId = data.active_source;  // string or null
     const sourceName = data.source_name || null;
-    const player = data.player || null;   // "local" | "sonos" | null
+    const player = data.player || null;   // "local" | "remote" | null
     console.log(`[SOURCE] Active source changed: ${sourceId || 'none'} (${sourceName || 'HA fallback'}, player=${player || 'none'})`);
 
     uiStore.activeSource = sourceId;

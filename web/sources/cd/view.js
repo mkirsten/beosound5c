@@ -28,17 +28,16 @@ window.CDView = (() => {
     let viewMode = 'main';       // 'main' | 'settings' | 'artwork'
     let savedMainIndex = 0;      // Scroll position when entering submenu
 
-    // Softarc constants (exact match)
-    const SCROLL_SPEED = 0.5;    // Easing: currentIndex += diff * SCROLL_SPEED
-    const SCROLL_STEP = 0.5;     // Base step per nav event
-    const SNAP_DELAY = 1000;     // ms idle before snap
-    const MIDDLE_INDEX = 4;      // Items above/below center (9 visible)
-
-    // Softarc positioning constants (exact match)
-    const BASE_ITEM_SIZE = 128;
-    const MAX_RADIUS = 220;
-    const HORIZONTAL_MULTIPLIER = 0.35;
-    const BASE_X_OFFSET = 100;
+    // Softarc constants (shared via ArcMath)
+    const _ac = ArcMath.getConstants();
+    const SCROLL_SPEED = _ac.scrollSpeed;
+    const SCROLL_STEP = _ac.scrollStep;
+    const SNAP_DELAY = _ac.snapDelay;
+    const MIDDLE_INDEX = _ac.middleIndex;
+    const BASE_ITEM_SIZE = _ac.baseItemSize;
+    const MAX_RADIUS = _ac.maxRadius;
+    const HORIZONTAL_MULTIPLIER = _ac.horizontalMultiplier;
+    const BASE_X_OFFSET = _ac.baseXOffset;
 
     // Morph (loading → content transition)
     let morphing = false;
@@ -206,33 +205,9 @@ window.CDView = (() => {
         arcCurrentIndex = arcTargetIndex;
     }
 
-    /**
-     * Compute visible items with position/scale — exact softarc math.
-     */
+    /** Compute visible items with position/scale — delegates to shared ArcMath. */
     function getVisibleItems() {
-        const items = [];
-        const centerIndex = Math.round(arcCurrentIndex);
-
-        for (let rel = -MIDDLE_INDEX; rel <= MIDDLE_INDEX; rel++) {
-            const idx = centerIndex + rel;
-            if (idx < 0 || idx >= arcItems.length) continue;
-
-            const actualRel = rel - (arcCurrentIndex - centerIndex);
-            const absPos = Math.abs(actualRel);
-            const scale = Math.max(0.4, 1.0 - absPos * 0.15);
-
-            const x = BASE_X_OFFSET + absPos * MAX_RADIUS * HORIZONTAL_MULTIPLIER;
-            const scaledSize = BASE_ITEM_SIZE * scale;
-            const y = actualRel * (scaledSize + 20);
-            const isSelected = absPos < 0.5;
-
-            items.push({
-                ...arcItems[idx],
-                index: idx,
-                x, y, scale, isSelected
-            });
-        }
-        return items;
+        return ArcMath.getVisibleItems(arcCurrentIndex, arcItems);
     }
 
     /**

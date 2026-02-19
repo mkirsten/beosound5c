@@ -10,7 +10,6 @@ const config = {
     skipFactor: 1,          // Process 1 out of every N events (higher = more skipping)
     disableTransitions: true, // Disable CSS transitions on the pointer for responsiveness
     bypassRAF: true,        // Bypass requestAnimationFrame for immediate updates
-    useShadowPointer: false, // Use a shadow pointer for immediate visual feedback
     showDebugOverlay: true, // Show the debug overlay to help diagnose issues
 
     // Timeouts from centralized Constants (with fallbacks)
@@ -35,7 +34,6 @@ let eventsProcessed = 0;
 
 // Pointer state
 let lastKnownPointerAngle = 180; // Default middle position
-let shadowPointer = null;
 
 // ── Cursor Visibility ──
 
@@ -56,43 +54,6 @@ function hideCursor() {
     if (cursorStyle) {
         cursorStyle.textContent = '* { cursor: none !important; }';
     }
-}
-
-// ── Shadow Pointer ──
-
-function createShadowPointer() {
-    if (config.useShadowPointer) {
-        shadowPointer = document.createElement('div');
-        shadowPointer.id = 'shadow-pointer';
-        shadowPointer.style.cssText = `
-            position: fixed;
-            width: 20px;
-            height: 20px;
-            background-color: rgba(255, 0, 0, 0.5);
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-            z-index: 10000;
-            display: none;
-        `;
-        document.body.appendChild(shadowPointer);
-    }
-}
-
-function updateShadowPointer(angle) {
-    if (!config.useShadowPointer || !shadowPointer) return;
-
-    const centerX = window.innerWidth / 2;
-    const centerY = window.innerHeight / 2;
-    const radius = Math.min(centerX, centerY) * 0.8;
-
-    const angleRad = (angle - 180) * (Math.PI / 180);
-    const x = centerX + radius * Math.cos(angleRad);
-    const y = centerY + radius * Math.sin(angleRad);
-
-    shadowPointer.style.left = `${x}px`;
-    shadowPointer.style.top = `${y}px`;
-    shadowPointer.style.display = 'block';
 }
 
 // ── Transition Styles ──
@@ -169,7 +130,6 @@ function processLaserEvent(data) {
     const angle = laserPositionToAngle(pos);
 
     lastKnownPointerAngle = angle;
-    updateShadowPointer(angle);
     updateViaStore(angle, pos);
 
     lastLaserEvent = null;
@@ -237,6 +197,21 @@ function routeNavToView(page, data, uiStore) {
 }
 
 // ── Volume ──
+//
+// Volume has two independent paths by design:
+//
+// Path A — USB HID volume wheel (physical BS5 wheel):
+//   input.py → WebSocket → handleVolumeEvent() here → local JS math → POST /router/volume
+//   Uses non-linear scaling (faster at low, slower at high) and fast-spin-to-zero,
+//   because the wheel provides speed data that enables these features.
+//
+// Path B — BeoRemote / IR remote (volup/voldown buttons):
+//   bluetooth.py / masterlink.py → POST /router/event {action: "volup"}
+//   Router applies a fixed step (from config volume.step). No speed data available.
+//   Volume changes are broadcast back to the UI via volume_update events.
+//
+// Both paths converge at the router, which owns the canonical volume state
+// and forwards to the volume adapter (BeoLab 5, Sonos, etc.).
 
 let currentVolume = 50;
 let volumeOutputDevice = '';
@@ -266,6 +241,18 @@ async function fetchVolumeFromRouter() {
     } catch (e) {
         console.warn('[VOLUME] Could not fetch router status:', e);
     }
+}
+
+/**
+ * Handle volume updates broadcast from the router (e.g., remote control
+ * adjusted volume, or Sonos reported a change). Updates the local state
+ * and arc visual without sending back to the router.
+ */
+function handleVolumeUpdate(data) {
+    const newVol = data.volume;
+    if (newVol == null || typeof newVol !== 'number') return;
+    currentVolume = newVol;
+    updateVolumeArc(currentVolume);
 }
 
 function sendVolumeToRouter(volume) {
@@ -461,9 +448,6 @@ document.addEventListener('DOMContentLoaded', () => {
         processLaserEvent(lastLaserEvent);
     }
     processLaserEvents();
-
-    // Shadow pointer for visual feedback
-    createShadowPointer();
 
     // Volume arc overlay
     initVolumeArc();

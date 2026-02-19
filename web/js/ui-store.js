@@ -198,7 +198,7 @@ class UIStore {
 
         // Active source tracking (source registry)
         this.activeSource = null;          // id of active source, or null (HA fallback)
-        this.activeSourcePlayer = null;    // "local" | "sonos" | null — who renders audio
+        this.activeSourcePlayer = null;    // "local" | "remote" | null — who renders audio
         this.activePlayingPreset = DEFAULT_PLAYING_PRESET;
         this._menuLoaded = false;          // true after _fetchMenu completes
 
@@ -248,8 +248,8 @@ class UIStore {
         // Suppress Sonos metadata when a local player source is active.
         // Local sources (CD, USB, Demo) stream to Sonos via AirPlay but provide
         // their own metadata — showing Sonos metadata would be wrong/delayed.
-        // When player is "sonos" (e.g. Spotify via SoCo) or no source is active,
-        // Sonos metadata flows through.
+        // When player is "remote" (e.g. Spotify via player service) or no source
+        // is active, Sonos metadata flows through.
         if (this.activeSourcePlayer === 'local') {
             return;
         }
@@ -928,6 +928,11 @@ class UIStore {
     }
 
     navigateToView(path) {
+        // Skip if already on the target route (avoids unnecessary DOM rebuild
+        // which causes artwork flicker, e.g. when wake trigger fires while
+        // already viewing the playing page)
+        if (path === this.currentRoute) return;
+
         // Cancel any pending navigation transition
         if (this.navigationTimeout) {
             clearTimeout(this.navigationTimeout);
@@ -1003,9 +1008,21 @@ class UIStore {
         this._previousRoute = this.currentRoute;
 
         // Rescue preloaded iframes before replacing content (prevents reload + stale init clicks)
+        // Call destroy() on ArcList instances to clean up intervals, listeners, and WebSockets
         const preloadContainer = document.getElementById('iframe-preload-container');
         if (preloadContainer) {
             contentArea.querySelectorAll('iframe[id^="preload-"]').forEach(iframe => {
+                try {
+                    const win = iframe.contentWindow;
+                    const inst = win?.arcListInstance || win?.arcList;
+                    if (inst && typeof inst.destroy === 'function') {
+                        inst.destroy();
+                    }
+                    // Clean up SystemPanel if present (system.html)
+                    if (win?.systemPanel && typeof win.systemPanel.destroy === 'function') {
+                        win.systemPanel.destroy();
+                    }
+                } catch (e) { /* cross-origin or unloaded iframe */ }
                 iframe.style.cssText = 'width:1024px;height:768px;border:none;';
                 preloadContainer.appendChild(iframe);
             });

@@ -851,7 +851,7 @@
                     <div class="log-service-btn active" data-service="beo-masterlink">masterlink</div>
                     <div class="log-service-btn" data-service="beo-bluetooth">bluetooth</div>
                     <div class="log-service-btn" data-service="beo-router">router</div>
-                    <div class="log-service-btn" data-service="beo-sonos">sonos</div>
+                    <div class="log-service-btn" data-service="beo-player-sonos">sonos</div>
                     <div class="log-service-btn" data-service="beo-cd">cd</div>
                     <div class="log-service-btn" data-service="beo-input">input</div>
                     <div class="log-service-btn" data-service="beo-http">http</div>
@@ -879,8 +879,8 @@
                     <span class="name">beo-router</span>
                     <span class="status-dot" id="dot-router"></span>
                 </div>
-                <div class="service-item" data-service="beo-sonos">
-                    <span class="name">beo-sonos</span>
+                <div class="service-item" data-service="beo-player-sonos">
+                    <span class="name">beo-player-sonos</span>
                     <span class="status-dot" id="dot-sonos"></span>
                 </div>
                 <div class="service-item" data-service="beo-cd">
@@ -1067,7 +1067,7 @@
             constructor() {
                 this.sections = ['info', 'debug', 'services', 'remotes', 'people', 'output'];
                 this.currentSection = 0;
-                this.logServices = ['beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-sonos', 'beo-cd', 'beo-input', 'beo-http', 'beo-ui'];
+                this.logServices = ['beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-player-sonos', 'beo-cd', 'beo-input', 'beo-http', 'beo-ui'];
                 this.currentLogService = 0;
                 this.serviceItems = document.querySelectorAll('#services .service-item');
                 this.currentServiceItem = 0;
@@ -1389,9 +1389,10 @@
             }
 
             init() {
-                window.addEventListener('message', (event) => {
+                this._messageHandler = (event) => {
                     this.handleMessage(event.data);
-                });
+                };
+                window.addEventListener('message', this._messageHandler);
 
                 // Direct keyboard support for standalone use (dev mode)
                 document.addEventListener('keydown', (e) => {
@@ -1416,9 +1417,11 @@
                 this.fetchPeople();
                 this.fetchCDStatus();
                 this.fetchWirelessOutputs();
-                setInterval(() => this.checkServiceStatus(), 10000);
-                setInterval(() => this.fetchPeople(), 30000);
-                setInterval(() => this.fetchCDStatus(), 5000);
+                this._intervals = [
+                    setInterval(() => this.checkServiceStatus(), 10000),
+                    setInterval(() => this.fetchPeople(), 30000),
+                    setInterval(() => this.fetchCDStatus(), 5000),
+                ];
 
                 // Spotify refresh button handler
                 document.getElementById('spotify-refresh-btn').addEventListener('click', () => {
@@ -2207,10 +2210,33 @@
                     .slice(0, 2)
                     .join('');
             }
+
+            destroy() {
+                if (this._intervals) {
+                    this._intervals.forEach(id => clearInterval(id));
+                    this._intervals = null;
+                }
+                if (this.networkPollInterval) {
+                    clearInterval(this.networkPollInterval);
+                    this.networkPollInterval = null;
+                }
+                if (this.remotesRefreshInterval) {
+                    clearInterval(this.remotesRefreshInterval);
+                    this.remotesRefreshInterval = null;
+                }
+                if (this._messageHandler) {
+                    window.removeEventListener('message', this._messageHandler);
+                    this._messageHandler = null;
+                }
+                if (this.inputWs) {
+                    this.inputWs.close();
+                    this.inputWs = null;
+                }
+            }
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            new SystemPanel();
+            window.systemPanel = new SystemPanel();
         });
     </script>
 </body>
