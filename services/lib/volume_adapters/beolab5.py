@@ -43,7 +43,7 @@ class BeoLab5Volume(VolumeAdapter):
     async def get_volume(self) -> float:
         try:
             async with self._session.get(
-                f"{self._base}/number/beolab_5_volume",
+                f"{self._base}/number/volume",
                 timeout=aiohttp.ClientTimeout(total=2.0),
             ) as resp:
                 data = await resp.json()
@@ -57,7 +57,7 @@ class BeoLab5Volume(VolumeAdapter):
     async def power_on(self) -> None:
         try:
             async with self._session.post(
-                f"{self._base}/switch/beolab_5/turn_on",
+                f"{self._base}/switch/power/turn_on",
                 timeout=aiohttp.ClientTimeout(total=2.0),
             ) as resp:
                 logger.info("BeoLab 5 power on: HTTP %d", resp.status)
@@ -67,7 +67,7 @@ class BeoLab5Volume(VolumeAdapter):
     async def is_on(self) -> bool:
         try:
             async with self._session.get(
-                f"{self._base}/switch/beolab_5",
+                f"{self._base}/switch/power",
                 timeout=aiohttp.ClientTimeout(total=1.0),
             ) as resp:
                 data = await resp.json()
@@ -87,7 +87,7 @@ class BeoLab5Volume(VolumeAdapter):
         self._debounce_handle = None
         try:
             async with self._session.post(
-                f"{self._base}/number/beolab_5_volume/set",
+                f"{self._base}/number/volume/set",
                 params={"value": str(vol)},
                 timeout=aiohttp.ClientTimeout(total=2.0),
             ) as resp:
