@@ -205,7 +205,8 @@ html, body {
    Immersive center:      content-area (167, 350) = screen (347, 370)
    → translate(-243px, 50px) scale(1.21)
    Result: 595×595 artwork, left edge ≈ screen x50, right ≈ x645. Within 870 cutoff.
-   Overlay info at content-area left 495 = screen 675. Width 160 → ends at 835. OK.
+   Overlay info at content-area left 480 = screen 660. Width 200 → ends at 860. OK.
+   Overlay bottom-aligned with artwork bottom at content-area y ≈ 648 → bottom: 52px.
 */
 
 /* Allow artwork to overflow container when transforming left */
@@ -243,9 +244,8 @@ html, body {
 .immersive-info {
   position: absolute;
   left: 495px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 160px;
+  bottom: 68px;
+  width: 200px;
   text-align: left;
   color: white;
   opacity: 0;
