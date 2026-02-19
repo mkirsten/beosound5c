@@ -407,6 +407,7 @@ class USBService(SourceBase):
     id = "usb"
     name = "USB"
     port = 8773
+    player = "local"
     action_map = {
         "play": "toggle",
         "pause": "toggle",

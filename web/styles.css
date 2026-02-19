@@ -244,8 +244,8 @@ html, body {
 .immersive-info {
   position: absolute;
   left: 495px;
-  bottom: 68px;
-  width: 200px;
+  bottom: 60px;
+  width: 280px;
   text-align: left;
   color: white;
   opacity: 0;

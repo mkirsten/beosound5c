@@ -653,6 +653,7 @@ class CDService(SourceBase):
     id = "cd"
     name = "CD"
     port = 8769
+    player = "local"
     action_map = {
         "play": "toggle",
         "pause": "toggle",

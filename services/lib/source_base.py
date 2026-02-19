@@ -44,6 +44,7 @@ class SourceBase:
     id: str = ""
     name: str = ""
     port: int = 0
+    player: str = "local"    # "local" or "sonos" — who renders the audio
     action_map: dict = {}
 
     def __init__(self):
@@ -61,6 +62,7 @@ class SourceBase:
                 "command_url": f"http://localhost:{self.port}/command",
                 "menu_preset": self.id,
                 "handles": list(self.action_map.keys()),
+                "player": self.player,
             })
         if navigate:
             payload["navigate"] = True

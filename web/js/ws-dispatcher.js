@@ -197,9 +197,11 @@ async function handleMenuItemEvent(uiStore, data) {
 function handleSourceChange(uiStore, data) {
     const sourceId = data.active_source;  // string or null
     const sourceName = data.source_name || null;
-    console.log(`[SOURCE] Active source changed: ${sourceId || 'none'} (${sourceName || 'HA fallback'})`);
+    const player = data.player || null;   // "local" | "sonos" | null
+    console.log(`[SOURCE] Active source changed: ${sourceId || 'none'} (${sourceName || 'HA fallback'}, player=${player || 'none'})`);
 
     uiStore.activeSource = sourceId;
+    uiStore.activeSourcePlayer = player;
     uiStore.setActivePlayingPreset(sourceId);
 }
 

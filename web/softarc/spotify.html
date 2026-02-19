@@ -175,7 +175,7 @@
                 storagePrefix: 'spotify_arclist',
                 title: 'Spotify',
                 context: 'spotify',
-                webhookUrl: (typeof AppConfig !== 'undefined' ? AppConfig.webhookUrl : 'http://localhost:8767/forward'),
+                sourceCommandUrl: ((typeof AppConfig !== 'undefined' && AppConfig.spotifyServiceUrl) || 'http://localhost:8771') + '/command',
                 childNameMapper: (track, index, allTracks) => {
                     const allSameArtist = allTracks && allTracks.every(t => t.artist === allTracks[0].artist);
                     let displayName;

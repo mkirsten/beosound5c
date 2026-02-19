@@ -523,9 +523,21 @@ class MediaServer:
                             asyncio.create_task(self.sonos_viewer.prefetch_upcoming_artwork(count=PREFETCH_COUNT))
 
                     # Notify router when Sonos media changes — lets the router
-                    # clear stale active_source when external playback takes over
+                    # clear stale active_source when external playback takes over.
+                    # Only force-clear when Sonos switched to a native service
+                    # (Spotify, Amazon, queue, etc.) — AirPlay track changes
+                    # from a local source (CD) should NOT clear the active source.
                     if track_changed:
-                        asyncio.create_task(self._notify_router_playback_override())
+                        is_native_service = any(
+                            track_id.startswith(p) for p in (
+                                'x-sonos-spotify:', 'x-sonosapi', 'x-rincon-queue:',
+                                'x-rincon-playlist:', 'x-file-cifs:', 'x-sonos-http:',
+                                'aac:', 'x-rincon-mp3radio:',
+                            )
+                        )
+                        asyncio.create_task(
+                            self._notify_router_playback_override(force=is_native_service)
+                        )
 
                     current_position = position
 
@@ -711,17 +723,22 @@ class MediaServer:
         except Exception as e:
             logger.debug(f"Could not report volume to router: {e}")
 
-    async def _notify_router_playback_override(self):
+    async def _notify_router_playback_override(self, force=False):
         """Notify the router that Sonos media changed externally.
 
         The router will clear active_source if no BS5c source updated recently
         (grace period prevents CD track advances from being misidentified).
+
+        Args:
+            force: True when Sonos switched to a native service (Spotify, etc.)
+                   — tells the router to clear active_source even if a source
+                   is currently playing (the source's AirPlay stream was taken over).
         """
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     ROUTER_PLAYBACK_OVERRIDE_URL,
-                    json={},
+                    json={"force": force},
                     timeout=aiohttp.ClientTimeout(total=2)
                 ) as response:
                     if response.status == 200:

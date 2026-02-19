@@ -284,11 +284,12 @@ class SpotifyService(SourceBase):
             self._load_playlists()
 
             # Init Sonos (SoCo) if configured — primary playback path
-            if SONOS_IP and VOLUME_TYPE == "sonos":
+            if SONOS_IP:
                 try:
                     import soco
                     self.soco = soco.SoCo(SONOS_IP)
                     self._use_soco = True
+                    self.player = "sonos"
                     log.info("Sonos connected: %s (%s) — direct SoCo playback",
                              self.soco.player_name, SONOS_IP)
                 except Exception as e:
@@ -296,6 +297,7 @@ class SpotifyService(SourceBase):
 
             # Non-Sonos: discover Spotify Connect devices (librespot etc.)
             if not self._use_soco:
+                self.player = "local"
                 await self._discover_devices()
         else:
             log.info("No Spotify credentials — waiting for setup via /setup")

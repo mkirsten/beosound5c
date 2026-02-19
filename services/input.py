@@ -954,7 +954,7 @@ async def receive_commands(ws):
 
 # ——— HID parse & broadcast loop ———
 
-def parse_report(rep: list):
+def parse_report(rep: list, loop=None):
     global last_power_press_time, power_button_state
     nav_evt = vol_evt = btn_evt = None
     laser_pos = rep[2]
@@ -998,12 +998,13 @@ def parse_report(rep: list):
                 logger.info("Power button action triggered")
                 toggle_backlight()
                 do_click()
-                # Power output on/off with screen
-                try:
-                    url = 'http://localhost:8770/router/output/' + ('off' if not is_backlight_on() else 'on')
-                    asyncio.run_coroutine_threadsafe(_output_power(url), loop)
-                except Exception:
-                    pass
+                # Power off speakers when screen turns off (speakers power on via playback)
+                if not is_backlight_on():
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            _output_power('http://localhost:8770/router/output/off'), loop)
+                    except Exception:
+                        pass
                 last_power_press_time = current_time
                 # Create button event for power button release
                 btn_evt = {'button': 'power'}
@@ -1039,7 +1040,7 @@ def scan_loop(loop):
         rpt = dev.read(64, timeout_ms=50)
         if rpt:
             rep = list(rpt)
-            nav_evt, vol_evt, btn_evt, laser_pos = parse_report(rep)
+            nav_evt, vol_evt, btn_evt, laser_pos = parse_report(rep, loop)
 
             for evt_type, evt in (
                 ('nav',    nav_evt),

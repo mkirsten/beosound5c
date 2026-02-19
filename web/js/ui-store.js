@@ -198,7 +198,9 @@ class UIStore {
 
         // Active source tracking (source registry)
         this.activeSource = null;          // id of active source, or null (HA fallback)
+        this.activeSourcePlayer = null;    // "local" | "sonos" | null — who renders audio
         this.activePlayingPreset = DEFAULT_PLAYING_PRESET;
+        this._menuLoaded = false;          // true after _fetchMenu completes
 
         // Set initial route
         this.currentRoute = 'menu/playing';
@@ -237,11 +239,24 @@ class UIStore {
     // 2. Track changes  
     // 3. External control detected
     
-    // Handle media update from WebSocket
+    // Handle media update from WebSocket (Sonos player)
     handleMediaUpdate(data, reason = 'update') {
+        // Defer until menu is loaded — we need to know if a source is active
+        // before deciding whether to show Sonos metadata or suppress it
+        if (!this._menuLoaded) return;
+
+        // Suppress Sonos metadata when a local player source is active.
+        // Local sources (CD, USB, Demo) stream to Sonos via AirPlay but provide
+        // their own metadata — showing Sonos metadata would be wrong/delayed.
+        // When player is "sonos" (e.g. Spotify via SoCo) or no source is active,
+        // Sonos metadata flows through.
+        if (this.activeSourcePlayer === 'local') {
+            return;
+        }
+
         // Only log the reason, not the full data object
         console.log(`[MEDIA-WS] ${reason}: ${data.title} - ${data.artist}`);
-        
+
         // Update media info
         this.mediaInfo = {
             title: data.title || '—',
@@ -252,7 +267,7 @@ class UIStore {
             position: data.position || '0:00',
             duration: data.duration || '0:00'
         };
-        
+
         // Update the now playing view if it's active
         if (this.currentRoute === 'menu/playing') {
             this.updateNowPlayingView();
@@ -261,9 +276,9 @@ class UIStore {
     
     // Update the now playing view with current media info (Sonos/generic path)
     updateNowPlayingView() {
-        // Skip if active preset doesn't listen to media_update (e.g. CD is active)
-        // The active source's data is routed via routeToPlayingPreset in ws-dispatcher
-        if (this.activePlayingPreset?.eventType && this.activePlayingPreset.eventType !== 'media_update') {
+        // Skip when a local player source is active — its own updates are
+        // routed via routeToPlayingPreset in ws-dispatcher
+        if (this.activeSourcePlayer === 'local') {
             return;
         }
 
@@ -403,15 +418,18 @@ class UIStore {
                 window.LaserPositionMapper.updateMenuItems(this.menuItems.filter(m => !m.hidden));
             }
 
-            // Restore active source
+            // Restore active source and player type
             if (data.active_source) {
                 this.activeSource = data.active_source;
+                this.activeSourcePlayer = data.active_player || null;
                 this.setActivePlayingPreset(data.active_source);
             }
 
+            this._menuLoaded = true;
             this.renderMenuItems();
-            console.log(`[MENU] Loaded ${newItems.length} items from router`);
+            console.log(`[MENU] Loaded ${newItems.length} items from router (active: ${data.active_source || 'none'})`);
         } catch (e) {
+            this._menuLoaded = true;  // allow media updates even if router is down
             console.log('[MENU] Router unavailable, using defaults');
         }
     }

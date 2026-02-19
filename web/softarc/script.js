@@ -2203,23 +2203,58 @@ class ArcList {
             return;
         }
         
-        console.log(`🟢 [IFRAME-WEBHOOK] Sending webhook to: ${this.config.webhookUrl}`);
+        // Direct source command (e.g. Spotify → SoCo playback via source service)
+        if (this.config.sourceCommandUrl && this.config.context === 'spotify') {
+            let cmdPayload;
+            if (this.viewMode === 'parent' || this.viewMode === 'single') {
+                const rawId = (this.parentData[Math.round(this.currentIndex)] || this.items[Math.round(this.currentIndex)]).id;
+                cmdPayload = { command: 'play_playlist', playlist_id: rawId };
+            } else if (this.viewMode === 'child') {
+                const trackIdx = Math.round(this.currentIndex);
+                cmdPayload = { command: 'play_playlist', playlist_id: this.selectedParent.id, track_index: trackIdx };
+            }
+
+            if (cmdPayload) {
+                console.log(`🟢 [IFRAME-SOURCE] Sending command to: ${this.config.sourceCommandUrl}`, cmdPayload);
+                const startTime = Date.now();
+                try {
+                    const response = await fetch(this.config.sourceCommandUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(cmdPayload)
+                    });
+                    const duration = Date.now() - startTime;
+                    if (response.ok) {
+                        console.log(`✅ [IFRAME-SOURCE] Command sent (${duration}ms):`, cmdPayload);
+                    } else {
+                        console.log(`❌ [IFRAME-SOURCE] Failed: ${response.status} (${duration}ms)`);
+                    }
+                } catch (error) {
+                    console.log(`🔴 [IFRAME-SOURCE] ERROR: ${error.message}`);
+                }
+                this.notifyEmulatorOfSelection(id, itemName);
+                return;
+            }
+        }
+
+        const targetUrl = this.config.webhookUrl;
+        console.log(`🟢 [IFRAME-WEBHOOK] Sending webhook to: ${targetUrl}`);
         console.log(`🟢 [IFRAME-WEBHOOK] Payload:`, JSON.stringify(webhookData, null, 2));
-        
+
         const startTime = Date.now();
-        
+
         // Send webhook to Home Assistant
         try {
-            const response = await fetch(this.config.webhookUrl, {
+            const response = await fetch(targetUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(webhookData)
             });
-            
+
             const duration = Date.now() - startTime;
-            
+
             if (response.ok) {
                 console.log(`✅ [IFRAME-WEBHOOK] SUCCESS: Webhook sent successfully (${duration}ms):`, webhookData);
             } else {

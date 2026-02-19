@@ -53,6 +53,7 @@ class DemoService(SourceBase):
     id = "demo"
     name = "Demo"
     port = 8771
+    player = "local"
     action_map = {
         "play": "play",
         "go": "play",

@@ -147,14 +147,81 @@ class AudioOutputs:
             return output
         return None
 
+    def check_pipewire_health(self):
+        """Quick check if PipeWire/PulseAudio can handle audio streams.
+
+        Tests by running ``pactl info`` and checking for a valid server
+        protocol version.  A value of 4294967295 (0xFFFFFFFF) indicates
+        a broken PulseAudio handshake — PipeWire needs a restart.
+
+        Returns True if healthy, False if broken.
+        """
+        try:
+            result = subprocess.run(
+                ["pactl", "info"],
+                capture_output=True, text=True, timeout=3, env=self._env,
+            )
+            for line in result.stdout.split("\n"):
+                if "Server Protocol Version" in line:
+                    version = line.split(":", 1)[1].strip()
+                    if version == "4294967295":
+                        log.warning("PipeWire broken: invalid protocol version")
+                        return False
+            return result.returncode == 0
+        except Exception as e:
+            log.warning("PipeWire health check failed: %s", e)
+            return False
+
+    async def restart_pipewire(self):
+        """Restart the PipeWire stack (pipewire + pipewire-pulse + wireplumber).
+
+        Waits for sinks to re-appear after restart.  Returns True on
+        success, False if restart failed or sinks didn't come back.
+        """
+        log.warning("Restarting PipeWire stack...")
+        try:
+            subprocess.run(
+                ["systemctl", "--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"],
+                capture_output=True, timeout=10, env=self._env,
+            )
+            # Wait for sinks to re-appear (mDNS RAOP discovery takes a few seconds)
+            for attempt in range(15):
+                await asyncio.sleep(2)
+                outputs = self.get_outputs()
+                if outputs:
+                    log.info("PipeWire restarted — %d sinks available after %ds",
+                             len(outputs), (attempt + 1) * 2)
+                    return True
+            log.error("PipeWire restarted but no sinks appeared after 30s")
+            return False
+        except Exception as e:
+            log.error("PipeWire restart failed: %s", e)
+            return False
+
+    async def ensure_healthy(self):
+        """Check PipeWire health and auto-restart if broken.
+
+        Call this before starting playback to avoid silent failures.
+        Returns True if audio subsystem is ready.
+        """
+        if self.check_pipewire_health():
+            return True
+        return await self.restart_pipewire()
+
     async def ensure_output(self, ip):
         """Ensure the AirPlay sink for the given IP exists and is the default.
 
-        Waits up to 5s for PipeWire to rediscover the speaker if it disappeared.
+        Checks PipeWire health first.  Waits up to 5s for PipeWire to
+        rediscover the speaker if it disappeared.
         Returns True if the sink is ready, False if it couldn't be found/set.
         """
         if not ip:
             return False
+
+        # Auto-heal PipeWire if broken
+        if not self.check_pipewire_health():
+            if not await self.restart_pipewire():
+                return False
 
         sink = self.find_sink(ip=ip)
         if sink and sink.get("active"):

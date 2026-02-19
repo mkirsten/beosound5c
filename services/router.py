@@ -55,6 +55,13 @@ DEFAULT_SOURCE_HANDLES = {
     "demo": {"play", "pause", "next", "prev", "stop", "go"},
 }
 
+# Known source ports — used on startup to probe running sources for re-registration
+DEFAULT_SOURCE_PORTS = {
+    "cd": 8769,
+    "spotify": 8771,
+    "usb": 8772,
+}
+
 
 # ---------------------------------------------------------------------------
 # Source model & registry
@@ -68,6 +75,7 @@ class Source:
         self.command_url = ""          # HTTP endpoint for forwarding events
         self.handles = handles         # set of action names this source handles
         self.menu_preset = id          # SourcePresets key in the UI
+        self.player = "local"          # "local" or "sonos" — who renders audio
         self.state = "gone"            # gone | available | playing | paused
         self.from_config = False       # True if pre-created from config.json
         self.initial_hidden = False    # True = hidden until service registers (e.g. CD)
@@ -126,6 +134,8 @@ class SourceRegistry:
             source.command_url = fields["command_url"]
         if "menu_preset" in fields:
             source.menu_preset = fields["menu_preset"]
+        if "player" in fields:
+            source.player = fields["player"]
         # handles from config take precedence; only use registration handles for unknown sources
         if "handles" in fields and not source.handles:
             source.handles = set(fields["handles"])
@@ -165,10 +175,11 @@ class SourceRegistry:
 
                 self._active_id = id
                 await router._broadcast("source_change", {
-                    "active_source": id, "source_name": source.name
+                    "active_source": id, "source_name": source.name,
+                    "player": source.player,
                 })
                 actions.append("source_change")
-                logger.info("Source activated: %s", id)
+                logger.info("Source activated: %s (player=%s)", id, source.player)
                 # Auto-power output
                 if router._volume and not await router._volume.is_on():
                     await router._volume.power_on()
@@ -178,21 +189,26 @@ class SourceRegistry:
             if self._active_id != id:
                 self._active_id = id
                 await router._broadcast("source_change", {
-                    "active_source": id, "source_name": source.name
+                    "active_source": id, "source_name": source.name,
+                    "player": source.player,
                 })
                 actions.append("source_change")
 
         elif state == "available" and was_active:
             # Deactivate — return to HA fallback
             self._active_id = None
-            await router._broadcast("source_change", {"active_source": None})
+            await router._broadcast("source_change", {
+                "active_source": None, "player": None,
+            })
             actions.append("source_change_clear")
             logger.info("Source deactivated: %s", id)
 
         elif state == "gone":
             if was_active:
                 self._active_id = None
-                await router._broadcast("source_change", {"active_source": None})
+                await router._broadcast("source_change", {
+                    "active_source": None, "player": None,
+                })
                 actions.append("source_change_clear")
             if source.from_config:
                 if source.initial_hidden:
@@ -238,7 +254,9 @@ class SourceRegistry:
             return False
         old_id = self._active_id
         self._active_id = None
-        await router._broadcast("source_change", {"active_source": None})
+        await router._broadcast("source_change", {
+            "active_source": None, "player": None,
+        })
         logger.info("Active source cleared (was: %s)", old_id)
         return True
 
@@ -315,6 +333,32 @@ class EventRouter:
         logger.info("Router started (transport: %s, output: %s, volume: %.0f%%)",
                      self.transport.mode, self.output_device, self.volume)
 
+        # Probe running sources so they re-register after a router restart
+        asyncio.ensure_future(self._probe_running_sources())
+
+    async def _probe_running_sources(self):
+        """Ask each known source to re-register via its /resync endpoint.
+
+        This handles the case where the router restarts while sources are
+        still running — without this, the router would lose track of active
+        sources until they happen to change state.
+        """
+        await asyncio.sleep(1)  # give the HTTP server a moment to bind
+        for source_id, port in DEFAULT_SOURCE_PORTS.items():
+            try:
+                async with self._session.get(
+                    f"http://localhost:{port}/resync",
+                    timeout=aiohttp.ClientTimeout(total=2.0),
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("resynced"):
+                            logger.info("Probed %s (port %d) — re-registered", source_id, port)
+                        else:
+                            logger.debug("Probed %s (port %d) — nothing to resync", source_id, port)
+            except Exception:
+                logger.debug("Source %s not running on port %d", source_id, port)
+
     async def stop(self):
         await self.transport.stop()
         if self._session:
@@ -346,9 +390,11 @@ class EventRouter:
                         item["hidden"] = True
                     items.append(item)
 
+        active = self.registry.active_source
         return {
             "items": items,
             "active_source": self.registry.active_id,
+            "active_player": active.player if active else None,
         }
 
     async def route_event(self, payload: dict):
@@ -413,13 +459,6 @@ class EventRouter:
         # 6. Everything else → HA
         logger.info("-> HA: %s (%s)", action, payload.get("device_type", ""))
         await self.transport.send_event(payload)
-
-        # If play/go reaches HA fallback, the user chose a non-source action
-        # (e.g. selected a Sonos playlist from MUSIC page). Clear active source
-        # so the PLAYING view reverts to showing Sonos media.
-        # TODO: Route playback commands directly through SoCo instead of HA
-        if action in ("play", "go") and self.registry.active_id:
-            await self.registry.clear_active_source(self)
 
     async def _forward_to_source(self, source: Source, payload: dict):
         """Forward a raw event payload to a source's command endpoint."""
@@ -527,7 +566,7 @@ async def handle_source(request: web.Request) -> web.Response:
 
     # Extract optional fields
     fields = {}
-    for key in ("name", "command_url", "menu_preset", "handles", "navigate"):
+    for key in ("name", "command_url", "menu_preset", "handles", "navigate", "player"):
         if key in data:
             fields[key] = data[key]
 
@@ -612,31 +651,16 @@ async def handle_view(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "active_view": view})
 
 
-SOURCE_OVERRIDE_GRACE = 10  # seconds — ignore overrides if a source updated recently
-
-
 async def handle_playback_override(request: web.Request) -> web.Response:
-    """POST /router/playback_override — external player reports media changed.
+    """POST /router/playback_override — currently a no-op.
 
-    Called by beo-sonos when Sonos switches to different content.  Clears
-    active_source so the PLAYING view reverts to Sonos media, BUT only if no
-    source updated its state recently (grace period prevents CD auto-advance
-    from being misidentified as an external takeover).
+    Sources manage their own lifecycle by registering state changes with
+    /router/source.  When a source registers as "playing", the router
+    automatically stops the previous source.  This endpoint is kept as a
+    stub for a future enhancement: detecting when an external device (not
+    the BS5c) takes over the Sonos speaker from a local AirPlay stream.
     """
-    if router_instance.registry.active_id is None:
-        return web.json_response({"status": "ok", "cleared": False, "reason": "no_active_source"})
-
-    elapsed = time.monotonic() - router_instance._last_source_update_time
-    if elapsed < SOURCE_OVERRIDE_GRACE:
-        logger.info("Playback override ignored — source updated %.1fs ago (grace: %ds)",
-                     elapsed, SOURCE_OVERRIDE_GRACE)
-        return web.json_response({
-            "status": "ok", "cleared": False, "reason": "grace_period",
-            "elapsed": round(elapsed, 1),
-        })
-
-    await router_instance.registry.clear_active_source(router_instance)
-    return web.json_response({"status": "ok", "cleared": True})
+    return web.json_response({"status": "ok", "cleared": False, "reason": "disabled"})
 
 
 async def handle_status(request: web.Request) -> web.Response:
@@ -645,12 +669,13 @@ async def handle_status(request: web.Request) -> web.Response:
     return web.json_response({
         "active_source": router_instance.registry.active_id,
         "active_source_name": active.name if active else None,
+        "active_player": active.player if active else None,
         "active_view": router_instance.active_view,
         "volume": router_instance.volume,
         "output_device": router_instance.output_device,
         "transport_mode": router_instance.transport.mode,
         "sources": {
-            s.id: {"state": s.state, "name": s.name}
+            s.id: {"state": s.state, "name": s.name, "player": s.player}
             for s in router_instance.registry.all_available()
         },
     })
