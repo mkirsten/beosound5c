@@ -86,6 +86,11 @@ class HdmiVolume(VolumeAdapter):
         self._powered = True
         logger.info("HDMI1 audio unmuted")
 
+    async def power_off(self) -> None:
+        await self._amixer("sset", self._control, "mute")
+        self._powered = False
+        logger.info("HDMI1 audio muted")
+
     async def is_on(self) -> bool:
         return self._powered
 

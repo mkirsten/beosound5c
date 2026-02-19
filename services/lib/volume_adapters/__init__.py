@@ -9,6 +9,7 @@ Supported types:
   - ``beolab5`` / ``esphome``  – BeoLab 5 via ESPHome REST API (default)
   - ``sonos``                  – Sonos speaker via SoCo library
   - ``powerlink``              – B&O speakers via masterlink.py mixer HTTP API
+  - ``c4amp``                  – Control4 amplifier via UDP
   - ``hdmi``                   – HDMI1 audio output (ALSA software volume)
   - ``spdif``                  – S/PDIF HAT output (ALSA software volume)
   - ``rca``                    – RCA analog output (no volume control)
@@ -21,6 +22,7 @@ import aiohttp
 from ..config import cfg
 from .base import VolumeAdapter
 from .beolab5 import BeoLab5Volume
+from .c4amp import C4AmpVolume
 from .hdmi import HdmiVolume
 from .powerlink import PowerLinkVolume
 from .rca import RcaVolume
@@ -32,6 +34,7 @@ logger = logging.getLogger("beo-router.volume")
 __all__ = [
     "VolumeAdapter",
     "BeoLab5Volume",
+    "C4AmpVolume",
     "HdmiVolume",
     "PowerLinkVolume",
     "RcaVolume",
@@ -46,9 +49,11 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
 
     Reads from config.json "volume" section:
       type        – "esphome"/"beolab5" (default), "sonos", "powerlink",
-                    "hdmi", "spdif", or "rca"
+                    "c4amp", "hdmi", "spdif", or "rca"
       host        – target host/IP (not used by hdmi/spdif/rca/powerlink-localhost)
       max         – max volume percentage (default 70)
+      zone        – C4 amp output zone, e.g. "01" (c4amp only, default "01")
+      input       – C4 amp source input for power_on (c4amp only, default "01")
       mixer_port  – masterlink.py mixer HTTP port (default 8768, powerlink only)
     """
     vol_type = str(cfg("volume", "type", default="esphome")).lower()
@@ -61,6 +66,12 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
         logger.info("Volume adapter: PowerLink via masterlink.py @ %s:%d (max %d%%)",
                      host, port, vol_max)
         return PowerLinkVolume(host, vol_max, session, port)
+    elif vol_type == "c4amp":
+        zone = str(cfg("volume", "zone", default="01"))
+        input_id = str(cfg("volume", "input", default="01"))
+        logger.info("Volume adapter: C4 amp @ %s zone %s (max %d%%)",
+                     vol_host, zone, vol_max)
+        return C4AmpVolume(vol_host, vol_max, zone, input_id)
     elif vol_type == "sonos":
         logger.info("Volume adapter: Sonos @ %s (max %d%%)", vol_host, vol_max)
         return SonosVolume(vol_host, vol_max)

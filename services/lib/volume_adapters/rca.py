@@ -87,6 +87,11 @@ class RcaVolume(VolumeAdapter):
         self._powered = True
         logger.info("RCA DAC audio unmuted")
 
+    async def power_off(self) -> None:
+        await self._amixer("sset", self._control, "mute")
+        self._powered = False
+        logger.info("RCA DAC audio muted")
+
     async def is_on(self) -> bool:
         return self._powered
 
