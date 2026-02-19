@@ -82,6 +82,7 @@ class SpotifyAuth:
         self._client_id = None
         self._refresh_token = None
         self._client_secret = None  # legacy fallback from env vars
+        self.revoked = False  # True if refresh token was revoked by Spotify
 
     def load(self):
         """Load credentials from token store, with env var fallback."""
@@ -131,9 +132,17 @@ class SpotifyAuth:
         except urllib.error.HTTPError as e:
             if e.code == 400 and self._client_secret:
                 log.info("PKCE refresh failed, trying with client_secret")
-                result = await loop.run_in_executor(
-                    None, refresh_access_token, self._client_id, self._refresh_token,
-                    self._client_secret)
+                try:
+                    result = await loop.run_in_executor(
+                        None, refresh_access_token, self._client_id, self._refresh_token,
+                        self._client_secret)
+                except urllib.error.HTTPError as e2:
+                    if e2.code == 400:
+                        self._mark_revoked(e2)
+                    raise
+            elif e.code == 400:
+                self._mark_revoked(e)
+                raise
             else:
                 raise
 
@@ -150,6 +159,19 @@ class SpotifyAuth:
 
         log.info("Access token refreshed (expires in %ds)", result.get('expires_in', 0))
         return self._access_token
+
+    def _mark_revoked(self, exc):
+        """Flag that the refresh token has been revoked by Spotify."""
+        try:
+            body = json.loads(exc.read().decode())
+            error = body.get('error', '')
+        except Exception:
+            error = ''
+        if error == 'invalid_grant':
+            self.revoked = True
+            log.error("Spotify refresh token revoked — re-authentication required")
+        else:
+            log.warning("Token refresh failed (400): %s", error)
 
     @property
     def is_configured(self):
@@ -271,6 +293,7 @@ class SpotifyService(SourceBase):
             'now_playing': self.now_playing,
             'playlist_count': len(self.playlists),
             'has_credentials': self.auth.is_configured,
+            'needs_reauth': self.auth.revoked,
         }
 
     async def handle_resync(self) -> dict:
@@ -424,6 +447,8 @@ class SpotifyService(SourceBase):
 
     async def _refresh_playlists(self):
         """Re-fetch playlists by running fetch_playlists.py (incremental sync with tracks)."""
+        if self.auth.revoked:
+            return  # don't bother — token is dead
         self._fetching_playlists = True
         try:
             log.info("Starting playlist refresh via fetch_playlists.py")
@@ -436,8 +461,15 @@ class SpotifyService(SourceBase):
                 self._load_playlists()
                 log.info("Playlist refresh complete (%d playlists)", len(self.playlists))
             else:
+                err_msg = stderr.decode()[-500:]
                 log.error("fetch_playlists.py failed (rc=%d): %s",
-                          proc.returncode, stderr.decode()[-500:])
+                          proc.returncode, err_msg)
+                # Check if this is a token issue — try refreshing in-process
+                if 'access token' in err_msg.lower() or 'bad request' in err_msg.lower():
+                    try:
+                        await self.auth.get_token()
+                    except Exception:
+                        pass  # _mark_revoked already called if invalid_grant
         except asyncio.TimeoutError:
             log.error("Playlist refresh timed out")
         except Exception as e:
@@ -553,6 +585,11 @@ class SpotifyService(SourceBase):
                 'setup_needed': True,
                 'setup_url': self._build_setup_url(),
             }, headers=self._cors_headers())
+        if self.auth.revoked:
+            return web.json_response({
+                'needs_reauth': True,
+                'setup_url': self._build_setup_url(),
+            }, headers=self._cors_headers())
         if self._fetching_playlists and not self.playlists:
             return web.json_response({
                 'loading': True,
@@ -574,14 +611,20 @@ class SpotifyService(SourceBase):
         """Serve the Spotify OAuth setup page (opened on phone via QR)."""
         client_id = self._load_client_id()
         redirect_uri = self._build_redirect_uri()
+        is_reconnect = self.auth.revoked
 
         if client_id:
+            label = "Reconnect to Spotify" if is_reconnect else "Connect to Spotify"
+            heading = "Reconnect your Spotify account" if is_reconnect else "Connect your Spotify account"
+            desc = ("Your Spotify session has expired. Tap below to reconnect."
+                    if is_reconnect else
+                    "Tap the button below to authorize BeoSound 5c to access your Spotify playlists.")
             cred_html = f'''
             <div class="step">
-                <div class="step-title"><span class="step-number">1</span>Connect your Spotify account</div>
+                <div class="step-title"><span class="step-number">1</span>{heading}</div>
                 <div class="step-content">
-                    <p>Tap the button below to authorize BeoSound 5c to access your Spotify playlists.</p>
-                    <a href="/start-auth?client_id={client_id}" class="submit-btn">Connect to Spotify</a>
+                    <p>{desc}</p>
+                    <a href="/start-auth?client_id={client_id}" class="submit-btn">{label}</a>
                 </div>
             </div>'''
         else:
@@ -702,6 +745,7 @@ label{{display:block;margin-top:12px;color:#666;font-size:13px;text-transform:up
             self.auth._refresh_token = rt
             self.auth._access_token = token_data.get('access_token')
             self.auth._token_expiry = time.monotonic() + token_data.get('expires_in', 3600) - 300
+            self.auth.revoked = False
             self.player = "remote"
 
             # Register as available now that we have credentials

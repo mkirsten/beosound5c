@@ -84,7 +84,11 @@
                 if (resp.ok) {
                     const data = await resp.json();
                     if (data.setup_needed) {
-                        showSetupScreen(data.setup_url || data.setup_hostname);
+                        showSetupScreen(data.setup_url || data.setup_hostname, false);
+                        return;
+                    }
+                    if (data.needs_reauth) {
+                        showSetupScreen(data.setup_url, true);
                         return;
                     }
                     if (data.loading) {
@@ -100,13 +104,17 @@
             initArcList(SPOTIFY_URL + '/playlists');
         });
 
-        function showSetupScreen(url) {
+        function showSetupScreen(url, isReconnect) {
+            const title = isReconnect ? 'RECONNECT SPOTIFY' : 'CONNECT SPOTIFY';
+            const msg = isReconnect
+                ? 'Your session has expired.<br>Scan the QR code to reconnect'
+                : 'Scan the QR code with your phone<br>to connect your Spotify account';
             const app = document.getElementById('app');
             app.innerHTML = `
                 <div class="splash-screen">
                     <div class="splash-card">
-                        <h2>CONNECT SPOTIFY</h2>
-                        <p>Scan the QR code with your phone<br>to connect your Spotify account</p>
+                        <h2>${title}</h2>
+                        <p>${msg}</p>
                         <div class="setup-qr" id="setup-qr"></div>
                         <div class="setup-url">${url}</div>
                     </div>
