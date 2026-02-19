@@ -58,6 +58,30 @@ class BeoLab5Volume(VolumeAdapter):
             logger.warning("Could not read BeoLab 5 volume: %s", e)
             return 0
 
+    async def set_balance(self, balance: float) -> None:
+        bal = max(-20, min(20, balance))
+        try:
+            async with self._session.post(
+                f"{self._base}/number/balance/set",
+                params={"value": str(bal)},
+                timeout=aiohttp.ClientTimeout(total=2.0),
+            ) as resp:
+                logger.info("-> BeoLab 5 balance: %.0f (HTTP %d)", bal, resp.status)
+        except Exception as e:
+            logger.warning("BeoLab 5 controller unreachable (balance): %s", e)
+
+    async def get_balance(self) -> float:
+        try:
+            async with self._session.get(
+                f"{self._base}/number/balance",
+                timeout=aiohttp.ClientTimeout(total=2.0),
+            ) as resp:
+                data = await resp.json()
+                return float(data.get("value", 0))
+        except Exception as e:
+            logger.warning("Could not read BeoLab 5 balance: %s", e)
+            return 0
+
     async def power_on(self) -> None:
         try:
             async with self._session.post(
@@ -69,6 +93,18 @@ class BeoLab5Volume(VolumeAdapter):
                 self._power_cache_time = asyncio.get_event_loop().time()
         except Exception as e:
             logger.warning("Could not power on BeoLab 5: %s", e)
+
+    async def power_off(self) -> None:
+        try:
+            async with self._session.post(
+                f"{self._base}/switch/power/turn_off",
+                timeout=aiohttp.ClientTimeout(total=2.0),
+            ) as resp:
+                logger.info("BeoLab 5 power off: HTTP %d", resp.status)
+                self._power_cache = False
+                self._power_cache_time = asyncio.get_event_loop().time()
+        except Exception as e:
+            logger.warning("Could not power off BeoLab 5: %s", e)
 
     async def is_on(self) -> bool:
         now = asyncio.get_event_loop().time()

@@ -256,8 +256,10 @@ class EventRouter:
         self.registry = SourceRegistry()
         self.active_view = None       # UI view reported by frontend
         self.volume = 0               # current volume 0-100
+        self.balance = 0              # current balance -20..+20
         self.output_device = cfg("volume", "output_name", default="BeoLab 5")
         self._volume_step = int(cfg("volume", "step", default=3))
+        self._balance_step = 1
         self._session: aiohttp.ClientSession | None = None
         self._volume = None           # VolumeAdapter instance
         self._menu_order: list[dict] = []  # parsed menu from config
@@ -383,6 +385,22 @@ class EventRouter:
             # Fire-and-forget — adapter debounces internally, don't block event loop
             asyncio.ensure_future(self.set_volume(new_vol))
             return
+
+        # 4b. Balance keys — handle locally via adapter (Audio mode only)
+        if action in ("chup", "chdown") and device_type == "Audio":
+            delta = self._balance_step if action == "chup" else -self._balance_step
+            new_bal = max(-20, min(20, self.balance + delta))
+            logger.info("-> balance: %d -> %d (%s)", self.balance, new_bal, action)
+            self.balance = new_bal
+            if self._volume:
+                asyncio.ensure_future(self._volume.set_balance(new_bal))
+            return
+
+        # 4c. Off — power off output (Audio mode only)
+        if action == "off" and device_type == "Audio" and self._volume:
+            logger.info("-> powering off output")
+            asyncio.ensure_future(self._volume.power_off())
+            # Still forward to HA (below) so it can handle screen off etc.
 
         # 5. Views that handle buttons locally (iframes) — suppress HA forwarding
         LOCAL_BUTTON_VIEWS = {"menu/system", "menu/security"}
@@ -561,6 +579,24 @@ async def handle_volume_report(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "volume": router_instance.volume})
 
 
+async def handle_output_off(request: web.Request) -> web.Response:
+    """POST /router/output/off — power off the audio output (e.g. BeoLab 5)."""
+    if router_instance._volume:
+        await router_instance._volume.power_off()
+        logger.info("Output powered off via /output/off")
+        return web.json_response({"status": "ok", "output": "off"})
+    return web.json_response({"status": "ok", "output": "no_adapter"})
+
+
+async def handle_output_on(request: web.Request) -> web.Response:
+    """POST /router/output/on — power on the audio output (e.g. BeoLab 5)."""
+    if router_instance._volume:
+        await router_instance._volume.power_on()
+        logger.info("Output powered on via /output/on")
+        return web.json_response({"status": "ok", "output": "on"})
+    return web.json_response({"status": "ok", "output": "no_adapter"})
+
+
 async def handle_view(request: web.Request) -> web.Response:
     """POST /router/view — UI reports which view is active."""
     try:
@@ -653,6 +689,8 @@ def create_app() -> web.Application:
     app.router.add_post("/router/volume", handle_volume_set)
     app.router.add_post("/router/volume/report", handle_volume_report)
     app.router.add_post("/router/playback_override", handle_playback_override)
+    app.router.add_post("/router/output/off", handle_output_off)
+    app.router.add_post("/router/output/on", handle_output_on)
     app.router.add_get("/router/status", handle_status)
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)

@@ -4,6 +4,7 @@ import hid, websockets
 import subprocess
 import os
 import logging
+import aiohttp
 from aiohttp import web, ClientSession
 from lib.transport import Transport
 from lib.config import cfg
@@ -543,6 +544,12 @@ async def process_command(data: dict) -> dict:
     elif command == 'screen_off':
         logger.info('Turning screen OFF')
         set_backlight(False)
+        # Also power off audio output (BeoLab 5 etc.)
+        try:
+            async with ClientSession() as s:
+                await s.post('http://localhost:8770/router/output/off', timeout=aiohttp.ClientTimeout(total=2))
+        except Exception:
+            pass
         return {'status': 'ok', 'screen': 'off'}
 
     elif command == 'screen_toggle':
@@ -991,6 +998,12 @@ def parse_report(rep: list):
                 logger.info("Power button action triggered")
                 toggle_backlight()
                 do_click()
+                # Power output on/off with screen
+                try:
+                    url = 'http://localhost:8770/router/output/' + ('off' if not is_backlight_on() else 'on')
+                    asyncio.run_coroutine_threadsafe(_output_power(url), loop)
+                except Exception:
+                    pass
                 last_power_press_time = current_time
                 # Create button event for power button release
                 btn_evt = {'button': 'power'}
@@ -998,6 +1011,14 @@ def parse_report(rep: list):
                 logger.debug("Power button debounced (pressed too soon)")
 
     return nav_evt, vol_evt, btn_evt, laser_pos
+
+async def _output_power(url):
+    """Fire-and-forget call to router output power endpoint."""
+    try:
+        async with ClientSession() as s:
+            await s.post(url, timeout=aiohttp.ClientTimeout(total=2))
+    except Exception:
+        pass
 
 def scan_loop(loop):
     global dev

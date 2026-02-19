@@ -45,7 +45,17 @@ class SonosVolume(VolumeAdapter):
             logger.warning("Could not read Sonos volume: %s", e)
             return 0
 
+    async def set_balance(self, balance: float) -> None:
+        pass  # Sonos has no balance control
+
+    async def get_balance(self) -> float:
+        return 0
+
     async def power_on(self) -> None:
+        # Sonos is always on — no-op
+        pass
+
+    async def power_off(self) -> None:
         # Sonos is always on — no-op
         pass
 
