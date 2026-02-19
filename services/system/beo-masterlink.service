@@ -2,9 +2,12 @@
 Description=BeoSound5c MasterLink Sniffer + Mixer HTTP API
 After=network.target
 Wants=network.target
+OnFailure=beo-notify-failure@%n.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
-Type=simple
+Type=notify
 User=kirsten
 Group=kirsten
 WorkingDirectory=/home/kirsten/beosound5c/services
@@ -13,6 +16,7 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/masterlink.py
 Restart=always
 RestartSec=5
+WatchdogSec=60
 StandardOutput=journal
 StandardError=journal
 

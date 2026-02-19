@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.audio_outputs import AudioOutputs
 from lib.config import cfg
 from lib.source_base import SourceBase
+from lib.watchdog import watchdog_loop
 
 try:
     import edge_tts
@@ -697,6 +698,9 @@ class CDService(SourceBase):
         # Clear first-detection flag after grace period — if no disc was
         # found in the first 6s, the next insertion should autoplay
         asyncio.get_event_loop().call_later(6, self._clear_first_detection)
+
+        # Start systemd watchdog heartbeat
+        asyncio.create_task(watchdog_loop())
 
         asyncio.create_task(self._set_default_airplay())
 

@@ -44,6 +44,7 @@ except ImportError:
 # Ensure services/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.config import cfg
+from lib.watchdog import watchdog_loop
 
 # Configuration
 SONOS_IP = cfg("sonos", "ip", default="192.168.0.190")
@@ -449,7 +450,7 @@ class MediaServer:
                 try:
                     transport_info = coordinator.get_current_transport_info() if coordinator else {}
                     playback_state = transport_info.get('current_transport_state', 'STOPPED').lower()
-                    if playback_state == 'playing':
+                    if playback_state in ('playing', 'transitioning'):
                         state = 'playing'
                     elif playback_state == 'paused_playback':
                         state = 'paused'
@@ -577,7 +578,7 @@ class MediaServer:
             try:
                 transport_info = coordinator.get_current_transport_info() if coordinator else {}
                 playback_state = transport_info.get('current_transport_state', 'STOPPED').lower()
-                if playback_state == 'playing':
+                if playback_state in ('playing', 'transitioning'):
                     state = 'playing'
                 elif playback_state == 'paused_playback':
                     state = 'paused'
@@ -743,6 +744,9 @@ async def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
+    # Start systemd watchdog heartbeat
+    asyncio.create_task(watchdog_loop())
+
     # Create and start media server
     server = MediaServer()
     try:

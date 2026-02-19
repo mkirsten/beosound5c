@@ -23,6 +23,9 @@ const AppConfig = {
     // CD service
     cdServiceUrl: 'http://localhost:8769',
 
+    // Spotify source
+    spotifyServiceUrl: 'http://localhost:8771',
+
     // USB file source
     usbServiceUrl: 'http://localhost:8773',
 

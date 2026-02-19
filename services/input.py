@@ -7,6 +7,7 @@ import logging
 from aiohttp import web, ClientSession
 from lib.transport import Transport
 from lib.config import cfg
+from lib.watchdog import watchdog_loop
 
 # Logging setup
 logging.basicConfig(
@@ -1126,6 +1127,9 @@ async def main():
 
     # Start media server connection task
     media_task = asyncio.create_task(connect_to_media_server())
+
+    # Start systemd watchdog heartbeat
+    asyncio.create_task(watchdog_loop())
 
     try:
         # Wait for server to close

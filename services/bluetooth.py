@@ -37,6 +37,7 @@ import aiohttp
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from playlist_lookup import get_playlist_uri
 from lib.config import cfg
+from lib.watchdog import watchdog_loop
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -498,6 +499,7 @@ class BluetoothHIDService:
     async def monitor(self):
         self._loop = asyncio.get_event_loop()
         await self.start()
+        asyncio.create_task(watchdog_loop())
 
         logger.info("==========================================")
         logger.info("BeoRemote One HID Service%s", " (DRY RUN)" if DRY_RUN else "")

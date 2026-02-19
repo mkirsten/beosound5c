@@ -22,10 +22,14 @@ SERVICES=(
     "beo-masterlink.service"
     "beo-bluetooth.service"
     "beo-cd-source.service"
+    "beo-spotify.service"
     "beo-usb-source.service"
     "beo-ui.service"
     "beo-spotify-fetch.service"
     "beo-spotify-fetch.timer"
+    "beo-notify-failure@.service"
+    "beo-health.service"
+    "beo-health.timer"
 )
 
 # Get the directory where this script is located
@@ -55,7 +59,7 @@ if [ ! -f "$SECRETS_FILE" ]; then
         echo ""
         echo "  ⚠️  IMPORTANT: Edit $SECRETS_FILE with credentials for this device!"
         echo "     - HA_TOKEN: Home Assistant long-lived access token"
-        echo "     - SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET"
+        echo "     For Spotify: run 'python3 ~/beosound5c/tools/spotify/setup_spotify.py'"
         echo ""
     else
         echo "  ⚠️  Warning: secrets.env.example not found at $SECRETS_EXAMPLE"
@@ -85,6 +89,12 @@ for service in "${SERVICES[@]}"; do
         echo "  ❌ Warning: $service not found in $SCRIPT_DIR"
     fi
 done
+
+# Ensure health/notification scripts are executable
+echo "📋 Setting up health check and failure notification scripts..."
+chmod +x /home/kirsten/beosound5c/services/system/notify-failure.sh
+chmod +x /home/kirsten/beosound5c/services/system/beo-health.sh
+echo "  ✅ Scripts made executable"
 
 echo ""
 
@@ -216,6 +226,10 @@ echo "  💿 Starting CD source..."
 systemctl enable beo-cd-source.service
 systemctl start beo-cd-source.service
 
+echo "  🎵 Starting Spotify source..."
+systemctl enable beo-spotify.service
+systemctl start beo-spotify.service
+
 echo "  💾 Starting USB source..."
 systemctl enable beo-usb-source.service
 systemctl start beo-usb-source.service
@@ -229,6 +243,11 @@ systemctl start beo-ui.service
 echo "  🎵 Enabling Spotify playlist fetch timer..."
 systemctl enable beo-spotify-fetch.timer
 systemctl start beo-spotify-fetch.timer
+
+# Enable health check timer (auto-recovers failed services every 5 min)
+echo "  🩺 Enabling health check timer..."
+systemctl enable beo-health.timer
+systemctl start beo-health.timer
 
 echo "Reloading daemon services"
 sudo systemctl daemon-reload

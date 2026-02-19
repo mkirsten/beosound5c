@@ -121,7 +121,7 @@ function handleExternalNavigation(uiStore, data) {
     const pageRoutes = {
         'now_playing': 'menu/playing',
         'playing': 'menu/playing',
-        'music': 'menu/music',
+        'spotify': 'menu/spotify',
         'scenes': 'menu/scenes',
         'security': 'menu/security',
         'system': 'menu/system',
@@ -187,7 +187,7 @@ async function handleMenuItemEvent(uiStore, data) {
             console.warn('[MENU_ITEM] remove requires path or preset');
         }
     } else if (action === 'hide' || action === 'show') {
-        const path = data.path;
+        const path = data.path || (data.preset && window.SourcePresets?.[data.preset]?.item.path);
         if (path && uiStore.hideMenuItem) {
             uiStore.hideMenuItem(path, action === 'hide');
         }

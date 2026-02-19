@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Shared playlist lookup (single source of truth)
 from playlist_lookup import get_playlist_uri
 from lib.config import cfg
+from lib.watchdog import watchdog_loop
 
 # Logging setup
 logging.basicConfig(
@@ -323,6 +324,7 @@ class PC2Device:
             asyncio.set_event_loop(self.loop)
             self.loop.run_until_complete(self._init_session())
             self.loop.run_until_complete(self._start_mixer_http())
+            self.loop.create_task(watchdog_loop())
             self.loop.run_until_complete(self._async_sender_loop())
         except Exception as e:
             logger.error("Sender loop failed: %s", e, exc_info=True)

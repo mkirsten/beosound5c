@@ -22,6 +22,7 @@ from aiohttp import web
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.audio_outputs import AudioOutputs
 from lib.source_base import SourceBase
+from lib.watchdog import watchdog_loop
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger('beo-usb')
@@ -436,6 +437,9 @@ class USBService(SourceBase):
             await self.register('gone')
 
         asyncio.create_task(self._set_default_airplay())
+
+        # Start systemd watchdog heartbeat
+        asyncio.create_task(watchdog_loop())
 
     async def on_stop(self):
         await self.player.stop()

@@ -3,7 +3,7 @@ Pluggable volume adapters for BeoSound 5c audio outputs.
 
 Each adapter handles volume control, power management, and debouncing for a
 specific output type.  The factory function ``create_volume_adapter`` reads
-environment variables and returns the correct adapter.
+config.json and returns the correct adapter.
 
 Supported types:
   - ``beolab5`` / ``esphome``  – BeoLab 5 via ESPHome REST API (default)
@@ -11,6 +11,7 @@ Supported types:
   - ``powerlink``              – B&O speakers via masterlink.py mixer HTTP API
   - ``hdmi``                   – HDMI1 audio output (ALSA software volume)
   - ``spdif``                  – S/PDIF HAT output (ALSA software volume)
+  - ``rca``                    – RCA analog output (no volume control)
 """
 
 import logging
@@ -22,6 +23,7 @@ from .base import VolumeAdapter
 from .beolab5 import BeoLab5Volume
 from .hdmi import HdmiVolume
 from .powerlink import PowerLinkVolume
+from .rca import RcaVolume
 from .sonos import SonosVolume
 from .spdif import SpdifVolume
 
@@ -32,6 +34,7 @@ __all__ = [
     "BeoLab5Volume",
     "HdmiVolume",
     "PowerLinkVolume",
+    "RcaVolume",
     "SonosVolume",
     "SpdifVolume",
     "create_volume_adapter",
@@ -43,8 +46,8 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
 
     Reads from config.json "volume" section:
       type        – "esphome"/"beolab5" (default), "sonos", "powerlink",
-                    "hdmi", or "spdif"
-      host        – target host/IP (not used by hdmi/spdif/powerlink-localhost)
+                    "hdmi", "spdif", or "rca"
+      host        – target host/IP (not used by hdmi/spdif/rca/powerlink-localhost)
       max         – max volume percentage (default 70)
       mixer_port  – masterlink.py mixer HTTP port (default 8768, powerlink only)
     """
@@ -67,6 +70,9 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
     elif vol_type == "spdif":
         logger.info("Volume adapter: S/PDIF ALSA software volume (max %d%%)", vol_max)
         return SpdifVolume(vol_max)
+    elif vol_type == "rca":
+        logger.info("Volume adapter: RCA analog output (no volume control, max %d%%)", vol_max)
+        return RcaVolume(vol_max)
     else:
         logger.info("Volume adapter: BeoLab 5 @ %s (max %d%%)", vol_host, vol_max)
         return BeoLab5Volume(vol_host, vol_max, session)
