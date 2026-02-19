@@ -1,35 +1,34 @@
 #!/usr/bin/env python3
 """
 Fetch all Spotify playlists for the authenticated user.
-Auto-detects digit playlists by name pattern (e.g., "5: Dinner" → digit 5).
-Uses OAuth refresh token flow - requires running setup_spotify.py first.
+Auto-detects digit playlists by name pattern (e.g., "5: Dinner" -> digit 5).
+Uses PKCE refresh token flow — no client_secret needed.
 Run via cron to keep playlists updated.
+
+Token sources (in priority order):
+  1. spotify_tokens.json (PKCE flow, preferred)
+  2. Environment variables (legacy compat: SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET + SPOTIFY_REFRESH_TOKEN)
 """
 
 import json
 import os
 import re
 import sys
-import base64
 import urllib.request
 import urllib.error
 import urllib.parse
 from datetime import datetime
 
-# Spotify refresh token (obtained via setup_spotify.py OAuth flow)
-REFRESH_TOKEN = os.getenv('SPOTIFY_REFRESH_TOKEN', '')
-
-# Paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..'))
+sys.path.insert(0, SCRIPT_DIR)
+
+from token_store import load_tokens, save_tokens
+
 DIGIT_PLAYLISTS_FILE = os.path.join(PROJECT_ROOT, 'web', 'json', 'digit_playlists.json')
-OUTPUT_FILE = os.path.join(PROJECT_ROOT, 'web', 'json', 'playlists_with_tracks.json')
+DEFAULT_OUTPUT_FILE = os.path.join(PROJECT_ROOT, 'web', 'json', 'playlists_with_tracks.json')
 LOG_FILE = os.path.join(SCRIPT_DIR, 'fetch.log')
 
-# Spotify API credentials (OAuth flow - run setup_spotify.py first)
-# Get your credentials at https://developer.spotify.com/dashboard
-CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID', '')
-CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET', '')
 
 def log(msg):
     """Log with timestamp."""
@@ -39,34 +38,72 @@ def log(msg):
     try:
         with open(LOG_FILE, 'a') as f:
             f.write(line + '\n')
-    except:
+    except Exception:
         pass
 
+
 def get_access_token():
-    """Get Spotify access token using refresh token flow."""
-    if not REFRESH_TOKEN:
-        raise ValueError("SPOTIFY_REFRESH_TOKEN not set. Run setup_spotify.py first.")
+    """Get a Spotify access token. Tries PKCE first, then legacy env vars."""
+    # 1. Try PKCE token store
+    tokens = load_tokens()
+    if tokens and tokens.get('client_id') and tokens.get('refresh_token'):
+        client_id = tokens['client_id']
+        refresh_token = tokens['refresh_token']
+        log(f"Using PKCE tokens (client_id: {client_id[:8]}...)")
 
-    auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
-    auth_b64 = base64.b64encode(auth_str.encode()).decode()
+        from pkce import refresh_access_token
+        result = refresh_access_token(client_id, refresh_token)
 
-    data = urllib.parse.urlencode({
-        'grant_type': 'refresh_token',
-        'refresh_token': REFRESH_TOKEN
-    }).encode()
+        # Persist rotated refresh token if provided
+        new_rt = result.get('refresh_token')
+        if new_rt and new_rt != refresh_token:
+            save_tokens(client_id, new_rt)
+            log("Refresh token rotated and saved")
 
-    req = urllib.request.Request(
-        'https://accounts.spotify.com/api/token',
-        data=data,
-        headers={
-            'Authorization': f'Basic {auth_b64}',
-            'Content-Type': 'application/x-www-form-urlencoded'
-        }
-    )
+        return result['access_token']
 
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = json.loads(resp.read().decode())
-        return data['access_token']
+    # 2. Legacy fallback: env vars with client_secret
+    client_id = os.getenv('SPOTIFY_CLIENT_ID', '')
+    client_secret = os.getenv('SPOTIFY_CLIENT_SECRET', '')
+    refresh_token = os.getenv('SPOTIFY_REFRESH_TOKEN', '')
+
+    if not refresh_token:
+        raise ValueError(
+            "No Spotify credentials found. Run setup_spotify.py first, "
+            "or set SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET + SPOTIFY_REFRESH_TOKEN."
+        )
+
+    if client_secret:
+        # Legacy: client_secret flow
+        import base64
+        log("Using legacy env var credentials (client_secret)")
+        auth_str = f"{client_id}:{client_secret}"
+        auth_b64 = base64.b64encode(auth_str.encode()).decode()
+
+        data = urllib.parse.urlencode({
+            'grant_type': 'refresh_token',
+            'refresh_token': refresh_token
+        }).encode()
+
+        req = urllib.request.Request(
+            'https://accounts.spotify.com/api/token',
+            data=data,
+            headers={
+                'Authorization': f'Basic {auth_b64}',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+        )
+
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read().decode())
+            return result['access_token']
+    else:
+        # Env vars without secret: try PKCE-style refresh
+        log("Using env var credentials (PKCE, no secret)")
+        from pkce import refresh_access_token
+        result = refresh_access_token(client_id, refresh_token)
+        return result['access_token']
+
 
 def fetch_playlist_tracks(token, playlist_id, max_tracks=100):
     """Fetch tracks for a playlist."""
@@ -92,6 +129,7 @@ def fetch_playlist_tracks(token, playlist_id, max_tracks=100):
                 'name': track['name'],
                 'artist': ', '.join([a['name'] for a in track.get('artists', []) if a.get('name')]),
                 'id': track['id'],
+                'uri': track.get('uri', ''),
                 'url': url,
                 'image': track['album']['images'][0]['url'] if track.get('album', {}).get('images') else None
             })
@@ -99,6 +137,7 @@ def fetch_playlist_tracks(token, playlist_id, max_tracks=100):
         log(f"  Error fetching tracks: {e}")
 
     return tracks
+
 
 def fetch_user_playlists(token):
     """Fetch all playlists for the authenticated user."""
@@ -118,6 +157,7 @@ def fetch_user_playlists(token):
                 playlists.append({
                     'id': pl['id'],
                     'name': pl['name'],
+                    'uri': pl.get('uri', ''),
                     'url': pl.get('external_urls', {}).get('spotify', ''),
                     'image': pl['images'][0]['url'] if pl.get('images') else None,
                     'owner': pl.get('owner', {}).get('id', ''),
@@ -132,6 +172,7 @@ def fetch_user_playlists(token):
 
     return playlists
 
+
 def detect_digit_playlist(name):
     """Check if playlist name starts with a digit pattern like '5:' or '5 -'.
     Returns the digit (0-9) or None."""
@@ -140,8 +181,17 @@ def detect_digit_playlist(name):
         return match.group(1)
     return None
 
+
 def main():
     force = '--force' in sys.argv
+
+    # Parse --output <path> argument
+    output_file = DEFAULT_OUTPUT_FILE
+    if '--output' in sys.argv:
+        idx = sys.argv.index('--output')
+        if idx + 1 < len(sys.argv):
+            output_file = sys.argv[idx + 1]
+
     log("=== Spotify Playlist Fetch Starting ===")
     if force:
         log("Force mode: fetching all tracks regardless of snapshot")
@@ -156,9 +206,9 @@ def main():
 
     # Load cached data for incremental sync
     cache = {}
-    if not force and os.path.exists(OUTPUT_FILE):
+    if not force and os.path.exists(output_file):
         try:
-            with open(OUTPUT_FILE, 'r') as f:
+            with open(output_file, 'r') as f:
                 cached_playlists = json.load(f)
             for cp in cached_playlists:
                 cache[cp['id']] = {
@@ -216,11 +266,16 @@ def main():
     # Sort by name
     playlists_with_tracks.sort(key=lambda p: p['name'].lower())
 
+    # Skip write if nothing changed (no tracks fetched, same playlist count)
+    if fetched == 0 and len(playlists_with_tracks) == len(cache):
+        log(f"No changes — skipping disk write")
+        return 0
+
     # Save all playlists
-    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
-    with open(OUTPUT_FILE, 'w') as f:
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    with open(output_file, 'w') as f:
         json.dump(playlists_with_tracks, f, indent=2)
-    log(f"Saved {len(playlists_with_tracks)} playlists to {OUTPUT_FILE}")
+    log(f"Saved {len(playlists_with_tracks)} playlists to {output_file}")
 
     # Save digit mapping
     with open(DIGIT_PLAYLISTS_FILE, 'w') as f:

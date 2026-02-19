@@ -1,53 +1,71 @@
 #!/usr/bin/env python3
 """
-Spotify OAuth Setup Wizard for BeoSound 5c.
+Spotify OAuth Setup Wizard for BeoSound 5c (PKCE flow).
 
-Starts a web server that guides users through Spotify OAuth setup.
-Run this script, then open the displayed URL on your phone to complete setup.
+Starts a plain HTTP server that guides users through Spotify OAuth.
+No SSL certificates, no client_secret — uses PKCE for security.
+The app's client_id is shipped in config/default.json.
 
 Usage:
     python3 setup_spotify.py
 """
 
-import base64
 import json
 import os
 import socket
-import ssl
 import subprocess
 import sys
-import tempfile
 import urllib.parse
 import urllib.request
 import urllib.error
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+# Add project paths for imports
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..'))
+sys.path.insert(0, SCRIPT_DIR)
+
+from pkce import (
+    generate_code_verifier,
+    generate_code_challenge,
+    build_auth_url,
+    exchange_code,
+    refresh_access_token,
+)
+from token_store import save_tokens, load_tokens
+
 # Server config
 PORT = 8888
-SCOPES = 'playlist-read-private playlist-read-collaborative'
+SCOPES = 'playlist-read-private playlist-read-collaborative user-read-playback-state user-modify-playback-state user-read-currently-playing streaming'
 
-# SSL certificate paths (generated on first run)
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CERT_FILE = os.path.join(SCRIPT_DIR, 'server.crt')
-KEY_FILE = os.path.join(SCRIPT_DIR, 'server.key')
-
-# Config file locations (in order of preference)
+# Config file paths
 CONFIG_PATHS = [
-    '/etc/beosound5c/config.env',  # Production on Pi
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'services', 'config.env'),  # Development
+    '/etc/beosound5c/config.json',
+    os.path.join(PROJECT_ROOT, 'config', 'default.json'),
 ]
 
-# Temporary storage for credentials during OAuth flow
-pending_credentials = {}
+# Temporary storage during OAuth flow
+_pkce_state = {}
 
 
-def get_config_path():
-    """Get the config file path, preferring existing files."""
+def load_client_id():
+    """Load client_id from config.json."""
     for path in CONFIG_PATHS:
-        if os.path.exists(path):
-            return path
-    # Default to development path if none exist
-    return CONFIG_PATHS[1]
+        try:
+            with open(path) as f:
+                config = json.load(f)
+            cid = config.get('spotify', {}).get('client_id', '')
+            if cid:
+                return cid
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            continue
+
+    # Check token store (from a previous setup)
+    tokens = load_tokens()
+    if tokens and tokens.get('client_id'):
+        return tokens['client_id']
+
+    return ''
 
 
 def get_local_ip():
@@ -75,8 +93,7 @@ def print_qr_code(url):
     try:
         result = subprocess.run(
             ['qrencode', '-t', 'ANSIUTF8', url],
-            capture_output=True,
-            text=True
+            capture_output=True, text=True
         )
         if result.returncode == 0:
             print(result.stdout)
@@ -86,129 +103,76 @@ def print_qr_code(url):
     return False
 
 
-def generate_self_signed_cert():
-    """Generate a self-signed certificate for HTTPS."""
-    if os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE):
-        print("Using existing SSL certificate")
-        return
-
-    print("Generating self-signed SSL certificate...")
-    local_ip = get_local_ip()
-    hostname = get_hostname()
-
-    # Create openssl config for SAN (Subject Alternative Names)
-    config = f"""[req]
-default_bits = 2048
-prompt = no
-default_md = sha256
-distinguished_name = dn
-x509_extensions = v3_req
-
-[dn]
-CN = {hostname}
-
-[v3_req]
-subjectAltName = @alt_names
-
-[alt_names]
-DNS.1 = {hostname}
-DNS.2 = localhost
-IP.1 = {local_ip}
-IP.2 = 127.0.0.1
-"""
-
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.cnf', delete=False) as f:
-        f.write(config)
-        config_file = f.name
-
+def run_playlist_fetch(client_id, refresh_token):
+    """Run the playlist fetch using the new tokens. Returns count."""
     try:
-        subprocess.run([
-            'openssl', 'req', '-x509', '-nodes',
-            '-days', '365',
-            '-newkey', 'rsa:2048',
-            '-keyout', KEY_FILE,
-            '-out', CERT_FILE,
-            '-config', config_file
-        ], check=True, capture_output=True)
-        print("SSL certificate generated")
-    finally:
-        os.unlink(config_file)
+        token_data = refresh_access_token(client_id, refresh_token)
+        access_token = token_data['access_token']
+
+        # Persist rotated refresh_token if provided
+        new_rt = token_data.get('refresh_token')
+        if new_rt and new_rt != refresh_token:
+            save_tokens(client_id, new_rt)
+
+        headers = {'Authorization': f'Bearer {access_token}'}
+        playlists = []
+        url = 'https://api.spotify.com/v1/me/playlists?limit=50'
+
+        while url:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+            playlists.extend(data.get('items', []))
+            url = data.get('next')
+
+        return len(playlists)
+    except Exception as e:
+        print(f"Playlist fetch failed: {e}")
+        return 0
 
 
-def update_config(client_id, client_secret, refresh_token):
-    """Update config file with Spotify credentials."""
-    config_path = get_config_path()
+# ── HTML templates ──
 
-    # Read existing config if it exists
-    lines = []
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            lines = f.readlines()
+def get_setup_page_html(client_id, local_ip, hostname):
+    redirect_uri = f'http://{local_ip}:{PORT}/callback'
 
-    # Track which keys we've updated
-    updated = set()
-    new_lines = []
+    # If client_id is pre-configured, skip to "Connect" directly
+    if client_id:
+        cred_section = f'''
+        <div class="step">
+            <div class="step-title"><span class="step-number">1</span>Connect your Spotify account</div>
+            <div class="step-content">
+                <p>Click the button below to authorize BeoSound 5c to access your Spotify playlists and control playback.</p>
+                <form action="/start-auth" method="GET">
+                    <input type="hidden" name="client_id" value="{client_id}">
+                    <button type="submit" class="submit-btn">Connect to Spotify &rarr;</button>
+                </form>
+            </div>
+        </div>'''
+    else:
+        cred_section = f'''
+        <div class="step">
+            <div class="step-title"><span class="step-number">1</span>Create a Spotify App</div>
+            <div class="step-content">
+                <p>Go to the <a href="https://developer.spotify.com/dashboard" target="_blank">Spotify Developer Dashboard</a> and create a new app.</p>
+                <p>Set the Redirect URI to:</p>
+                <div class="uri-box" id="redirect-uri">{redirect_uri}</div>
+                <button class="copy-btn" onclick="copyUri()">Copy to clipboard</button>
+                <p style="margin-top: 12px;">Under "Which API/SDKs are you planning to use?", select <strong>Web API</strong>.</p>
+            </div>
+        </div>
 
-    for line in lines:
-        if line.startswith('SPOTIFY_CLIENT_ID='):
-            new_lines.append(f'SPOTIFY_CLIENT_ID="{client_id}"\n')
-            updated.add('client_id')
-        elif line.startswith('SPOTIFY_CLIENT_SECRET='):
-            new_lines.append(f'SPOTIFY_CLIENT_SECRET="{client_secret}"\n')
-            updated.add('client_secret')
-        elif line.startswith('SPOTIFY_REFRESH_TOKEN='):
-            new_lines.append(f'SPOTIFY_REFRESH_TOKEN="{refresh_token}"\n')
-            updated.add('refresh_token')
-        elif line.startswith('SPOTIFY_USER_ID='):
-            # Skip old USER_ID line - no longer needed
-            continue
-        else:
-            new_lines.append(line)
-
-    # Append any keys that weren't in the file
-    if 'client_id' not in updated:
-        new_lines.append(f'SPOTIFY_CLIENT_ID="{client_id}"\n')
-    if 'client_secret' not in updated:
-        new_lines.append(f'SPOTIFY_CLIENT_SECRET="{client_secret}"\n')
-    if 'refresh_token' not in updated:
-        new_lines.append(f'SPOTIFY_REFRESH_TOKEN="{refresh_token}"\n')
-
-    # Ensure directory exists
-    os.makedirs(os.path.dirname(config_path), exist_ok=True)
-
-    with open(config_path, 'w') as f:
-        f.writelines(new_lines)
-
-    return config_path
-
-
-def exchange_code_for_token(code, redirect_uri, client_id, client_secret):
-    """Exchange authorization code for access and refresh tokens."""
-    auth_str = f"{client_id}:{client_secret}"
-    auth_b64 = base64.b64encode(auth_str.encode()).decode()
-
-    data = urllib.parse.urlencode({
-        'grant_type': 'authorization_code',
-        'code': code,
-        'redirect_uri': redirect_uri,
-    }).encode()
-
-    req = urllib.request.Request(
-        'https://accounts.spotify.com/api/token',
-        data=data,
-        headers={
-            'Authorization': f'Basic {auth_b64}',
-            'Content-Type': 'application/x-www-form-urlencoded'
-        }
-    )
-
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read().decode())
-
-
-def get_setup_page_html(hostname, local_ip):
-    """Generate the setup wizard HTML page."""
-    redirect_uri = f'https://{local_ip}:{PORT}/callback'
+        <div class="step">
+            <div class="step-title"><span class="step-number">2</span>Enter Client ID</div>
+            <div class="step-content">
+                <p>Copy the Client ID from your Spotify app (no secret needed):</p>
+                <form action="/start-auth" method="GET">
+                    <label for="client_id">Client ID</label>
+                    <input type="text" id="client_id" name="client_id" required placeholder="e.g., a1b2c3d4e5f6...">
+                    <button type="submit" class="submit-btn">Connect to Spotify &rarr;</button>
+                </form>
+            </div>
+        </div>'''
 
     return f'''<!DOCTYPE html>
 <html>
@@ -225,27 +189,15 @@ def get_setup_page_html(hostname, local_ip):
             padding: 20px;
             line-height: 1.7;
         }}
-        .container {{
-            max-width: 500px;
-            margin: 0 auto;
-        }}
+        .container {{ max-width: 500px; margin: 0 auto; }}
         .header {{
             text-align: center;
             margin-bottom: 30px;
             padding-bottom: 20px;
             border-bottom: 1px solid #333;
         }}
-        h1 {{
-            font-size: 24px;
-            font-weight: 300;
-            color: #fff;
-            letter-spacing: 2px;
-            margin-bottom: 8px;
-        }}
-        .subtitle {{
-            color: #666;
-            font-size: 14px;
-        }}
+        h1 {{ font-size: 24px; font-weight: 300; letter-spacing: 2px; margin-bottom: 8px; }}
+        .subtitle {{ color: #666; font-size: 14px; }}
         .step {{
             background: #111;
             border-radius: 8px;
@@ -259,8 +211,8 @@ def get_setup_page_html(hostname, local_ip):
             justify-content: center;
             width: 28px;
             height: 28px;
-            border: 2px solid #c33;
-            color: #c33;
+            border: 2px solid #1ED760;
+            color: #1ED760;
             border-radius: 50%;
             font-weight: 600;
             font-size: 14px;
@@ -270,28 +222,13 @@ def get_setup_page_html(hostname, local_ip):
             font-size: 16px;
             font-weight: 500;
             margin-bottom: 12px;
-            color: #fff;
             display: flex;
             align-items: center;
         }}
-        .step-content {{
-            color: #999;
-            font-size: 14px;
-            margin-left: 40px;
-        }}
-        .step-content p {{
-            margin-bottom: 8px;
-        }}
-        a {{
-            color: #999;
-            text-decoration: underline;
-            text-decoration-color: #666;
-            text-underline-offset: 2px;
-        }}
-        a:hover {{
-            color: #fff;
-            text-decoration-color: #fff;
-        }}
+        .step-content {{ color: #999; font-size: 14px; margin-left: 40px; }}
+        .step-content p {{ margin-bottom: 8px; }}
+        a {{ color: #999; text-decoration: underline; text-decoration-color: #666; text-underline-offset: 2px; }}
+        a:hover {{ color: #fff; text-decoration-color: #fff; }}
         .uri-box {{
             background: #000;
             border: 1px solid #333;
@@ -301,7 +238,6 @@ def get_setup_page_html(hostname, local_ip):
             font-family: 'SF Mono', Monaco, Consolas, monospace;
             font-size: 12px;
             word-break: break-all;
-            color: #fff;
         }}
         .copy-btn {{
             background: #222;
@@ -313,16 +249,9 @@ def get_setup_page_html(hostname, local_ip):
             font-size: 13px;
             transition: all 0.2s;
         }}
-        .copy-btn:hover {{
-            background: #333;
-            color: #fff;
-        }}
-        .copy-btn.copied {{
-            background: #c33;
-            border-color: #c33;
-            color: #fff;
-        }}
-        input[type="text"], input[type="password"] {{
+        .copy-btn:hover {{ background: #333; color: #fff; }}
+        .copy-btn.copied {{ background: #1ED760; border-color: #1ED760; color: #000; }}
+        input[type="text"] {{
             width: 100%;
             padding: 12px;
             margin: 8px 0;
@@ -333,13 +262,8 @@ def get_setup_page_html(hostname, local_ip):
             font-size: 14px;
             font-family: inherit;
         }}
-        input:focus {{
-            outline: none;
-            border-color: #c33;
-        }}
-        input::placeholder {{
-            color: #444;
-        }}
+        input:focus {{ outline: none; border-color: #1ED760; }}
+        input::placeholder {{ color: #444; }}
         label {{
             display: block;
             margin-top: 12px;
@@ -352,30 +276,16 @@ def get_setup_page_html(hostname, local_ip):
             width: 100%;
             padding: 14px;
             margin-top: 20px;
-            background: #c33;
+            background: #1ED760;
             border: none;
             border-radius: 4px;
-            color: #fff;
+            color: #000;
             font-size: 16px;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
             transition: background 0.2s;
         }}
-        .submit-btn:hover {{
-            background: #e44;
-        }}
-        .warning {{
-            background: #1a1a00;
-            border-left: 3px solid #ca0;
-            padding: 12px 16px;
-            margin: 16px 0;
-            font-size: 13px;
-            color: #ca0;
-        }}
-        .warning strong {{
-            display: block;
-            margin-bottom: 4px;
-        }}
+        .submit-btn:hover {{ background: #1db954; }}
         .note {{
             background: #0a0a0a;
             border: 1px solid #222;
@@ -384,14 +294,6 @@ def get_setup_page_html(hostname, local_ip):
             margin: 12px 0;
             font-size: 13px;
             color: #666;
-        }}
-        code {{
-            background: #0d1117;
-            border: 1px solid #30363d;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'SF Mono', Monaco, Consolas, monospace;
-            font-size: 12px;
         }}
     </style>
 </head>
@@ -402,56 +304,18 @@ def get_setup_page_html(hostname, local_ip):
             <div class="subtitle">BeoSound 5c</div>
         </div>
 
-        <div class="warning">
-            <strong>Certificate Warning</strong>
-            Your browser will show a security warning because this uses a self-signed certificate.
-            Tap "Advanced" then "Proceed" to continue. You may need to reload the page once after accepting.
+        <div class="note">
+            No secret keys needed. This uses PKCE authentication &mdash; your Spotify
+            credentials never touch this device.
         </div>
 
-        <div class="step">
-            <div class="step-title"><span class="step-number">1</span>Create a Spotify App</div>
-            <div class="step-content">
-                <p>Go to the <a href="https://developer.spotify.com/dashboard" target="_blank">Spotify Developer Dashboard</a> and create a new app.</p>
-                <p>Use any name and description you like.</p>
-            </div>
-        </div>
-
-        <div class="step">
-            <div class="step-title"><span class="step-number">2</span>Add Redirect URI</div>
-            <div class="step-content">
-                <p>In your Spotify app settings, add this exact Redirect URI:</p>
-                <div class="uri-box" id="redirect-uri">{redirect_uri}</div>
-                <button class="copy-btn" onclick="copyUri()">Copy to clipboard</button>
-                <div class="warning">
-                    <strong>Important</strong>
-                    After adding the Redirect URI, click "Save" in the Spotify dashboard before continuing here.
-                </div>
-                <div class="note">
-                    Alternative URI: <code>https://{hostname}:{PORT}/callback</code>
-                </div>
-            </div>
-        </div>
-
-        <div class="step">
-            <div class="step-title"><span class="step-number">3</span>Enter Credentials</div>
-            <div class="step-content">
-                <p>Copy the Client ID and Client Secret from your Spotify app:</p>
-                <form action="/save-credentials" method="GET">
-                    <label for="client_id">Client ID</label>
-                    <input type="text" id="client_id" name="client_id" required placeholder="e.g., a1b2c3d4e5f6...">
-
-                    <label for="client_secret">Client Secret</label>
-                    <input type="password" id="client_secret" name="client_secret" required placeholder="e.g., x9y8z7w6v5u4...">
-
-                    <button type="submit" class="submit-btn">Connect to Spotify &rarr;</button>
-                </form>
-            </div>
-        </div>
+        {cred_section}
     </div>
 
     <script>
         function copyUri() {{
-            const uri = document.getElementById('redirect-uri').textContent;
+            const uri = document.getElementById('redirect-uri')?.textContent;
+            if (!uri) return;
             navigator.clipboard.writeText(uri).then(() => {{
                 const btn = document.querySelector('.copy-btn');
                 btn.textContent = 'Copied!';
@@ -468,7 +332,6 @@ def get_setup_page_html(hostname, local_ip):
 
 
 def get_success_page_html(playlist_count):
-    """Generate the success page HTML."""
     return f'''<!DOCTYPE html>
 <html>
 <head>
@@ -485,87 +348,55 @@ def get_success_page_html(playlist_count):
             line-height: 1.7;
             text-align: center;
         }}
-        .container {{
-            max-width: 500px;
-            margin: 50px auto;
-        }}
+        .container {{ max-width: 500px; margin: 50px auto; }}
         .checkmark {{
-            width: 80px;
-            height: 80px;
-            border: 3px solid #5a5;
+            width: 80px; height: 80px;
+            border: 3px solid #1ED760;
             border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             margin: 0 auto 30px;
-            font-size: 36px;
-            color: #5a5;
+            font-size: 36px; color: #1ED760;
         }}
-        h1 {{
-            font-size: 24px;
-            font-weight: 300;
-            margin-bottom: 20px;
-            color: #fff;
-            letter-spacing: 1px;
-        }}
+        h1 {{ font-size: 24px; font-weight: 300; margin-bottom: 20px; letter-spacing: 1px; }}
         .status {{
-            background: #111;
-            border: 1px solid #222;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 20px 0;
-            text-align: left;
+            background: #111; border: 1px solid #222;
+            border-radius: 8px; padding: 20px; margin: 20px 0; text-align: left;
         }}
         .status-item {{
-            display: flex;
-            align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid #222;
-            color: #999;
+            display: flex; align-items: center;
+            padding: 12px 0; border-bottom: 1px solid #222; color: #999;
         }}
-        .status-item:last-child {{
-            border-bottom: none;
-        }}
-        .status-icon {{
-            color: #5a5;
-            margin-right: 12px;
-            font-size: 18px;
-        }}
-        .note {{
-            color: #666;
-            font-size: 14px;
-            margin-top: 30px;
-        }}
+        .status-item:last-child {{ border-bottom: none; }}
+        .status-icon {{ color: #1ED760; margin-right: 12px; font-size: 18px; }}
+        .note {{ color: #666; font-size: 14px; margin-top: 30px; }}
     </style>
 </head>
 <body>
     <div class="container">
         <div class="checkmark">&#10003;</div>
         <h1>Connected to Spotify</h1>
-
         <div class="status">
             <div class="status-item">
                 <span class="status-icon">&#10003;</span>
-                <span>Credentials saved</span>
+                <span>PKCE authorization successful</span>
             </div>
             <div class="status-item">
                 <span class="status-icon">&#10003;</span>
-                <span>Authorization successful</span>
+                <span>Tokens saved securely</span>
             </div>
             <div class="status-item">
                 <span class="status-icon">&#10003;</span>
                 <span>Found {playlist_count} playlists</span>
             </div>
         </div>
-
-        <p class="note">Setup complete. You can close this page.</p>
+        <p class="note">Setup complete. You can close this page.<br>
+        Playlists will refresh automatically.</p>
     </div>
 </body>
 </html>'''
 
 
 def get_error_page_html(error_message):
-    """Generate an error page HTML."""
     return f'''<!DOCTYPE html>
 <html>
 <head>
@@ -576,54 +407,25 @@ def get_error_page_html(error_message):
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{
             font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #000;
-            color: #fff;
-            padding: 20px;
-            line-height: 1.7;
-            text-align: center;
+            background: #000; color: #fff; padding: 20px;
+            line-height: 1.7; text-align: center;
         }}
-        .container {{
-            max-width: 500px;
-            margin: 50px auto;
-        }}
+        .container {{ max-width: 500px; margin: 50px auto; }}
         .error-icon {{
-            width: 80px;
-            height: 80px;
-            border: 3px solid #c33;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 30px;
-            font-size: 36px;
-            color: #c33;
+            width: 80px; height: 80px;
+            border: 3px solid #c33; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 30px; font-size: 36px; color: #c33;
         }}
-        h1 {{
-            font-size: 24px;
-            font-weight: 300;
-            margin-bottom: 20px;
-            color: #fff;
-            letter-spacing: 1px;
-        }}
+        h1 {{ font-size: 24px; font-weight: 300; margin-bottom: 20px; letter-spacing: 1px; }}
         .error-box {{
-            background: #110000;
-            border-left: 3px solid #c33;
-            border-radius: 4px;
-            padding: 20px;
-            margin: 20px 0;
-            text-align: left;
-            font-family: 'SF Mono', Monaco, Consolas, monospace;
-            font-size: 13px;
-            color: #c33;
+            background: #110000; border-left: 3px solid #c33;
+            border-radius: 4px; padding: 20px; margin: 20px 0;
+            text-align: left; font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 13px; color: #c33;
         }}
-        a {{
-            color: #999;
-            text-decoration: underline;
-            text-decoration-color: #666;
-        }}
-        a:hover {{
-            color: #fff;
-        }}
+        a {{ color: #999; text-decoration: underline; text-decoration-color: #666; }}
+        a:hover {{ color: #fff; }}
     </style>
 </head>
 <body>
@@ -637,15 +439,13 @@ def get_error_page_html(error_message):
 </html>'''
 
 
-class SetupHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for the setup wizard."""
+# ── HTTP Handler ──
 
+class SetupHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        """Log all requests."""
         print(f"[{self.command}] {self.path}")
 
     def send_html(self, html, status=200):
-        """Send HTML response."""
         self.send_response(status)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Content-Length', len(html.encode()))
@@ -653,78 +453,49 @@ class SetupHandler(BaseHTTPRequestHandler):
         self.wfile.write(html.encode())
 
     def do_GET(self):
-        """Handle GET requests."""
         parsed = urllib.parse.urlparse(self.path)
 
         if parsed.path == '/':
-            # Serve setup wizard page
-            hostname = get_hostname()
+            client_id = load_client_id()
             local_ip = get_local_ip()
-            html = get_setup_page_html(hostname, local_ip)
+            hostname = get_hostname()
+            html = get_setup_page_html(client_id, local_ip, hostname)
             self.send_html(html)
 
+        elif parsed.path == '/start-auth':
+            self.handle_start_auth(parsed.query)
+
         elif parsed.path == '/callback':
-            # Handle OAuth callback
             self.handle_callback(parsed.query)
 
-        elif parsed.path == '/save-credentials':
-            # Handle GET with query params (some browsers/phones do this)
-            self.handle_save_credentials_get(parsed.query)
-
         else:
             self.send_error(404)
 
-    def do_POST(self):
-        """Handle POST requests."""
-        print(f"POST request to: {self.path}")
-        if self.path == '/save-credentials':
-            self.handle_save_credentials()
-        else:
-            print(f"404 - path not matched: '{self.path}'")
-            self.send_error(404)
-
-    def handle_save_credentials_get(self, query_string):
-        """Handle GET request with credentials in query string."""
+    def handle_start_auth(self, query_string):
+        """Start PKCE auth flow — generate verifier, redirect to Spotify."""
+        global _pkce_state
         params = urllib.parse.parse_qs(query_string)
-        self._process_credentials(params)
-
-    def handle_save_credentials(self):
-        """Handle form submission with client credentials."""
-        # Read form data
-        content_length = int(self.headers.get('Content-Length', 0))
-        body = self.rfile.read(content_length).decode()
-        params = urllib.parse.parse_qs(body)
-        self._process_credentials(params)
-
-    def _process_credentials(self, params):
-        """Process credentials from either GET or POST."""
-        global pending_credentials
-
         client_id = params.get('client_id', [''])[0].strip()
-        client_secret = params.get('client_secret', [''])[0].strip()
 
-        if not client_id or not client_secret:
-            self.send_html(get_error_page_html('Client ID and Secret are required'), 400)
+        if not client_id:
+            self.send_html(get_error_page_html('Client ID is required'), 400)
             return
 
-        # Store credentials for callback
-        pending_credentials = {
+        # Generate PKCE pair
+        verifier = generate_code_verifier()
+        challenge = generate_code_challenge(verifier)
+
+        local_ip = get_local_ip()
+        redirect_uri = f'http://{local_ip}:{PORT}/callback'
+
+        # Store for callback
+        _pkce_state = {
             'client_id': client_id,
-            'client_secret': client_secret
+            'code_verifier': verifier,
+            'redirect_uri': redirect_uri,
         }
 
-        # Build Spotify authorization URL (use IP for redirect since it's more reliable)
-        local_ip = get_local_ip()
-        redirect_uri = f'https://{local_ip}:{PORT}/callback'
-
-        auth_params = urllib.parse.urlencode({
-            'client_id': client_id,
-            'response_type': 'code',
-            'redirect_uri': redirect_uri,
-            'scope': SCOPES,
-        })
-
-        auth_url = f'https://accounts.spotify.com/authorize?{auth_params}'
+        auth_url = build_auth_url(client_id, redirect_uri, challenge, SCOPES)
 
         # Redirect to Spotify
         self.send_response(302)
@@ -734,57 +505,47 @@ class SetupHandler(BaseHTTPRequestHandler):
 
     def handle_callback(self, query_string):
         """Handle OAuth callback from Spotify."""
-        global pending_credentials
-
+        global _pkce_state
         params = urllib.parse.parse_qs(query_string)
 
-        # Check for error
         if 'error' in params:
             error = params['error'][0]
             self.send_html(get_error_page_html(f'Spotify authorization failed: {error}'))
             return
 
-        # Get authorization code
         code = params.get('code', [''])[0]
         if not code:
             self.send_html(get_error_page_html('No authorization code received'))
             return
 
-        # Check we have pending credentials
-        if not pending_credentials:
+        if not _pkce_state:
             self.send_html(get_error_page_html('Session expired. Please start over.'))
             return
 
-        client_id = pending_credentials['client_id']
-        client_secret = pending_credentials['client_secret']
-
-        # Build redirect URI (must match exactly what was used for authorization)
-        local_ip = get_local_ip()
-        redirect_uri = f'https://{local_ip}:{PORT}/callback'
+        client_id = _pkce_state['client_id']
+        code_verifier = _pkce_state['code_verifier']
+        redirect_uri = _pkce_state['redirect_uri']
 
         try:
-            # Exchange code for tokens
-            print("Exchanging authorization code for tokens...")
-            token_data = exchange_code_for_token(code, redirect_uri, client_id, client_secret)
-            refresh_token = token_data.get('refresh_token')
+            print("Exchanging authorization code for tokens (PKCE)...")
+            token_data = exchange_code(code, client_id, code_verifier, redirect_uri)
+            rt = token_data.get('refresh_token')
 
-            if not refresh_token:
+            if not rt:
                 self.send_html(get_error_page_html('No refresh token received from Spotify'))
                 return
 
-            # Save credentials to config
-            print("Saving credentials to config...")
-            config_path = update_config(client_id, client_secret, refresh_token)
-            print(f"Credentials saved to {config_path}")
+            # Save tokens
+            print("Saving tokens...")
+            path = save_tokens(client_id, rt)
+            print(f"Tokens saved to {path}")
 
-            # Run initial playlist fetch
+            # Fetch playlists
             print("Fetching playlists...")
-            playlist_count = self.run_playlist_fetch(client_id, client_secret, refresh_token)
+            playlist_count = run_playlist_fetch(client_id, rt)
 
-            # Show success page
             self.send_html(get_success_page_html(playlist_count))
 
-            # Signal to stop server
             print("\nSetup complete! Server will stop.")
             self.server.should_stop = True
 
@@ -794,80 +555,36 @@ class SetupHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self.send_html(get_error_page_html(f'Error: {str(e)}'))
 
-    def run_playlist_fetch(self, client_id, client_secret, refresh_token):
-        """Run the playlist fetch and return count."""
-        # Get access token using refresh token
-        auth_str = f"{client_id}:{client_secret}"
-        auth_b64 = base64.b64encode(auth_str.encode()).decode()
-
-        data = urllib.parse.urlencode({
-            'grant_type': 'refresh_token',
-            'refresh_token': refresh_token
-        }).encode()
-
-        req = urllib.request.Request(
-            'https://accounts.spotify.com/api/token',
-            data=data,
-            headers={
-                'Authorization': f'Basic {auth_b64}',
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
-        )
-
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            token_data = json.loads(resp.read().decode())
-            access_token = token_data['access_token']
-
-        # Fetch playlists
-        headers = {'Authorization': f'Bearer {access_token}'}
-        playlists = []
-        url = 'https://api.spotify.com/v1/me/playlists?limit=50'
-
-        while url:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode())
-            playlists.extend(data.get('items', []))
-            url = data.get('next')
-
-        return len(playlists)
-
 
 def main():
-    """Run the setup wizard server."""
     hostname = get_hostname()
     local_ip = get_local_ip()
+    client_id = load_client_id()
 
-    # Generate SSL certificate if needed
-    generate_self_signed_cert()
-
-    url = f"https://{local_ip}:{PORT}"
+    url = f"http://{local_ip}:{PORT}"
 
     print()
     print("=" * 60)
-    print("BeoSound 5c - Spotify Setup Wizard")
+    print("BeoSound 5c - Spotify Setup (PKCE)")
     print("=" * 60)
     print()
-    print("Scan this QR code or open the URL from your phone:")
+    if client_id:
+        print(f"  Client ID: {client_id[:8]}...{client_id[-4:]}")
+    else:
+        print("  No client_id configured — user will enter manually")
+    print()
+    print("Open this URL in your browser:")
     print()
     print_qr_code(url)
     print(f"  {url}")
     print()
-    print(f"  (or https://{hostname}:{PORT})")
-    print()
-    print("NOTE: Your browser will show a certificate warning.")
-    print("      Tap 'Advanced' and 'Proceed' to continue.")
+    print(f"  (or http://{hostname}:{PORT})")
     print()
     print("Waiting for connection...")
     print()
 
     server = HTTPServer(('', PORT), SetupHandler)
     server.should_stop = False
-
-    # Wrap socket with SSL
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ssl_context.load_cert_chain(CERT_FILE, KEY_FILE)
-    server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
 
     try:
         while not server.should_stop:
