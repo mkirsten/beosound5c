@@ -5,7 +5,7 @@ BeoSound 5c Demo Source (beo-demo)
 Simple TTS demo source — plays spoken audio clips to demonstrate
 the source framework. Always registers as 'available' on startup.
 
-Port: 8771
+Port: 8775
 """
 
 import asyncio
@@ -52,7 +52,7 @@ SOUNDS = [
 class DemoService(SourceBase):
     id = "demo"
     name = "Demo"
-    port = 8771
+    port = 8775
     player = "local"
     action_map = {
         "play": "play",

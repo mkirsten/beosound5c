@@ -667,6 +667,10 @@ class CDService(SourceBase):
         "stop": "stop",
         "info": "announce",
         "track": "announce",
+        "0": "play_track", "1": "play_track", "2": "play_track",
+        "3": "play_track", "4": "play_track", "5": "play_track",
+        "6": "play_track", "7": "play_track", "8": "play_track",
+        "9": "play_track",
     }
 
     def __init__(self):
@@ -746,16 +750,10 @@ class CDService(SourceBase):
         return {'status': 'ok', 'resynced': False}
 
     async def handle_raw_action(self, action, data):
-        """Handle CD button and digit→track before action_map."""
+        """Handle CD button before action_map."""
         # CD button → start playback if disc present
         if action == 'cd':
-            # Return a special command that handle_command knows
             return ('_cd_button', data)
-        # Digit → play specific track
-        digit = data.get('digit')
-        if digit is not None:
-            data['track'] = digit
-            return ('play_track', data)
         return None
 
     async def handle_command(self, cmd, data) -> dict:
@@ -787,7 +785,9 @@ class CDService(SourceBase):
             await self.register('available')
             await self._broadcast_cd_update()
         elif cmd == 'play_track':
-            await self.player.play_track(data.get('track', 1))
+            # Track number from action ("5") or explicit track field
+            track = data.get('track') or int(data.get('action', 1))
+            await self.player.play_track(track)
             await self.register('playing')
             await self._broadcast_cd_update()
         elif cmd == 'eject':
@@ -818,7 +818,7 @@ class CDService(SourceBase):
 
     async def _set_default_airplay(self):
         """Set the default audio output to the local Sonos AirPlay sink."""
-        sonos_ip = cfg("sonos", "ip", default="")
+        sonos_ip = cfg("player", "ip", default="")
         if not sonos_ip:
             return
         # Wait for PipeWire to discover AirPlay sinks
@@ -833,7 +833,7 @@ class CDService(SourceBase):
 
     async def _ensure_airplay(self):
         """Pre-play check: ensure the AirPlay sink is still alive."""
-        sonos_ip = cfg("sonos", "ip", default="")
+        sonos_ip = cfg("player", "ip", default="")
         if not sonos_ip:
             return
         ok = await self.audio.ensure_output(ip=sonos_ip)

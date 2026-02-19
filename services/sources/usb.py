@@ -21,6 +21,7 @@ from aiohttp import web
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.audio_outputs import AudioOutputs
+from lib.config import cfg
 from lib.source_base import SourceBase
 from lib.watchdog import watchdog_loop
 
@@ -290,14 +291,14 @@ class FilePlayer:
     async def play(self):
         if self.state == 'paused':
             self._cancel_pause_timer()
-            self._mpv_command('cycle', 'pause')
+            await self._mpv_command('cycle', 'pause')
             self.state = 'playing'
         elif self.state == 'stopped' and self.total_tracks > 0:
             await self.play_track(0)
 
     async def pause(self):
         if self.state == 'playing':
-            self._mpv_command('cycle', 'pause')
+            await self._mpv_command('cycle', 'pause')
             self.state = 'paused'
             self._start_pause_timer()
 
@@ -377,16 +378,21 @@ class FilePlayer:
             self.process = None
         self.state = 'stopped'
 
-    def _mpv_command(self, *args):
+    async def _mpv_command(self, *args):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._mpv_command_sync, *args)
+
+    def _mpv_command_sync(self, *args):
         import socket as sock
+        s = sock.socket(sock.AF_UNIX, sock.SOCK_STREAM)
         try:
-            s = sock.socket(sock.AF_UNIX, sock.SOCK_STREAM)
             s.connect(self._ipc_socket)
             cmd = json.dumps({'command': list(args)}) + '\n'
             s.sendall(cmd.encode())
-            s.close()
         except Exception as e:
             log.error("mpv IPC error: %s", e)
+        finally:
+            s.close()
 
     def get_status(self):
         return {
@@ -447,7 +453,7 @@ class USBService(SourceBase):
 
     async def _set_default_airplay(self):
         """Set the default audio output to the local Sonos AirPlay sink."""
-        sonos_ip = os.getenv('SONOS_IP', '')
+        sonos_ip = cfg("player", "ip", default="")
         if not sonos_ip:
             return
         for _ in range(15):

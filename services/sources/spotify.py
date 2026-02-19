@@ -3,8 +3,8 @@
 BeoSound 5c Spotify Source (beo-spotify)
 
 Provides Spotify playback via the Web API with PKCE authentication.
-Plays on Sonos via native queue (SoCo ShareLink) for best quality.
-Falls back to librespot for non-Sonos outputs.
+Plays on the configured player service (Sonos, BlueSound, etc.) via its
+HTTP API.
 
 Port: 8771
 """
@@ -16,16 +16,15 @@ import os
 import ssl
 import sys
 import time
-import urllib.request
 import urllib.error
-import urllib.parse
 
-from aiohttp import web, ClientSession
+from aiohttp import web
 
 # Shared library
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.config import cfg
 from lib.source_base import SourceBase
+from playlist_lookup import get_playlist_uri
 
 # Spotify tools — project root is 3 levels up from services/sources/spotify.py
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -44,13 +43,10 @@ logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger('beo-spotify')
 
 # Configuration
-SONOS_IP = cfg("sonos", "ip", default="")
-VOLUME_TYPE = cfg("volume", "type", default="sonos")
 PLAYLISTS_FILE = os.path.join(
     os.getenv('BS5C_BASE_PATH', PROJECT_ROOT),
     'web', 'json', 'spotify_playlists.json')
 
-SPOTIFY_API = "https://api.spotify.com/v1"
 POLL_INTERVAL = 3  # seconds between now-playing polls
 PLAYLIST_REFRESH_INTERVAL = 30 * 60  # 30 minutes
 FETCH_SCRIPT = os.path.join(TOOLS_DIR, 'fetch_playlists.py')
@@ -160,84 +156,6 @@ class SpotifyAuth:
         return bool(self._client_id and self._refresh_token)
 
 
-class SpotifyAPI:
-    """Thin wrapper around Spotify Web API calls."""
-
-    def __init__(self, auth: SpotifyAuth, session: ClientSession):
-        self.auth = auth
-        self.session = session
-
-    async def _headers(self):
-        token = await self.auth.get_token()
-        return {"Authorization": f"Bearer {token}"}
-
-    async def get(self, path, params=None):
-        url = f"{SPOTIFY_API}{path}"
-        if params:
-            url += "?" + urllib.parse.urlencode(params)
-        headers = await self._headers()
-        async with self.session.get(url, headers=headers, timeout=10) as resp:
-            if resp.status == 204:
-                return None
-            if resp.status != 200:
-                body = await resp.text()
-                log.warning("Spotify GET %s -> %d: %s", path, resp.status, body[:200])
-                return None
-            return await resp.json()
-
-    async def put(self, path, json_data=None):
-        url = f"{SPOTIFY_API}{path}"
-        headers = await self._headers()
-        headers["Content-Type"] = "application/json"
-        async with self.session.put(url, headers=headers, json=json_data, timeout=10) as resp:
-            if resp.status not in (200, 204):
-                body = await resp.text()
-                log.warning("Spotify PUT %s -> %d: %s", path, resp.status, body[:200])
-                return False
-            return True
-
-    async def post(self, path, json_data=None):
-        url = f"{SPOTIFY_API}{path}"
-        headers = await self._headers()
-        headers["Content-Type"] = "application/json"
-        async with self.session.post(url, headers=headers, json=json_data, timeout=10) as resp:
-            if resp.status not in (200, 204):
-                body = await resp.text()
-                log.warning("Spotify POST %s -> %d: %s", path, resp.status, body[:200])
-                return False
-            return True
-
-    async def get_devices(self):
-        data = await self.get("/me/player/devices")
-        return data.get("devices", []) if data else []
-
-    async def get_currently_playing(self):
-        return await self.get("/me/player/currently-playing")
-
-    async def start_playback(self, device_id=None, context_uri=None, uris=None, offset=None):
-        body = {}
-        if context_uri:
-            body["context_uri"] = context_uri
-        if uris:
-            body["uris"] = uris
-        if offset is not None:
-            body["offset"] = offset
-        params = f"?device_id={device_id}" if device_id else ""
-        return await self.put(f"/me/player/play{params}", body or None)
-
-    async def pause_playback(self, device_id=None):
-        params = f"?device_id={device_id}" if device_id else ""
-        return await self.put(f"/me/player/pause{params}")
-
-    async def next_track(self, device_id=None):
-        params = f"?device_id={device_id}" if device_id else ""
-        return await self.post(f"/me/player/next{params}")
-
-    async def previous_track(self, device_id=None):
-        params = f"?device_id={device_id}" if device_id else ""
-        return await self.post(f"/me/player/previous{params}")
-
-
 class SpotifyService(SourceBase):
     """Main Spotify source service."""
 
@@ -255,50 +173,38 @@ class SpotifyService(SourceBase):
         "up": "next",
         "down": "prev",
         "stop": "stop",
+        "0": "digit", "1": "digit", "2": "digit",
+        "3": "digit", "4": "digit", "5": "digit",
+        "6": "digit", "7": "digit", "8": "digit",
+        "9": "digit",
     }
 
     def __init__(self):
         super().__init__()
         self.auth = SpotifyAuth()
-        self.api = None  # set after session is created
-        self.soco = None  # SoCo instance for Sonos playback
-        self.soco = None  # SoCo instance for transport controls (Sonos path)
         self.playlists = []
         self.state = "stopped"  # stopped | playing | paused
         self.now_playing = None  # current track metadata
         self._poll_task = None
         self._refresh_task = None
-        self._target_device_id = None  # Spotify Connect device_id (librespot only)
-        self._use_soco = False  # True = Sonos native queue via SoCo, False = Spotify Web API
         self._pkce_state = {}  # Temporary state during OAuth flow
         self._fetching_playlists = False  # True while initial fetch is running
 
     async def on_start(self):
-        self.api = SpotifyAPI(self.auth, self._http_session)
-
         # Load credentials (may fail — setup flow will handle it)
         has_creds = self.auth.load()
 
         if has_creds:
-            # Load playlists from file
             self._load_playlists()
+            self.player = "remote"
 
-            # Init Sonos (SoCo) if configured — primary playback path
-            if SONOS_IP:
-                try:
-                    import soco
-                    self.soco = soco.SoCo(SONOS_IP)
-                    self._use_soco = True
-                    self.player = "sonos"
-                    log.info("Sonos connected: %s (%s) — direct SoCo playback",
-                             self.soco.player_name, SONOS_IP)
-                except Exception as e:
-                    log.warning("Sonos init failed, will try Spotify Web API: %s", e)
-
-            # Non-Sonos: discover Spotify Connect devices (librespot etc.)
-            if not self._use_soco:
-                self.player = "local"
-                await self._discover_devices()
+            # Check if a player service is available (Sonos, BlueSound, etc.)
+            caps = await self.player_capabilities()
+            if "spotify" in caps:
+                log.info("Player service available with Spotify support — using player API")
+            else:
+                log.warning("No player service available — local playback will be "
+                            "supported via go-librespot in a future update")
         else:
             log.info("No Spotify credentials — waiting for setup via /setup")
 
@@ -319,8 +225,7 @@ class SpotifyService(SourceBase):
             log.info("No SSL cert found — HTTPS callback not available")
 
         log.info("Spotify source ready (%s)",
-                 "Sonos/SoCo" if self._use_soco else
-                 "awaiting setup" if not has_creds else "librespot")
+                 "player service" if has_creds else "awaiting setup")
 
         # Start periodic playlist refresh in background
         if self.auth.is_configured:
@@ -351,42 +256,6 @@ class SpotifyService(SourceBase):
             log.warning("Could not load playlists: %s", e)
             self.playlists = []
 
-    async def _discover_devices(self):
-        """Discover Spotify Connect devices and select the best target."""
-        if not self.auth.is_configured:
-            return
-
-        try:
-            devices = await self.api.get_devices()
-            log.info("Spotify devices: %s", [d.get('name') for d in devices])
-
-            for d in devices:
-                name = d.get("name", "").lower()
-                dtype = d.get("type", "").lower()
-
-                # Match Sonos speaker
-                if self.soco and (dtype == "speaker" or "sonos" in name):
-                    self._sonos_device_id = d["id"]
-                    log.info("Found Sonos device: %s (id: %s)", d["name"], d["id"][:8])
-
-                # Match librespot
-                if "beosound" in name or dtype == "computer":
-                    self._librespot_device_id = d["id"]
-                    log.info("Found librespot device: %s (id: %s)", d["name"], d["id"][:8])
-
-            # Select target: Sonos first, librespot fallback
-            if self._sonos_device_id and self.soco:
-                self._target_device_id = self._sonos_device_id
-                self._use_soco = True
-            elif self._librespot_device_id:
-                self._target_device_id = self._librespot_device_id
-                self._use_soco = False
-            else:
-                log.warning("No suitable Spotify Connect device found")
-
-        except Exception as e:
-            log.warning("Device discovery failed: %s", e)
-
     # ── SourceBase hooks ──
 
     def add_routes(self, app):
@@ -401,7 +270,6 @@ class SpotifyService(SourceBase):
             'state': self.state,
             'now_playing': self.now_playing,
             'playlist_count': len(self.playlists),
-            'target': 'sonos' if self._use_soco else 'librespot',
             'has_credentials': self.auth.is_configured,
         }
 
@@ -409,13 +277,21 @@ class SpotifyService(SourceBase):
         if self.auth.is_configured:
             state = self.state if self.state in ('playing', 'paused') else 'available'
             await self.register(state)
-            if self.now_playing:
-                await self._broadcast_update()
             return {'status': 'ok', 'resynced': True}
         return {'status': 'ok', 'resynced': False}
 
     async def handle_command(self, cmd, data) -> dict:
-        if cmd == 'play_playlist':
+        if cmd == 'digit':
+            digit = data.get('action', '0')
+            uri = get_playlist_uri(digit)
+            if uri:
+                playlist_id = uri.split(':')[-1]
+                log.info("Digit %s -> playlist %s", digit, playlist_id)
+                await self._play_playlist(playlist_id)
+            else:
+                log.info("No playlist mapped to digit %s", digit)
+
+        elif cmd == 'play_playlist':
             playlist_id = data.get('playlist_id', '')
             track_index = data.get('track_index')
             await self._play_playlist(playlist_id, track_index)
@@ -466,90 +342,49 @@ class SpotifyService(SourceBase):
 
     async def _play_playlist(self, playlist_id, track_index=None):
         """Start playing a playlist, optionally at a specific track."""
-        if self._use_soco:
-            await self._soco_play_playlist(playlist_id, track_index)
-        else:
-            await self._api_play_playlist(playlist_id, track_index)
-
-    async def _soco_play_playlist(self, playlist_id, track_index=None):
-        """Play a Spotify playlist on Sonos native queue via SoCo ShareLink."""
-        from soco.plugins.sharelink import ShareLinkPlugin
-
         url = f"https://open.spotify.com/playlist/{playlist_id}"
-        log.info("SoCo: play playlist %s (track_index=%s)", playlist_id, track_index)
+        # Look up the track's Spotify URI so the player can find it in the queue
+        track_uri = None
+        track_meta = None
+        if track_index is not None:
+            for pl in self.playlists:
+                if pl.get('id') == playlist_id:
+                    tracks = pl.get('tracks', [])
+                    if 0 <= track_index < len(tracks):
+                        track_meta = tracks[track_index]
+                        track_uri = track_meta.get('uri', '')
+                    break
+        # Pre-broadcast the selected track's metadata so the UI shows
+        # correct artwork immediately, before the Sonos queue rebuilds.
+        if track_uri and track_meta:
+            await self.broadcast("media_update", {
+                "title": track_meta.get("name", ""),
+                "artist": track_meta.get("artist", ""),
+                "album": track_meta.get("album", ""),
+                "artwork": track_meta.get("artwork", ""),
+                "state": "PLAYING",
+            })
+            log.info("Pre-broadcast metadata for %s", track_meta.get("name", "?"))
 
-        loop = asyncio.get_event_loop()
-        share_link = ShareLinkPlugin(self.soco)
-        await loop.run_in_executor(None, self.soco.clear_queue)
-        await loop.run_in_executor(None, share_link.add_share_link_to_queue, url)
-        await loop.run_in_executor(None, self.soco.play_from_queue, track_index or 0)
-
-        self.state = "playing"
-        await self.register("playing")
-        self._start_polling()
-
-    async def _api_play_playlist(self, playlist_id, track_index=None):
-        """Play a Spotify playlist via Web API (librespot path)."""
-        context_uri = f"spotify:playlist:{playlist_id}"
-        offset = {"position": track_index} if track_index is not None else None
-
-        if not self._target_device_id:
-            await self._discover_devices()
-
-        ok = await self.api.start_playback(
-            device_id=self._target_device_id,
-            context_uri=context_uri,
-            offset=offset)
-
+        log.info("Play playlist %s (track_index=%s, track_uri=%s)",
+                 playlist_id, track_index, track_uri)
+        ok = await self.player_play(uri=url, track_uri=track_uri)
         if ok:
             self.state = "playing"
             await self.register("playing")
             self._start_polling()
-            await self._poll_now_playing()
         else:
-            log.error("Failed to start playlist playback")
+            log.error("Player service failed to start playlist")
 
     async def _play_track(self, uri, context_uri=None):
         """Play a specific track, optionally within a context."""
-        if self._use_soco:
-            await self._soco_play_track(uri)
-            return
-
-        if not self._target_device_id:
-            await self._discover_devices()
-
-        if context_uri:
-            ok = await self.api.start_playback(
-                device_id=self._target_device_id,
-                context_uri=context_uri,
-                offset={"uri": uri})
-        else:
-            ok = await self.api.start_playback(
-                device_id=self._target_device_id,
-                uris=[uri])
-
+        url = self._spotify_uri_to_url(uri)
+        log.info("Play track %s", url)
+        ok = await self.player_play(uri=url)
         if ok:
             self.state = "playing"
             await self.register("playing")
             self._start_polling()
-            await self._poll_now_playing()
-
-    async def _soco_play_track(self, uri):
-        """Play a single Spotify track on Sonos native queue via SoCo ShareLink."""
-        from soco.plugins.sharelink import ShareLinkPlugin
-
-        url = self._spotify_uri_to_url(uri)
-        log.info("SoCo: play track %s", url)
-
-        loop = asyncio.get_event_loop()
-        share_link = ShareLinkPlugin(self.soco)
-        await loop.run_in_executor(None, self.soco.clear_queue)
-        await loop.run_in_executor(None, share_link.add_share_link_to_queue, url)
-        await loop.run_in_executor(None, self.soco.play_from_queue, 0)
-
-        self.state = "playing"
-        await self.register("playing")
-        self._start_polling()
 
     async def _toggle(self):
         if self.state == "playing":
@@ -561,84 +396,31 @@ class SpotifyService(SourceBase):
             await self._play_playlist(self.playlists[0]['id'])
 
     async def _resume(self):
-        if self._use_soco and self.soco:
-            try:
-                self.soco.play()
-                self.state = "playing"
-                await self.register("playing")
-                self._start_polling()
-                return
-            except Exception as e:
-                log.warning("SoCo play failed, trying Web API: %s", e)
-
-        if not self._target_device_id:
-            await self._discover_devices()
-        ok = await self.api.start_playback(device_id=self._target_device_id)
-        if ok:
+        if await self.player_resume():
             self.state = "playing"
             await self.register("playing")
             self._start_polling()
 
     async def _pause(self):
-        if self._use_soco and self.soco:
-            try:
-                self.soco.pause()
-                self.state = "paused"
-                await self.register("paused")
-                await self._broadcast_update()
-                return
-            except Exception as e:
-                log.warning("SoCo pause failed, trying Web API: %s", e)
-
-        ok = await self.api.pause_playback(device_id=self._target_device_id)
-        if ok:
+        if await self.player_pause():
             self.state = "paused"
             await self.register("paused")
-            await self._broadcast_update()
 
     async def _next(self):
-        if self._use_soco and self.soco:
-            try:
-                self.soco.next()
-                await asyncio.sleep(0.5)
-                await self._poll_now_playing()
-                return
-            except Exception as e:
-                log.warning("SoCo next failed, trying Web API: %s", e)
-
-        ok = await self.api.next_track(device_id=self._target_device_id)
-        if ok:
+        if await self.player_next():
             await asyncio.sleep(0.5)
             await self._poll_now_playing()
 
     async def _prev(self):
-        if self._use_soco and self.soco:
-            try:
-                self.soco.previous()
-                await asyncio.sleep(0.5)
-                await self._poll_now_playing()
-                return
-            except Exception as e:
-                log.warning("SoCo previous failed, trying Web API: %s", e)
-
-        ok = await self.api.previous_track(device_id=self._target_device_id)
-        if ok:
+        if await self.player_prev():
             await asyncio.sleep(0.5)
             await self._poll_now_playing()
 
     async def _stop(self):
-        if self._use_soco and self.soco:
-            try:
-                self.soco.pause()
-            except Exception:
-                pass
-        else:
-            await self.api.pause_playback(device_id=self._target_device_id)
-
+        await self.player_stop()
         self.state = "stopped"
         self._stop_polling()
         await self.register("available")
-        await self._broadcast_update()
 
     async def _refresh_playlists(self):
         """Re-fetch playlists by running fetch_playlists.py (incremental sync with tracks)."""
@@ -740,116 +522,21 @@ class SpotifyService(SourceBase):
             return
 
     async def _poll_now_playing(self):
-        """Fetch currently playing info and broadcast to UI."""
-        if self._use_soco and self.soco:
-            await self._poll_now_playing_soco()
-        else:
-            await self._poll_now_playing_api()
+        """Poll transport state from player service for router registration.
 
-    async def _poll_now_playing_soco(self):
-        """Poll transport state from Sonos for router registration.
-
-        beo-sonos handles artwork/metadata broadcasting to the UI — we only
-        track play-state here so the router knows we're active.
+        The player service handles artwork/metadata broadcasting to the UI —
+        we only track play-state here so the router knows we're active.
         """
         try:
-            loop = asyncio.get_event_loop()
-            transport = await loop.run_in_executor(
-                None, self.soco.get_current_transport_info)
-
-            transport_state = transport.get("current_transport_state", "")
-            is_playing = transport_state == "PLAYING"
-
-            # Update state if changed externally
-            if is_playing and self.state != "playing":
+            state = await self.player_state()
+            if state == "playing" and self.state != "playing":
                 self.state = "playing"
                 await self.register("playing")
-            elif not is_playing and self.state == "playing":
+            elif state != "playing" and self.state == "playing":
                 self.state = "paused"
                 await self.register("paused")
-
         except Exception as e:
-            log.warning("SoCo state poll error: %s", e)
-
-    async def _poll_now_playing_api(self):
-        """Poll now-playing from Spotify Web API (librespot path).
-
-        Broadcasts media_update in beo-sonos–compatible format so the
-        standard PLAYING view can display artwork and metadata.
-        """
-        try:
-            data = await self.api.get_currently_playing()
-            if not data or not data.get("item"):
-                return
-
-            item = data["item"]
-            is_playing = data.get("is_playing", False)
-
-            # Update state if it changed externally
-            if is_playing and self.state != "playing":
-                self.state = "playing"
-                await self.register("playing")
-            elif not is_playing and self.state == "playing":
-                self.state = "paused"
-                await self.register("paused")
-
-            state_str = "PLAYING" if is_playing else "PAUSED_PLAYBACK"
-            artwork_url = (item.get("album", {}).get("images", [{}])[0]
-                           .get("url", ""))
-
-            new_playing = {
-                "track": item.get("name", ""),
-                "artist": ", ".join(a["name"] for a in item.get("artists", [])),
-                "album": item.get("album", {}).get("name", ""),
-                "artwork": artwork_url,
-                "uri": item.get("uri", ""),
-                "duration_ms": item.get("duration_ms", 0),
-                "progress_ms": data.get("progress_ms", 0),
-                "is_playing": is_playing,
-                "context_uri": (data.get("context") or {}).get("uri", ""),
-            }
-
-            # Only broadcast on change
-            if (not self.now_playing or
-                    self.now_playing.get("uri") != new_playing["uri"] or
-                    self.now_playing.get("is_playing") != new_playing["is_playing"]):
-                self.now_playing = new_playing
-                # Broadcast as media_update in beo-sonos format for PLAYING view
-                await self.broadcast("media_update", {
-                    "title": new_playing["track"],
-                    "artist": new_playing["artist"],
-                    "album": new_playing["album"],
-                    "artwork": artwork_url,
-                    "state": state_str,
-                    "uri": new_playing["uri"],
-                })
-                log.info("Now playing: %s — %s", new_playing["artist"], new_playing["track"])
-            else:
-                self.now_playing["progress_ms"] = new_playing["progress_ms"]
-
-        except Exception as e:
-            log.warning("Now-playing poll error: %s", e)
-
-    async def _broadcast_update(self):
-        """Broadcast state to UI.
-
-        SoCo path: no-op — beo-sonos handles artwork/metadata for PLAYING view.
-        Librespot path: sends media_update in beo-sonos format.
-        """
-        if self._use_soco:
-            return  # beo-sonos handles UI updates
-
-        np = self.now_playing or {}
-        state_str = "PLAYING" if self.state == "playing" else (
-            "PAUSED_PLAYBACK" if self.state == "paused" else "STOPPED")
-        await self.broadcast("media_update", {
-            "title": np.get("track", ""),
-            "artist": np.get("artist", ""),
-            "album": np.get("album", ""),
-            "artwork": np.get("artwork", ""),
-            "state": state_str,
-            "uri": np.get("uri", ""),
-        })
+            log.warning("Player state poll error: %s", e)
 
     # ── Extra routes ──
 
@@ -1015,7 +702,7 @@ label{{display:block;margin-top:12px;color:#666;font-size:13px;text-transform:up
             self.auth._refresh_token = rt
             self.auth._access_token = token_data.get('access_token')
             self.auth._token_expiry = time.monotonic() + token_data.get('expires_in', 3600) - 300
-            self.api = SpotifyAPI(self.auth, self._http_session)
+            self.player = "remote"
 
             # Register as available now that we have credentials
             await self.register("available")
