@@ -1,0 +1,9 @@
+[Unit]
+Description=BeoSound 5c Health Check (every 5 min)
+
+[Timer]
+OnBootSec=120
+OnUnitActiveSec=300
+
+[Install]
+WantedBy=timers.target

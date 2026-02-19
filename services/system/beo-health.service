@@ -1,0 +1,6 @@
+[Unit]
+Description=BeoSound 5c Health Check
+
+[Service]
+Type=oneshot
+ExecStart=/home/kirsten/beosound5c/services/system/beo-health.sh

@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.config import cfg
 from lib.transport import Transport
 from lib.volume_adapters import create_volume_adapter
+from lib.watchdog import watchdog_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,12 +42,14 @@ ROUTER_PORT = 8770
 INPUT_WEBHOOK_URL = "http://localhost:8767/webhook"
 
 # Static menu IDs — these are built-in views (not dynamic sources)
-STATIC_VIEWS = {"showing", "system", "security", "scenes", "music", "playing"}
+STATIC_VIEWS = {"showing", "system", "security", "scenes", "playing"}
 
 # Source handles defaults (used when a source registers without specifying handles)
 DEFAULT_SOURCE_HANDLES = {
     "cd": {"play", "pause", "next", "prev", "stop", "go", "left", "right",
            "up", "down", "digits", "info"},
+    "spotify": {"play", "pause", "next", "prev", "stop", "go", "left", "right",
+                "up", "down"},
     "usb": {"play", "pause", "next", "prev", "stop", "go", "left", "right",
             "up", "down"},
     "demo": {"play", "pause", "next", "prev", "stop", "go"},
@@ -66,6 +69,8 @@ class Source:
         self.handles = handles         # set of action names this source handles
         self.menu_preset = id          # SourcePresets key in the UI
         self.state = "gone"            # gone | available | playing | paused
+        self.from_config = False       # True if pre-created from config.json
+        self.initial_hidden = False    # True = hidden until service registers (e.g. CD)
 
     def to_menu_item(self) -> dict:
         return {
@@ -130,14 +135,23 @@ class SourceRegistry:
         actions = []
 
         if state == "available" and was_new:
-            # New registration → add menu item
-            broadcast_data = {"action": "add", "preset": source.menu_preset}
-            # Include the "after" position derived from menu config order
-            after_id = router._get_after(id)
-            if after_id:
-                broadcast_data["after"] = f"menu/{after_id}"
-            await router._broadcast("menu_item", broadcast_data)
-            actions.append("add_menu_item")
+            if source.from_config:
+                if source.initial_hidden:
+                    # Hidden config source (e.g. CD) → show in menu
+                    await router._broadcast("menu_item", {
+                        "action": "show", "preset": source.menu_preset,
+                        "path": f"menu/{id}",
+                    })
+                    actions.append("show_menu_item")
+                # Non-hidden config sources are already visible — no broadcast
+            else:
+                # Non-config source → add to menu dynamically
+                broadcast_data = {"action": "add", "preset": source.menu_preset}
+                after_id = router._get_after(id)
+                if after_id:
+                    broadcast_data["after"] = f"menu/{after_id}"
+                await router._broadcast("menu_item", broadcast_data)
+                actions.append("add_menu_item")
             logger.info("Source registered: %s (handles: %s)", id, source.handles)
 
         elif state == "playing":
@@ -176,16 +190,26 @@ class SourceRegistry:
             logger.info("Source deactivated: %s", id)
 
         elif state == "gone":
-            # Unregister
             if was_active:
                 self._active_id = None
                 await router._broadcast("source_change", {"active_source": None})
                 actions.append("source_change_clear")
-            await router._broadcast("menu_item", {
-                "action": "remove", "preset": source.menu_preset
-            })
+            if source.from_config:
+                if source.initial_hidden:
+                    # Hidden config source (e.g. CD) → hide from menu
+                    await router._broadcast("menu_item", {
+                        "action": "hide", "preset": source.menu_preset,
+                        "path": f"menu/{id}",
+                    })
+                    actions.append("hide_menu_item")
+                # Non-hidden config sources stay visible — no broadcast
+            else:
+                # Non-config source → remove from menu
+                await router._broadcast("menu_item", {
+                    "action": "remove", "preset": source.menu_preset
+                })
+                actions.append("remove_menu_item")
             source.state = "gone"
-            actions.append("remove_menu_item")
             logger.info("Source unregistered: %s", id)
 
         # Optional: navigate UI to the source's view
@@ -250,7 +274,7 @@ class EventRouter:
         if not menu_cfg:
             # Fallback menu
             menu_cfg = {
-                "PLAYING": "playing", "MUSIC": "music", "SCENES": "scenes",
+                "PLAYING": "playing", "SPOTIFY": "spotify", "SCENES": "scenes",
                 "SYSTEM": "system", "SHOWING": "showing",
             }
 
@@ -268,7 +292,9 @@ class EventRouter:
         for item in items:
             if item["id"] not in STATIC_VIEWS:
                 handles = DEFAULT_SOURCE_HANDLES.get(item["id"], set())
-                self.registry.create_from_config(item["id"], handles)
+                source = self.registry.create_from_config(item["id"], handles)
+                source.from_config = True
+                source.initial_hidden = item["config"].get("hidden", False)
 
         self._menu_order = items
 
@@ -298,8 +324,10 @@ class EventRouter:
         """Build the current menu state from config menu order.
 
         The menu order in config.json is top-to-bottom.  Static views are
-        always shown; sources appear only when their service has registered
-        (state != "gone").
+        always shown.  Config-driven sources are always included (they are
+        visible on every installation that lists them in config.json).
+        Sources with ``hidden`` set in config (e.g. CD) start hidden and
+        become visible only when their service registers as available.
         """
         items = []
         for entry in self._menu_order:
@@ -307,11 +335,13 @@ class EventRouter:
             if entry_id in STATIC_VIEWS:
                 items.append({"id": entry_id, "title": entry["title"]})
             else:
-                # Dynamic source — only show if registered and not gone
                 source = self.registry.get(entry_id)
-                if source and source.state != "gone":
+                if source:
                     item = source.to_menu_item()
                     item["title"] = entry["title"]  # Use config title
+                    # Hidden sources (e.g. CD) are hidden until available
+                    if source.initial_hidden and source.state == "gone":
+                        item["hidden"] = True
                     items.append(item)
 
         return {
@@ -350,7 +380,8 @@ class EventRouter:
             delta = self._volume_step if action == "volup" else -self._volume_step
             new_vol = max(0, min(100, self.volume + delta))
             logger.info("-> volume: %.0f%% -> %.0f%% (%s)", self.volume, new_vol, action)
-            await self.set_volume(new_vol)
+            # Fire-and-forget — adapter debounces internally, don't block event loop
+            asyncio.ensure_future(self.set_volume(new_vol))
             return
 
         # 5. Views that handle buttons locally (iframes) — suppress HA forwarding
@@ -594,6 +625,7 @@ async def handle_status(request: web.Request) -> web.Response:
 # ---------------------------------------------------------------------------
 async def on_startup(app: web.Application):
     await router_instance.start()
+    asyncio.create_task(watchdog_loop())
 
 
 async def on_cleanup(app: web.Application):
