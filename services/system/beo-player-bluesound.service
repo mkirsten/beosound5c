@@ -1,5 +1,5 @@
 [Unit]
-Description=BeoSound5c Sonos Player (artwork, metadata, monitoring)
+Description=BeoSound5c BlueSound Player (artwork, metadata, monitoring, playback commands)
 After=network.target
 Wants=network.target
 OnFailure=beo-notify-failure@%n.service
@@ -13,7 +13,7 @@ Group=kirsten
 WorkingDirectory=/home/kirsten/beosound5c/services
 EnvironmentFile=-/etc/beosound5c/secrets.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/players/sonos.py
+ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/players/bluesound.py
 Restart=always
 RestartSec=5
 WatchdogSec=60
@@ -21,4 +21,4 @@ StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=multi-user.target 
+WantedBy=multi-user.target

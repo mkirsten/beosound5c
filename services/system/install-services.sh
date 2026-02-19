@@ -16,7 +16,8 @@ fi
 # Define service files
 SERVICES=(
     "beo-http.service"
-    "beo-sonos.service"
+    "beo-player-sonos.service"
+    "beo-player-bluesound.service"
     "beo-input.service"
     "beo-router.service"
     "beo-masterlink.service"
@@ -92,8 +93,8 @@ done
 
 # Ensure health/notification scripts are executable
 echo "📋 Setting up health check and failure notification scripts..."
-chmod +x /home/kirsten/beosound5c/services/system/notify-failure.sh
-chmod +x /home/kirsten/beosound5c/services/system/beo-health.sh
+chmod +x "$SCRIPT_DIR/notify-failure.sh"
+chmod +x "$SCRIPT_DIR/beo-health.sh"
 echo "  ✅ Scripts made executable"
 
 echo ""
@@ -203,8 +204,8 @@ systemctl enable beo-http.service
 systemctl start beo-http.service
 
 echo "  📡 Starting Sonos player..."
-systemctl enable beo-sonos.service
-systemctl start beo-sonos.service
+systemctl enable beo-player-sonos.service
+systemctl start beo-player-sonos.service
 
 echo "  🎮 Starting input server..."
 systemctl enable beo-input.service

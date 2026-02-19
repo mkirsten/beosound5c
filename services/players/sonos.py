@@ -1,36 +1,39 @@
 #!/usr/bin/env python3
 """
-BeoSound 5c Sonos Player Monitor (beo-sonos)
+BeoSound 5c Sonos Player (beo-player-sonos)
 
 Monitors a Sonos speaker for track changes, fetches artwork, and broadcasts
 updates to the UI via WebSocket (port 8766). Also reports volume changes to
 the router so the volume arc stays in sync when controlled from the Sonos app.
 
-This is a "player" — it watches an external playback device and relays what's
-happening.  It does NOT provide content or handle playback commands; sources
-like CD or Spotify do that.  The Sonos speaker may be playing content from any
-source (AirPlay from cd.py, Spotify Connect, AirPlay from a phone, etc.).
+Extends PlayerBase to expose HTTP command endpoints so sources can play
+content on the Sonos without importing SoCo directly:
+  POST /player/play   — play a Spotify URI or generic URL
+  POST /player/pause  — pause playback
+  POST /player/resume — resume playback
+  POST /player/next   — skip to next track
+  POST /player/prev   — go to previous track
+  POST /player/stop   — stop playback
+  GET  /player/state  — current playback state
+  GET  /player/capabilities — what this player can play
 """
 
 import asyncio
-import websockets
-import json
 import time
 import logging
-import signal
 import sys
 import os
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 import base64
 from io import BytesIO
-from urllib.parse import urlparse
 import aiohttp
 
 # Import Sonos libraries
 try:
     import soco
     from soco import SoCo
+    from soco.plugins.sharelink import ShareLinkPlugin
 except ImportError:
     print("ERROR: soco library not installed. Install with: pip install soco")
     sys.exit(1)
@@ -44,27 +47,25 @@ except ImportError:
 # Ensure services/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.config import cfg
+from lib.player_base import PlayerBase
 from lib.watchdog import watchdog_loop
 
 # Configuration
-SONOS_IP = cfg("sonos", "ip", default="192.168.0.190")
-WEBSOCKET_PORT = 8766
+SONOS_IP = cfg("player", "ip", default="192.168.0.190")
 POLL_INTERVAL = 0.5  # seconds between change checks (fast for responsive track changes)
 MAX_ARTWORK_SIZE = 500 * 1024  # 500KB limit for artwork
 ARTWORK_CACHE_SIZE = 100  # number of artworks to cache (~3-5MB RAM)
 PREFETCH_COUNT = 5  # number of upcoming tracks to prefetch
 
-# Global variables for caching and state
-clients = set()
-current_track_id = None
-current_position = None
-current_playback_state = None  # Track playback state for wake detection
-cached_media_data = None
-last_update_time = 0
-sonos_viewer = None
-
 # Thread pool for CPU-bound image processing
 executor = ThreadPoolExecutor(max_workers=2)
+
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger('beo-player-sonos')
 
 
 class ArtworkCache:
@@ -100,107 +101,87 @@ class ArtworkCache:
 # Global artwork cache
 artwork_cache = ArtworkCache(max_size=ARTWORK_CACHE_SIZE)
 
-# Logging setup
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger('beo-sonos')
 
 class SonosArtworkViewer:
     """Integrated Sonos artwork viewer for direct communication with Sonos devices."""
-    
+
     def __init__(self, sonos_ip):
         self.sonos_ip = sonos_ip
         self.sonos = SoCo(sonos_ip)
         self._cached_coordinator = None
         self._coordinator_check_time = 0
-        
+
     def get_coordinator(self):
         """Get the group coordinator for this player with caching."""
         current_time = time.time()
-        
+
         # Refresh coordinator info every 30 seconds or on first call
-        if (self._cached_coordinator is None or 
-            current_time - self._coordinator_check_time > 30):
-            
+        if (self._cached_coordinator is None or
+                current_time - self._coordinator_check_time > 30):
+
             try:
-                # If this player is part of a group, get the coordinator
-                # If it's standalone, it will be its own coordinator
                 coordinator = self.sonos.group.coordinator
-                
-                # Verify coordinator is reachable
+
                 if coordinator and coordinator.ip_address:
                     self._cached_coordinator = coordinator
                     self._coordinator_check_time = current_time
-                    
-                    # Log if coordinator changed
+
                     if hasattr(self, '_last_coordinator_ip'):
                         if self._last_coordinator_ip != coordinator.ip_address:
                             logger.info(f"Coordinator changed from {self._last_coordinator_ip} to {coordinator.ip_address}")
                     self._last_coordinator_ip = coordinator.ip_address
-                    
+
                     return coordinator
                 else:
                     logger.debug("Coordinator not reachable, using original player")
                     self._cached_coordinator = self.sonos
                     self._coordinator_check_time = current_time
                     return self.sonos
-                    
+
             except Exception as e:
                 logger.debug(f"Error getting coordinator, using original player: {e}")
                 self._cached_coordinator = self.sonos
                 self._coordinator_check_time = current_time
                 return self.sonos
-        
+
         return self._cached_coordinator
-            
+
     def get_current_track_info(self):
         """Get current track information from Sonos player or its coordinator."""
         try:
-            # Always use the coordinator to get track info
-            # This ensures we get the correct info regardless of which player we're querying
             coordinator = self.get_coordinator()
             track_info = coordinator.get_current_track_info()
-            
-            # Log coordinator info for debugging
+
             if coordinator != self.sonos:
                 logger.debug(f"Using coordinator {coordinator.ip_address} instead of {self.sonos_ip}")
-            
+
             return track_info
         except Exception as e:
             logger.error(f"Error getting track info: {e}")
             return None
-    
+
     def get_artwork_url(self):
         """Get the artwork URL for the currently playing track."""
         track_info = self.get_current_track_info()
         if not track_info:
             return None
-            
+
         artwork_url = track_info.get('album_art', '')
         if not artwork_url:
             logger.debug("No artwork URL found for current track")
             return None
-        
-        # Handle relative URLs by making them absolute
-        # Use the coordinator's IP for artwork URLs to ensure consistency
+
         if artwork_url.startswith('/'):
             coordinator = self.get_coordinator()
             coordinator_ip = coordinator.ip_address
             artwork_url = f"http://{coordinator_ip}:1400{artwork_url}"
-        
-        return artwork_url
-    
-    async def fetch_artwork_async(self, url, session=None):
-        """Fetch artwork from URL asynchronously and return as base64 string.
 
-        Uses cache to avoid re-fetching the same artwork.
-        Image processing runs in thread pool to avoid blocking.
-        """
+        return artwork_url
+
+    async def fetch_artwork_async(self, url, session=None):
+        """Fetch artwork from URL asynchronously and return as base64 string."""
         global artwork_cache
 
-        # Check cache first
         cached = artwork_cache.get(url)
         if cached is not None:
             logger.debug(f"Artwork cache hit for {url}")
@@ -209,7 +190,6 @@ class SonosArtworkViewer:
         logger.debug(f"Artwork cache miss, fetching: {url}")
 
         try:
-            # Create session if not provided
             close_session = False
             if session is None:
                 session = aiohttp.ClientSession()
@@ -226,7 +206,6 @@ class SonosArtworkViewer:
 
                     logger.debug(f"Downloaded {len(image_bytes)} bytes of artwork data")
 
-                    # Process image in thread pool to avoid blocking event loop
                     loop = asyncio.get_event_loop()
                     result = await loop.run_in_executor(
                         executor, self._process_image, image_bytes
@@ -254,15 +233,12 @@ class SonosArtworkViewer:
         try:
             image = Image.open(BytesIO(image_bytes))
 
-            # Convert to RGB if necessary
             if image.mode in ('RGBA', 'LA', 'P'):
                 image = image.convert('RGB')
 
-            # Encode to JPEG
             img_io = BytesIO()
             image.save(img_io, 'JPEG', quality=85)
 
-            # Reduce quality if too large
             if img_io.tell() > MAX_ARTWORK_SIZE:
                 img_io = BytesIO()
                 image.save(img_io, 'JPEG', quality=60)
@@ -280,16 +256,12 @@ class SonosArtworkViewer:
             return None
 
     def get_queue_artwork_urls(self, count=3):
-        """Get artwork URLs for upcoming tracks in the queue.
-
-        Returns list of (position, artwork_url) tuples for the next `count` tracks.
-        """
+        """Get artwork URLs for upcoming tracks in the queue."""
         try:
             coordinator = self.get_coordinator()
             if not coordinator:
                 return []
 
-            # Get current queue position
             track_info = coordinator.get_current_track_info()
             if not track_info:
                 return []
@@ -300,16 +272,13 @@ class SonosArtworkViewer:
             except (ValueError, TypeError):
                 return []
 
-            # Get queue starting from next track
-            # soco's get_queue returns items starting at start_index (0-based)
-            start_index = current_pos  # current_pos is 1-based, so this gets next track
+            start_index = current_pos
             queue = coordinator.get_queue(start=start_index, max_items=count)
 
             artwork_urls = []
             for i, item in enumerate(queue):
                 album_art = getattr(item, 'album_art_uri', None)
                 if album_art:
-                    # Make URL absolute if needed
                     if album_art.startswith('/'):
                         album_art = f"http://{coordinator.ip_address}:1400{album_art}"
                     artwork_urls.append((start_index + i + 1, album_art))
@@ -321,10 +290,7 @@ class SonosArtworkViewer:
             return []
 
     async def prefetch_upcoming_artwork(self, count=3):
-        """Prefetch artwork for upcoming tracks in background.
-
-        This runs after a track change to warm the cache for smoother transitions.
-        """
+        """Prefetch artwork for upcoming tracks in background."""
         urls = self.get_queue_artwork_urls(count=count)
         if not urls:
             logger.debug("No upcoming tracks to prefetch")
@@ -332,18 +298,15 @@ class SonosArtworkViewer:
 
         logger.info(f"Prefetching artwork for {len(urls)} upcoming tracks")
 
-        # Create a shared session for all prefetch requests
         async with aiohttp.ClientSession() as session:
             tasks = []
             for position, url in urls:
-                # Skip if already cached
                 if url in artwork_cache:
                     logger.debug(f"Track {position} artwork already cached")
                     continue
                 tasks.append(self._prefetch_single(session, position, url))
 
             if tasks:
-                # Run prefetch tasks concurrently but don't wait too long
                 try:
                     await asyncio.wait_for(
                         asyncio.gather(*tasks, return_exceptions=True),
@@ -368,68 +331,213 @@ ROUTER_VOLUME_REPORT_URL = "http://localhost:8770/router/volume/report"
 ROUTER_PLAYBACK_OVERRIDE_URL = "http://localhost:8770/router/playback_override"
 
 
-class MediaServer:
+class MediaServer(PlayerBase):
+    id = "sonos"
+    name = "Sonos"
+    port = 8766
+
     def __init__(self):
+        super().__init__()
         self.running = False
         self.sonos_viewer = SonosArtworkViewer(SONOS_IP)
         self._last_reported_volume = None
-        
-    async def start(self):
-        """Start the media server."""
-        self.running = True
-        logger.info(f"Starting media server for Sonos at {SONOS_IP}")
-        
-        # Start WebSocket server
-        ws_server = await websockets.serve(self.handle_client, '0.0.0.0', WEBSOCKET_PORT)
-        logger.info(f"WebSocket server listening on port {WEBSOCKET_PORT}")
-        
-        # Start background monitoring
-        monitor_task = asyncio.create_task(self.monitor_sonos())
-        
-        # Wait for shutdown signal
+        self._monitor_task = None
+        self._http_session = None
+        # Monitoring state
+        self._current_track_id = None
+        self._current_position = None
+        self._current_playback_state = None
+        self._cached_media_data = None
+        self._last_update_time = 0
+        # Broadcast suppression during track switches
+        self._suppress_until_track = None   # Spotify track ID to wait for
+        self._suppress_set_time = 0.0       # monotonic time when suppression was set
+
+    # ── PlayerBase abstract methods (SoCo playback commands) ──
+
+    async def play(self, uri=None, url=None, track_uri=None) -> bool:
+        """Play content on the Sonos speaker.
+
+        uri: Spotify share link (https://open.spotify.com/...) or spotify: URI
+        url: generic stream URL for play_uri
+        track_uri: Spotify track URI (spotify:track:xxx) to start at within
+                   a playlist — the queue is searched by URI since ordering
+                   may differ between Spotify Web API and Sonos SMAPI.
+        """
         try:
-            await ws_server.wait_closed()
-        except KeyboardInterrupt:
-            logger.info("Received shutdown signal")
-        finally:
-            self.running = False
-            monitor_task.cancel()
-            
-    async def handle_client(self, websocket):
-        """Handle new WebSocket client connections."""
-        global clients, cached_media_data
-        
-        clients.add(websocket)
-        client_info = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
-        logger.info(f"Client connected: {client_info}")
-        
-        try:
-            # Immediately send current media info to new client
-            if cached_media_data:
-                await self.send_media_update(websocket, cached_media_data, 'client_connect')
-            else:
-                # Fetch fresh data for first-time connection
-                media_data = await self.fetch_media_data()
-                if media_data:
-                    await self.send_media_update(websocket, media_data, 'client_connect')
-            
-            # Keep connection alive (no message handling - push only)
-            await websocket.wait_closed()
-                    
-        except websockets.exceptions.ConnectionClosed:
-            pass
+            loop = asyncio.get_event_loop()
+            coordinator = self.sonos_viewer.get_coordinator()
+
+            # Suppress monitor broadcasts while the queue is being rebuilt
+            if track_uri and ":" in track_uri:
+                suppress_id = track_uri.split(":")[-1]
+                self._suppress_until_track = suppress_id
+                self._suppress_set_time = time.monotonic()
+                logger.info("Suppressing broadcasts until track %s appears", suppress_id[:12])
+
+            if uri:
+                # Convert spotify: URIs to share links
+                if uri.startswith("spotify:"):
+                    parts = uri.split(":")
+                    if len(parts) == 3:
+                        uri = f"https://open.spotify.com/{parts[1]}/{parts[2]}"
+
+                # Use ShareLink for Spotify URLs
+                if "open.spotify.com" in uri:
+                    share_link = ShareLinkPlugin(coordinator)
+                    # Pause first to prevent auto-play when adding to empty queue
+                    if track_uri:
+                        try:
+                            await loop.run_in_executor(None, coordinator.pause)
+                        except Exception:
+                            pass
+                    await loop.run_in_executor(None, coordinator.clear_queue)
+                    await loop.run_in_executor(
+                        None, share_link.add_share_link_to_queue, uri)
+
+                    start_index = 0
+                    if track_uri:
+                        start_index = await self._find_track_in_queue(
+                            coordinator, track_uri, loop)
+
+                    await loop.run_in_executor(
+                        None, coordinator.play_from_queue, start_index)
+                    logger.info("Playing Spotify URI: %s (queue pos %d)", uri, start_index)
+                    return True
+
+            if url:
+                await loop.run_in_executor(
+                    None, coordinator.play_uri, url)
+                logger.info("Playing URL: %s", url)
+                return True
+
+            # No URI/URL — just resume
+            return await self.resume()
+
         except Exception as e:
-            logger.error(f"Error with client {client_info}: {e}")
-        finally:
-            clients.discard(websocket)
-            logger.info(f"Client disconnected: {client_info}")
-            
+            logger.error("Play failed: %s", e)
+            return False
+
+    async def pause(self) -> bool:
+        try:
+            loop = asyncio.get_event_loop()
+            coordinator = self.sonos_viewer.get_coordinator()
+            await loop.run_in_executor(None, coordinator.pause)
+            logger.info("Paused")
+            return True
+        except Exception as e:
+            logger.error("Pause failed: %s", e)
+            return False
+
+    async def resume(self) -> bool:
+        try:
+            loop = asyncio.get_event_loop()
+            coordinator = self.sonos_viewer.get_coordinator()
+            await loop.run_in_executor(None, coordinator.play)
+            logger.info("Resumed")
+            return True
+        except Exception as e:
+            logger.error("Resume failed: %s", e)
+            return False
+
+    async def next_track(self) -> bool:
+        try:
+            loop = asyncio.get_event_loop()
+            coordinator = self.sonos_viewer.get_coordinator()
+            await loop.run_in_executor(None, coordinator.next)
+            logger.info("Next track")
+            return True
+        except Exception as e:
+            logger.error("Next track failed: %s", e)
+            return False
+
+    async def prev_track(self) -> bool:
+        try:
+            loop = asyncio.get_event_loop()
+            coordinator = self.sonos_viewer.get_coordinator()
+            await loop.run_in_executor(None, coordinator.previous)
+            logger.info("Previous track")
+            return True
+        except Exception as e:
+            logger.error("Previous track failed: %s", e)
+            return False
+
+    async def stop(self) -> bool:
+        try:
+            loop = asyncio.get_event_loop()
+            coordinator = self.sonos_viewer.get_coordinator()
+            await loop.run_in_executor(None, coordinator.pause)
+            logger.info("Stopped (paused)")
+            return True
+        except Exception as e:
+            logger.error("Stop failed: %s", e)
+            return False
+
+    async def get_state(self) -> str:
+        return self._current_playback_state or "stopped"
+
+    async def get_capabilities(self) -> list:
+        return ["spotify", "url_stream"]
+
+    async def _find_track_in_queue(self, coordinator, track_uri, loop) -> int:
+        """Find a Spotify track in the Sonos queue by URI. Returns 0-based index."""
+        # Extract Spotify track ID from URI (spotify:track:XXXXX)
+        track_id = track_uri.split(":")[-1] if ":" in track_uri else track_uri
+
+        def _search():
+            batch = 50
+            for start in range(0, 500, batch):
+                items = coordinator.get_queue(start=start, max_items=batch)
+                if not items:
+                    break
+                for i, item in enumerate(items):
+                    # Sonos encodes track IDs in resource URIs as:
+                    # x-sonos-spotify:spotify%3atrack%3aTRACK_ID?sid=9&...
+                    for res in item.resources:
+                        if track_id in res.uri:
+                            return start + i
+            return 0  # fallback to first track
+
+        idx = await loop.run_in_executor(None, _search)
+        logger.info("Found track %s at queue position %d", track_id[:12], idx)
+        return idx
+
+    # ── PlayerBase hooks ──
+
+    async def on_start(self):
+        self.running = True
+        self._http_session = aiohttp.ClientSession()
+        logger.info(f"Starting media server for Sonos at {SONOS_IP}")
+
+        # Start systemd watchdog heartbeat
+        asyncio.create_task(watchdog_loop())
+
+        # Start background monitoring
+        self._monitor_task = asyncio.create_task(self.monitor_sonos())
+
+    async def on_stop(self):
+        self.running = False
+        if self._monitor_task:
+            self._monitor_task.cancel()
+        if self._http_session:
+            await self._http_session.close()
+            self._http_session = None
+
+    async def on_ws_connect(self, ws):
+        """Send cached media data to new WebSocket client."""
+        if self._cached_media_data:
+            await self.send_media_update(ws, self._cached_media_data, 'client_connect')
+        else:
+            media_data = await self.fetch_media_data()
+            if media_data:
+                await self.send_media_update(ws, media_data, 'client_connect')
+
+    # ── Monitoring ──
+
     async def monitor_sonos(self):
         """Background task to monitor Sonos for changes."""
-        global current_track_id, current_position, current_playback_state, last_update_time, cached_media_data
-
         logger.info(f"Starting Sonos monitoring for {SONOS_IP}")
-        
+
         # Log initial coordinator info
         try:
             coordinator = self.sonos_viewer.get_coordinator()
@@ -439,16 +547,20 @@ class MediaServer:
                 logger.info(f"Player {SONOS_IP} is standalone or group coordinator")
         except Exception as e:
             logger.warning(f"Could not determine coordinator status: {e}")
-        
+
         while self.running:
             try:
+                loop = asyncio.get_running_loop()
+
                 # Get current track info (automatically uses coordinator)
-                track_info = self.sonos_viewer.get_current_track_info()
+                track_info = await loop.run_in_executor(
+                    executor, self.sonos_viewer.get_current_track_info)
 
                 # Check playback state for wake trigger
                 coordinator = self.sonos_viewer.get_coordinator()
                 try:
-                    transport_info = coordinator.get_current_transport_info() if coordinator else {}
+                    transport_info = await loop.run_in_executor(
+                        executor, coordinator.get_current_transport_info) if coordinator else {}
                     playback_state = transport_info.get('current_transport_state', 'STOPPED').lower()
                     if playback_state in ('playing', 'transitioning'):
                         state = 'playing'
@@ -458,16 +570,16 @@ class MediaServer:
                         state = 'stopped'
 
                     # Trigger wake if state changed to playing
-                    if state == 'playing' and current_playback_state in ('paused', 'stopped', None):
-                        logger.info(f"Playback started (was: {current_playback_state}), triggering wake")
+                    if state == 'playing' and self._current_playback_state in ('paused', 'stopped', None):
+                        logger.info(f"Playback started (was: {self._current_playback_state}), triggering wake")
                         await self.trigger_wake()
 
-                    current_playback_state = state
+                    self._current_playback_state = state
 
-                    # Report volume changes to the router (keeps UI arc in sync
-                    # when volume is changed from the Sonos app)
+                    # Report volume changes to the router
                     try:
-                        vol = coordinator.volume if coordinator else None
+                        vol = await loop.run_in_executor(
+                            executor, lambda: coordinator.volume) if coordinator else None
                         if vol is not None and vol != self._last_reported_volume:
                             self._last_reported_volume = vol
                             await self._report_volume_to_router(vol)
@@ -482,51 +594,58 @@ class MediaServer:
                     position = track_info.get('position', '0:00')
 
                     # Check if track changed
-                    track_changed = track_id != current_track_id
+                    track_changed = track_id != self._current_track_id
 
                     # Check if position jumped (indicating external control)
                     position_jumped = False
-                    if current_position and position:
+                    if self._current_position and position:
                         try:
-                            # Simple position jump detection
-                            current_seconds = self.time_to_seconds(current_position)
+                            current_seconds = self.time_to_seconds(self._current_position)
                             new_seconds = self.time_to_seconds(position)
                             expected_seconds = current_seconds + POLL_INTERVAL
 
-                            # If position jumped more than expected + tolerance
                             if abs(new_seconds - expected_seconds) > 5:
                                 position_jumped = True
                         except (ValueError, TypeError):
                             pass
 
+                    # Check broadcast suppression (during track-switch queue rebuild)
+                    suppress = False
+                    if self._suppress_until_track:
+                        elapsed = time.monotonic() - self._suppress_set_time
+                        if elapsed > 3.0:
+                            logger.info("Broadcast suppression expired (%.1fs)", elapsed)
+                            self._suppress_until_track = None
+                        elif self._suppress_until_track in track_id:
+                            logger.info("Expected track appeared, clearing suppression")
+                            self._suppress_until_track = None
+                        else:
+                            suppress = True
+
                     # Only broadcast if there are actual changes AND we have connected clients
-                    if (track_changed or position_jumped) and clients:
+                    if (track_changed or position_jumped) and self._ws_clients:
                         reason = 'track_change' if track_changed else 'external_control'
-                        logger.info(f"Detected change: {reason}")
 
-                        media_data = await self.fetch_media_data()
-                        if media_data:
-                            await self.broadcast_media_update(media_data, reason)
+                        if suppress:
+                            logger.debug("Suppressing broadcast during track switch")
+                        else:
+                            logger.info(f"Detected change: {reason}")
+                            media_data = await self.fetch_media_data()
+                            if media_data:
+                                await self.broadcast_media_update(media_data, reason)
 
-                        current_track_id = track_id
+                        self._current_track_id = track_id
 
-                        # Prefetch upcoming tracks in background (don't await)
                         if track_changed:
                             asyncio.create_task(self.sonos_viewer.prefetch_upcoming_artwork(count=PREFETCH_COUNT))
                     else:
-                        # Still update cached data silently for future requests
                         if track_changed:
-                            current_track_id = track_id
-                            # Update cached data without broadcasting
-                            await self.fetch_media_data()
-                            # Prefetch upcoming tracks in background
+                            self._current_track_id = track_id
+                            if not suppress:
+                                await self.fetch_media_data()
                             asyncio.create_task(self.sonos_viewer.prefetch_upcoming_artwork(count=PREFETCH_COUNT))
 
-                    # Notify router when Sonos media changes — lets the router
-                    # clear stale active_source when external playback takes over.
-                    # Only force-clear when Sonos switched to a native service
-                    # (Spotify, Amazon, queue, etc.) — AirPlay track changes
-                    # from a local source (CD) should NOT clear the active source.
+                    # Notify router when Sonos media changes
                     if track_changed:
                         is_native_service = any(
                             track_id.startswith(p) for p in (
@@ -539,26 +658,25 @@ class MediaServer:
                             self._notify_router_playback_override(force=is_native_service)
                         )
 
-                    current_position = position
+                    self._current_position = position
 
                 await asyncio.sleep(POLL_INTERVAL)
 
             except Exception as e:
                 logger.error(f"Error in Sonos monitoring: {e}")
                 await asyncio.sleep(POLL_INTERVAL)
-                
+
     async def fetch_media_data(self):
         """Fetch current media data including artwork."""
-        global cached_media_data, last_update_time
-
         try:
-            # Get track info (automatically uses coordinator)
-            track_info = self.sonos_viewer.get_current_track_info()
+            loop = asyncio.get_running_loop()
+
+            track_info = await loop.run_in_executor(
+                executor, self.sonos_viewer.get_current_track_info)
             if not track_info:
                 logger.debug("No track info available")
                 return None
 
-            # Get artwork asynchronously (uses cache and non-blocking fetch)
             artwork_url = self.sonos_viewer.get_artwork_url()
             artwork_base64 = None
             artwork_size = None
@@ -572,23 +690,21 @@ class MediaServer:
                         logger.info(f"Artwork ready: {artwork_size}, {len(artwork_base64)} chars")
                 except Exception as e:
                     logger.warning(f"Failed to fetch artwork: {e}")
-            
-            # Get speaker info - show configured speaker, note if grouped
+
             coordinator = self.sonos_viewer.get_coordinator()
             actual_speaker = self.sonos_viewer.sonos
             speaker_name = actual_speaker.player_name if actual_speaker else 'Unknown'
             speaker_ip = SONOS_IP
 
-            # Check if grouped with a different coordinator
             is_grouped = False
             coordinator_name = None
             if coordinator and coordinator.ip_address != SONOS_IP:
                 is_grouped = True
                 coordinator_name = coordinator.player_name
 
-            # Get playback state
             try:
-                transport_info = coordinator.get_current_transport_info() if coordinator else {}
+                transport_info = await loop.run_in_executor(
+                    executor, coordinator.get_current_transport_info) if coordinator else {}
                 playback_state = transport_info.get('current_transport_state', 'STOPPED').lower()
                 if playback_state in ('playing', 'transitioning'):
                     state = 'playing'
@@ -599,13 +715,12 @@ class MediaServer:
             except Exception:
                 state = 'unknown'
 
-            # Get volume
             try:
-                volume = coordinator.volume if coordinator else 0
+                volume = await loop.run_in_executor(
+                    executor, lambda: coordinator.volume) if coordinator else 0
             except Exception:
                 volume = 0
 
-            # Build media data
             media_data = {
                 'title': track_info.get('title', '—'),
                 'artist': track_info.get('artist', '—'),
@@ -623,48 +738,16 @@ class MediaServer:
                 'uri': track_info.get('uri', ''),
                 'timestamp': int(time.time())
             }
-            
-            cached_media_data = media_data
-            last_update_time = time.time()
-            
+
+            self._cached_media_data = media_data
+            self._last_update_time = time.time()
+
             return media_data
-            
+
         except Exception as e:
             logger.error(f"Error fetching media data: {e}")
             return None
-            
-    async def broadcast_media_update(self, media_data, reason='update'):
-        """Broadcast media update to all connected clients."""
-        global clients
-        
-        if not clients:
-            return
-            
-        message = {
-            'type': 'media_update',
-            'reason': reason,
-            'data': media_data
-        }
-        
-        message_json = json.dumps(message)
-        
-        # Send to all clients
-        disconnected = set()
-        for client in clients:
-            try:
-                await client.send(message_json)
-            except websockets.exceptions.ConnectionClosed:
-                disconnected.add(client)
-            except Exception as e:
-                logger.error(f"Error sending to client: {e}")
-                disconnected.add(client)
-                
-        # Remove disconnected clients
-        clients -= disconnected
-        
-        if clients:
-            logger.info(f"Broadcast media update to {len(clients)} clients: {reason}")
-            
+
     def time_to_seconds(self, time_str):
         """Convert time string (MM:SS or HH:MM:SS) to seconds."""
         try:
@@ -677,102 +760,59 @@ class MediaServer:
             pass
         return 0
 
-    async def send_media_update(self, websocket, media_data, reason):
-        """Send fresh media data to a specific client."""
-        message = {
-            'type': 'media_update',
-            'reason': reason,
-            'data': media_data
-        }
-
-        try:
-            await websocket.send(json.dumps(message))
-            logger.info(f"Sent media update to client: {reason}")
-        except Exception as e:
-            logger.error(f"Error sending media update: {e}")
-
     async def trigger_wake(self):
         """Trigger screen wake via input service webhook."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    'http://localhost:8767/webhook',
-                    json={'command': 'wake', 'params': {'page': 'now_playing'}},
-                    timeout=aiohttp.ClientTimeout(total=2)
-                ) as response:
-                    if response.status == 200:
-                        logger.info("Triggered screen wake")
-                    else:
-                        logger.warning(f"Wake trigger returned status {response.status}")
+            async with self._http_session.post(
+                'http://localhost:8767/webhook',
+                json={'command': 'wake', 'params': {'page': 'now_playing'}},
+                timeout=aiohttp.ClientTimeout(total=2)
+            ) as response:
+                if response.status == 200:
+                    logger.info("Triggered screen wake")
+                else:
+                    logger.warning(f"Wake trigger returned status {response.status}")
         except Exception as e:
             logger.warning(f"Could not trigger wake: {e}")
 
     async def _report_volume_to_router(self, volume: int):
         """Report a Sonos volume change to the router so the UI arc stays in sync."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    ROUTER_VOLUME_REPORT_URL,
-                    json={'volume': volume},
-                    timeout=aiohttp.ClientTimeout(total=2)
-                ) as response:
-                    if response.status == 200:
-                        logger.info(f"Reported volume {volume}% to router")
-                    else:
-                        logger.debug(f"Router volume report returned {response.status}")
+            async with self._http_session.post(
+                ROUTER_VOLUME_REPORT_URL,
+                json={'volume': volume},
+                timeout=aiohttp.ClientTimeout(total=2)
+            ) as response:
+                if response.status == 200:
+                    logger.info(f"Reported volume {volume}% to router")
+                else:
+                    logger.debug(f"Router volume report returned {response.status}")
         except Exception as e:
             logger.debug(f"Could not report volume to router: {e}")
 
     async def _notify_router_playback_override(self, force=False):
-        """Notify the router that Sonos media changed externally.
-
-        The router will clear active_source if no BS5c source updated recently
-        (grace period prevents CD track advances from being misidentified).
-
-        Args:
-            force: True when Sonos switched to a native service (Spotify, etc.)
-                   — tells the router to clear active_source even if a source
-                   is currently playing (the source's AirPlay stream was taken over).
-        """
+        """Notify the router that Sonos media changed externally."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    ROUTER_PLAYBACK_OVERRIDE_URL,
-                    json={"force": force},
-                    timeout=aiohttp.ClientTimeout(total=2)
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        if result.get('cleared'):
-                            logger.info("Router active source cleared (playback override)")
-                        else:
-                            logger.debug(f"Playback override not applied: {result.get('reason')}")
+            async with self._http_session.post(
+                ROUTER_PLAYBACK_OVERRIDE_URL,
+                json={"force": force},
+                timeout=aiohttp.ClientTimeout(total=2)
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if result.get('cleared'):
+                        logger.info("Router active source cleared (playback override)")
+                    else:
+                        logger.debug(f"Playback override not applied: {result.get('reason')}")
         except Exception as e:
             logger.debug(f"Could not notify router of playback override: {e}")
 
-def signal_handler(signum, frame):
-    """Handle shutdown signals."""
-    logger.info(f"Received signal {signum}, shutting down...")
-    sys.exit(0)
 
 async def main():
     """Main entry point."""
-    # Setup signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    # Start systemd watchdog heartbeat
-    asyncio.create_task(watchdog_loop())
-
-    # Create and start media server
     server = MediaServer()
-    try:
-        await server.start()
-    except KeyboardInterrupt:
-        logger.info("Shutting down media server")
-    except Exception as e:
-        logger.error(f"Media server error: {e}")
-        sys.exit(1)
+    await server.run()
+
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

@@ -37,6 +37,7 @@ log = logging.getLogger()
 
 INPUT_WEBHOOK_URL = "http://localhost:8767/webhook"
 ROUTER_SOURCE_URL = "http://localhost:8770/router/source"
+PLAYER_COMMAND_URL = "http://localhost:8766/player"
 
 
 class SourceBase:
@@ -44,7 +45,7 @@ class SourceBase:
     id: str = ""
     name: str = ""
     port: int = 0
-    player: str = "local"    # "local" or "sonos" — who renders the audio
+    player: str = "local"    # "local" or "remote" — who renders the audio
     action_map: dict = {}
 
     def __init__(self):
@@ -95,6 +96,84 @@ class SourceBase:
                 log.info("→ input.py: broadcast %s (HTTP %d)", event_type, resp.status)
         except Exception as e:
             log.error("Failed to broadcast %s: %s", event_type, e)
+
+    # ── Player service client helpers ──
+
+    async def _player_post(self, endpoint, json_data=None) -> bool:
+        """POST to player service, return True on success."""
+        try:
+            async with self._http_session.post(
+                f"{PLAYER_COMMAND_URL}/{endpoint}",
+                json=json_data or {},
+                timeout=5,
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("status") == "ok"
+                return False
+        except Exception as e:
+            log.warning("Player %s failed: %s", endpoint, e)
+            return False
+
+    async def _player_get(self, endpoint):
+        """GET from player service, return JSON dict or None."""
+        try:
+            async with self._http_session.get(
+                f"{PLAYER_COMMAND_URL}/{endpoint}",
+                timeout=5,
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                return None
+        except Exception as e:
+            log.warning("Player %s failed: %s", endpoint, e)
+            return None
+
+    async def player_play(self, uri=None, url=None, track_uri=None) -> bool:
+        """Ask the player service to play a URI or URL.
+        track_uri: Spotify track URI to start at within a playlist/album."""
+        body = {}
+        if uri:
+            body["uri"] = uri
+        if url:
+            body["url"] = url
+        if track_uri:
+            body["track_uri"] = track_uri
+        return await self._player_post("play", body)
+
+    async def player_pause(self) -> bool:
+        return await self._player_post("pause")
+
+    async def player_resume(self) -> bool:
+        return await self._player_post("resume")
+
+    async def player_next(self) -> bool:
+        return await self._player_post("next")
+
+    async def player_prev(self) -> bool:
+        return await self._player_post("prev")
+
+    async def player_stop(self) -> bool:
+        return await self._player_post("stop")
+
+    async def player_state(self) -> str:
+        """Get the player's current state ("playing"|"paused"|"stopped"|"unknown")."""
+        data = await self._player_get("state")
+        if data:
+            return data.get("state", "unknown")
+        return "unknown"
+
+    async def player_available(self) -> bool:
+        """True if the player service is reachable."""
+        data = await self._player_get("state")
+        return data is not None
+
+    async def player_capabilities(self) -> list:
+        """Get the player's supported content types."""
+        data = await self._player_get("capabilities")
+        if data:
+            return data.get("capabilities", [])
+        return []
 
     # ── HTTP server ──
 

@@ -21,7 +21,7 @@ SERVICES=(
     "beo-masterlink.service"
     "beo-router.service"
     "beo-input.service"
-    "beo-sonos.service"
+    "beo-player-sonos.service"
     "beo-http.service"
 )
 
