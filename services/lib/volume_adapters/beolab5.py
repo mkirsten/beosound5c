@@ -23,7 +23,11 @@ class BeoLab5Volume(VolumeAdapter):
         # Debounce state
         self._pending_volume: float | None = None
         self._debounce_handle: asyncio.TimerHandle | None = None
-        self._debounce_ms = 100  # coalesce rapid calls
+        self._debounce_ms = 50  # coalesce rapid calls
+        # Cached power state to avoid HTTP round-trip on every volume change
+        self._power_cache: bool | None = None
+        self._power_cache_time: float = 0
+        self._power_cache_ttl = 30.0  # seconds
 
     # -- public API --
 
@@ -61,20 +65,27 @@ class BeoLab5Volume(VolumeAdapter):
                 timeout=aiohttp.ClientTimeout(total=2.0),
             ) as resp:
                 logger.info("BeoLab 5 power on: HTTP %d", resp.status)
+                self._power_cache = True
+                self._power_cache_time = asyncio.get_event_loop().time()
         except Exception as e:
             logger.warning("Could not power on BeoLab 5: %s", e)
 
     async def is_on(self) -> bool:
+        now = asyncio.get_event_loop().time()
+        if self._power_cache is not None and (now - self._power_cache_time) < self._power_cache_ttl:
+            return self._power_cache
         try:
             async with self._session.get(
                 f"{self._base}/switch/power",
                 timeout=aiohttp.ClientTimeout(total=1.0),
             ) as resp:
                 data = await resp.json()
-                return data.get("value", False) is True
+                self._power_cache = data.get("value", False) is True
+                self._power_cache_time = now
+                return self._power_cache
         except Exception as e:
             logger.warning("Could not check BeoLab 5 power state: %s", e)
-            return False
+            return self._power_cache if self._power_cache is not None else False
 
     # -- internal --
 
