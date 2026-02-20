@@ -16,40 +16,40 @@ import os
 import ssl
 import sys
 import time
-import urllib.error
+from datetime import datetime, timedelta
 
 from aiohttp import web
 
-# Shared library
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lib.config import cfg
-from lib.source_base import SourceBase
-from playlist_lookup import get_playlist_uri
-
-# Spotify tools — project root is 3 levels up from services/sources/spotify.py
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-TOOLS_DIR = os.path.join(PROJECT_ROOT, 'tools', 'spotify')
-sys.path.insert(0, TOOLS_DIR)
+# Sibling imports (this directory)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from auth import SpotifyAuth
+from tokens import load_tokens, save_tokens, delete_tokens
 from pkce import (
-    refresh_access_token,
     generate_code_verifier,
     generate_code_challenge,
     build_auth_url,
     exchange_code,
 )
-from token_store import load_tokens, save_tokens, _find_store_path
+
+# Shared library (services/)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from lib.config import cfg
+from lib.source_base import SourceBase
+from playlist_lookup import get_playlist_uri
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger('beo-spotify')
 
 # Configuration
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 PLAYLISTS_FILE = os.path.join(
     os.getenv('BS5C_BASE_PATH', PROJECT_ROOT),
     'web', 'json', 'spotify_playlists.json')
 
 POLL_INTERVAL = 3  # seconds between now-playing polls
-PLAYLIST_REFRESH_INTERVAL = 30 * 60  # 30 minutes
-FETCH_SCRIPT = os.path.join(TOOLS_DIR, 'fetch_playlists.py')
+PLAYLIST_REFRESH_COOLDOWN = 5 * 60  # don't re-sync if last sync was <5 min ago
+NIGHTLY_REFRESH_HOUR = 2  # refresh playlists at 2am
+FETCH_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fetch.py')
 
 # OAuth setup
 SPOTIFY_SCOPES = ('playlist-read-private playlist-read-collaborative '
@@ -71,111 +71,6 @@ def _get_local_ip():
         return ip
     except Exception:
         return '127.0.0.1'
-
-
-class SpotifyAuth:
-    """Manages Spotify access tokens with automatic refresh."""
-
-    def __init__(self):
-        self._access_token = None
-        self._token_expiry = 0
-        self._client_id = None
-        self._refresh_token = None
-        self._client_secret = None  # legacy fallback from env vars
-        self.revoked = False  # True if refresh token was revoked by Spotify
-
-    def load(self):
-        """Load credentials from token store, with env var fallback."""
-        tokens = load_tokens()
-        if tokens and tokens.get('client_id') and tokens.get('refresh_token'):
-            pass  # Use token store
-        elif tokens is not None:
-            # Token file exists but incomplete — treat as needs-setup
-            log.info("Token file exists but incomplete — waiting for setup")
-            return False
-        else:
-            # No token file — try legacy env vars
-            cid = os.environ.get('SPOTIFY_CLIENT_ID', '')
-            rt = os.environ.get('SPOTIFY_REFRESH_TOKEN', '')
-            if cid and rt:
-                log.info("Using legacy env var credentials")
-                tokens = {'client_id': cid, 'refresh_token': rt}
-            else:
-                log.warning("No Spotify tokens found — run setup_spotify.py first")
-                return False
-        self._client_id = tokens.get('client_id', '')
-        self._refresh_token = tokens.get('refresh_token', '')
-        self._client_secret = os.environ.get('SPOTIFY_CLIENT_SECRET', '')
-        if not self._client_id or not self._refresh_token:
-            log.warning("Incomplete Spotify tokens")
-            return False
-        log.info("Spotify credentials loaded (client_id: %s...)", self._client_id[:8])
-        return True
-
-    async def get_token(self):
-        """Get a valid access token, refreshing if needed."""
-        if self._access_token and time.monotonic() < self._token_expiry:
-            return self._access_token
-        return await self._refresh()
-
-    async def _refresh(self):
-        """Refresh the access token. Tries PKCE first, then with client_secret."""
-        if not self._client_id or not self._refresh_token:
-            raise RuntimeError("No Spotify credentials")
-
-        loop = asyncio.get_event_loop()
-
-        # Try PKCE refresh first (no client_secret)
-        try:
-            result = await loop.run_in_executor(
-                None, refresh_access_token, self._client_id, self._refresh_token, None)
-        except urllib.error.HTTPError as e:
-            if e.code == 400 and self._client_secret:
-                log.info("PKCE refresh failed, trying with client_secret")
-                try:
-                    result = await loop.run_in_executor(
-                        None, refresh_access_token, self._client_id, self._refresh_token,
-                        self._client_secret)
-                except urllib.error.HTTPError as e2:
-                    if e2.code == 400:
-                        self._mark_revoked(e2)
-                    raise
-            elif e.code == 400:
-                self._mark_revoked(e)
-                raise
-            else:
-                raise
-
-        self._access_token = result['access_token']
-        self._token_expiry = time.monotonic() + result.get('expires_in', 3600) - 300
-
-        # Persist rotated refresh token
-        new_rt = result.get('refresh_token')
-        if new_rt and new_rt != self._refresh_token:
-            self._refresh_token = new_rt
-            await loop.run_in_executor(
-                None, save_tokens, self._client_id, new_rt)
-            log.info("Refresh token rotated")
-
-        log.info("Access token refreshed (expires in %ds)", result.get('expires_in', 0))
-        return self._access_token
-
-    def _mark_revoked(self, exc):
-        """Flag that the refresh token has been revoked by Spotify."""
-        try:
-            body = json.loads(exc.read().decode())
-            error = body.get('error', '')
-        except Exception:
-            error = ''
-        if error == 'invalid_grant':
-            self.revoked = True
-            log.error("Spotify refresh token revoked — re-authentication required")
-        else:
-            log.warning("Token refresh failed (400): %s", error)
-
-    @property
-    def is_configured(self):
-        return bool(self._client_id and self._refresh_token)
 
 
 class SpotifyService(SourceBase):
@@ -209,8 +104,10 @@ class SpotifyService(SourceBase):
         self.now_playing = None  # current track metadata
         self._poll_task = None
         self._refresh_task = None
-        self._pkce_state = {}  # Temporary state during OAuth flow
+        self._nightly_task = None
+        self._pkce_state = {}  # Single dict, not per-session — fine for single-user device
         self._fetching_playlists = False  # True while initial fetch is running
+        self._last_refresh = 0  # monotonic timestamp of last completed refresh
 
     async def on_start(self):
         # Load credentials (may fail — setup flow will handle it)
@@ -249,23 +146,21 @@ class SpotifyService(SourceBase):
         log.info("Spotify source ready (%s)",
                  "player service" if has_creds else "awaiting setup")
 
-        # Start periodic playlist refresh in background
+        # Initial playlist sync + nightly refresh at 2am
         if self.auth.is_configured:
-            self._refresh_task = asyncio.create_task(self._playlist_refresh_loop())
+            self._refresh_task = asyncio.create_task(
+                self._delayed_refresh(delay=10))
+            self._nightly_task = asyncio.create_task(
+                self._nightly_refresh_loop())
 
     async def on_stop(self):
-        if self._poll_task:
-            self._poll_task.cancel()
-            try:
-                await self._poll_task
-            except asyncio.CancelledError:
-                pass
-        if self._refresh_task:
-            self._refresh_task.cancel()
-            try:
-                await self._refresh_task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._poll_task, self._refresh_task, self._nightly_task):
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except Exception:
+                    pass
         await self.register("gone")
 
     def _load_playlists(self):
@@ -278,7 +173,7 @@ class SpotifyService(SourceBase):
             log.warning("Could not load playlists: %s", e)
             self.playlists = []
 
-    # ── SourceBase hooks ──
+    # -- SourceBase hooks --
 
     def add_routes(self, app):
         app.router.add_get('/playlists', self._handle_playlists)
@@ -321,8 +216,7 @@ class SpotifyService(SourceBase):
 
         elif cmd == 'play_track':
             uri = data.get('uri', '')
-            context_uri = data.get('context_uri')
-            await self._play_track(uri, context_uri)
+            await self._play_track(uri)
 
         elif cmd == 'toggle':
             await self._toggle()
@@ -353,7 +247,7 @@ class SpotifyService(SourceBase):
 
         return {'state': self.state}
 
-    # ── Playback control ──
+    # -- Playback control --
 
     @staticmethod
     def _spotify_uri_to_url(uri):
@@ -383,8 +277,7 @@ class SpotifyService(SourceBase):
             await self.broadcast("media_update", {
                 "title": track_meta.get("name", ""),
                 "artist": track_meta.get("artist", ""),
-                "album": track_meta.get("album", ""),
-                "artwork": track_meta.get("artwork", ""),
+                "artwork": track_meta.get("image", ""),
                 "state": "PLAYING",
             })
             log.info("Pre-broadcast metadata for %s", track_meta.get("name", "?"))
@@ -399,8 +292,8 @@ class SpotifyService(SourceBase):
         else:
             log.error("Player service failed to start playlist")
 
-    async def _play_track(self, uri, context_uri=None):
-        """Play a specific track, optionally within a context."""
+    async def _play_track(self, uri):
+        """Play a specific track."""
         url = self._spotify_uri_to_url(uri)
         log.info("Play track %s", url)
         ok = await self.player_play(uri=url)
@@ -446,30 +339,38 @@ class SpotifyService(SourceBase):
         await self.register("available")
 
     async def _refresh_playlists(self):
-        """Re-fetch playlists by running fetch_playlists.py (incremental sync with tracks)."""
+        """Re-fetch playlists by running fetch.py (incremental sync with tracks).
+
+        Passes the service's access token to the subprocess so it doesn't need
+        to independently refresh the PKCE token (which would race and revoke it).
+        """
         if self.auth.revoked:
             return  # don't bother — token is dead
         self._fetching_playlists = True
         try:
-            log.info("Starting playlist refresh via fetch_playlists.py")
+            # Get a valid access token to pass to the subprocess
+            try:
+                token = await self.auth.get_token()
+            except Exception:
+                log.error("Cannot refresh playlists — token refresh failed")
+                return
+
+            log.info("Starting playlist refresh via fetch.py")
             proc = await asyncio.create_subprocess_exec(
-                sys.executable, FETCH_SCRIPT, '--output', PLAYLISTS_FILE,
+                sys.executable, FETCH_SCRIPT,
+                '--output', PLAYLISTS_FILE,
+                '--access-token', token,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE)
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
             if proc.returncode == 0:
                 self._load_playlists()
+                self._last_refresh = time.monotonic()
                 log.info("Playlist refresh complete (%d playlists)", len(self.playlists))
             else:
-                err_msg = stderr.decode()[-500:]
-                log.error("fetch_playlists.py failed (rc=%d): %s",
+                err_msg = (stdout.decode() + stderr.decode())[-500:]
+                log.error("fetch.py failed (rc=%d): %s",
                           proc.returncode, err_msg)
-                # Check if this is a token issue — try refreshing in-process
-                if 'access token' in err_msg.lower() or 'bad request' in err_msg.lower():
-                    try:
-                        await self.auth.get_token()
-                    except Exception:
-                        pass  # _mark_revoked already called if invalid_grant
         except asyncio.TimeoutError:
             log.error("Playlist refresh timed out")
         except Exception as e:
@@ -477,18 +378,35 @@ class SpotifyService(SourceBase):
         finally:
             self._fetching_playlists = False
 
-    async def _playlist_refresh_loop(self):
-        """Periodically refresh playlists in the background."""
+    async def _delayed_refresh(self, delay):
+        """Refresh playlists after a delay. Used on startup and after OAuth."""
         try:
-            # Initial refresh shortly after startup
-            await asyncio.sleep(10)
+            if delay > 0:
+                await asyncio.sleep(delay)
             await self._refresh_playlists()
-            # Then every 30 minutes
+        except asyncio.CancelledError:
+            return
+
+    async def _nightly_refresh_loop(self):
+        """Sleep until 2am, refresh playlists, repeat daily."""
+        try:
             while True:
-                await asyncio.sleep(PLAYLIST_REFRESH_INTERVAL)
+                now = datetime.now()
+                target = now.replace(hour=NIGHTLY_REFRESH_HOUR, minute=0, second=0, microsecond=0)
+                if target <= now:
+                    target += timedelta(days=1)
+                delay = (target - now).total_seconds()
+                log.info("Next nightly playlist refresh at %s (in %.0fh)",
+                         target.strftime('%H:%M'), delay / 3600)
+                await asyncio.sleep(delay)
+                log.info("Nightly playlist refresh starting")
                 await self._refresh_playlists()
         except asyncio.CancelledError:
             return
+
+    def _should_refresh(self):
+        """True if enough time has passed since last refresh."""
+        return time.monotonic() - self._last_refresh > PLAYLIST_REFRESH_COOLDOWN
 
     async def _logout(self):
         """Clear Spotify tokens and playlists, return to setup mode."""
@@ -498,15 +416,15 @@ class SpotifyService(SourceBase):
         if self._refresh_task:
             self._refresh_task.cancel()
             self._refresh_task = None
+        if self._nightly_task:
+            self._nightly_task.cancel()
+            self._nightly_task = None
         if self._poll_task:
             self._poll_task.cancel()
             self._poll_task = None
 
         # Clear in-memory state
-        self.auth._client_id = None
-        self.auth._refresh_token = None
-        self.auth._access_token = None
-        self.auth._token_expiry = 0
+        self.auth.clear()
         self.playlists = []
         self.state = "stopped"
         self.now_playing = None
@@ -514,10 +432,9 @@ class SpotifyService(SourceBase):
 
         # Delete token file
         try:
-            token_path = _find_store_path()
-            if os.path.exists(token_path):
-                os.unlink(token_path)
-                log.info("Deleted token file: %s", token_path)
+            path = delete_tokens()
+            if path:
+                log.info("Deleted token file: %s", path)
         except Exception as e:
             log.warning("Could not delete token file: %s", e)
 
@@ -532,7 +449,7 @@ class SpotifyService(SourceBase):
         await self.register("available")
         log.info("Spotify logged out — ready for new setup")
 
-    # ── Now-playing polling ──
+    # -- Now-playing polling --
 
     def _start_polling(self):
         if self._poll_task and not self._poll_task.done():
@@ -565,12 +482,14 @@ class SpotifyService(SourceBase):
                 self.state = "playing"
                 await self.register("playing")
             elif state != "playing" and self.state == "playing":
+                # Maps "stopped" to "paused" intentionally — lets user resume
+                # without re-navigating to Spotify after queue ends
                 self.state = "paused"
                 await self.register("paused")
         except Exception as e:
             log.warning("Player state poll error: %s", e)
 
-    # ── Extra routes ──
+    # -- Extra routes --
 
     def _build_setup_url(self):
         """Build the setup page URL — HTTPS if cert exists, else HTTP."""
@@ -594,11 +513,18 @@ class SpotifyService(SourceBase):
             return web.json_response({
                 'loading': True,
             }, headers=self._cors_headers())
+
+        # Trigger background refresh if >5 min since last sync
+        if self._should_refresh() and not self._fetching_playlists:
+            self._fetching_playlists = True  # set before create_task to prevent double-trigger
+            log.info("Playlist view opened — refreshing in background")
+            asyncio.create_task(self._refresh_playlists())
+
         return web.json_response(
             self.playlists,
             headers=self._cors_headers())
 
-    # ── OAuth Setup routes ──
+    # -- OAuth Setup routes --
 
     def _load_client_id(self):
         """Get client_id from token store or config."""
@@ -725,7 +651,7 @@ label{{display:block;margin-top:12px;color:#666;font-size:13px;text-transform:up
 
         try:
             log.info("OAuth: exchanging authorization code")
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             token_data = await loop.run_in_executor(
                 None, exchange_code, code, client_id, verifier, redirect_uri)
 
@@ -741,21 +667,26 @@ label{{display:block;margin-top:12px;color:#666;font-size:13px;text-transform:up
                 log.warning("OAuth: could not save tokens to disk (%s) — using in-memory", e)
 
             # Load auth directly (works even if file save failed)
-            self.auth._client_id = client_id
-            self.auth._refresh_token = rt
-            self.auth._access_token = token_data.get('access_token')
-            self.auth._token_expiry = time.monotonic() + token_data.get('expires_in', 3600) - 300
-            self.auth.revoked = False
+            self.auth.set_credentials(
+                client_id, rt,
+                access_token=token_data.get('access_token'),
+                expires_in=token_data.get('expires_in', 3600))
             self.player = "remote"
 
             # Register as available now that we have credentials
             await self.register("available")
 
-            # Kick off playlist refresh in background
+            # Kick off playlist refresh in background (no initial delay)
             self._fetching_playlists = True
             if self._refresh_task:
                 self._refresh_task.cancel()
-            self._refresh_task = asyncio.create_task(self._post_setup_refresh())
+            self._refresh_task = asyncio.create_task(
+                self._delayed_refresh(delay=0))
+
+            # Start nightly refresh if not already running
+            if not self._nightly_task or self._nightly_task.done():
+                self._nightly_task = asyncio.create_task(
+                    self._nightly_refresh_loop())
 
             html = '''<!DOCTYPE html><html><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -786,16 +717,6 @@ h1{font-size:24px;font-weight:300;margin-bottom:20px;letter-spacing:1px}
         return web.json_response(
             {'status': 'ok', 'message': 'Logged out'},
             headers=self._cors_headers())
-
-    async def _post_setup_refresh(self):
-        """After OAuth setup, refresh playlists then start the regular loop."""
-        try:
-            await self._refresh_playlists()
-            while True:
-                await asyncio.sleep(PLAYLIST_REFRESH_INTERVAL)
-                await self._refresh_playlists()
-        except asyncio.CancelledError:
-            return
 
 
 if __name__ == '__main__':

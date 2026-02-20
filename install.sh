@@ -1070,46 +1070,30 @@ if [ ! -f "$CONFIG_FILE" ]; then
         read -p "Press Enter to start the setup wizard (or 's' to skip): " START_SPOTIFY_SETUP
 
         if [[ ! "$START_SPOTIFY_SETUP" =~ ^[Ss]$ ]]; then
-            # Run the Spotify setup wizard
-            SPOTIFY_SETUP_SCRIPT="$INSTALL_DIR/tools/spotify/setup_spotify.py"
-
-            if [ -f "$SPOTIFY_SETUP_SCRIPT" ]; then
-                # Run as the install user (not root) to get correct paths
-                echo ""
-                sudo -u "$INSTALL_USER" python3 "$SPOTIFY_SETUP_SCRIPT"
-                SETUP_EXIT_CODE=$?
-
-                if [ $SETUP_EXIT_CODE -eq 0 ]; then
-                    # Check if tokens were saved to the token store
-                    SPOTIFY_TOKENS="/etc/beosound5c/spotify_tokens.json"
-                    if [ ! -f "$SPOTIFY_TOKENS" ]; then
-                        SPOTIFY_TOKENS="$INSTALL_DIR/tools/spotify/spotify_tokens.json"
-                    fi
-                    if [ -f "$SPOTIFY_TOKENS" ]; then
-                        SPOTIFY_CLIENT_ID=$(jq -r '.client_id // empty' "$SPOTIFY_TOKENS" 2>/dev/null)
-                        SPOTIFY_REFRESH_TOKEN=$(jq -r '.refresh_token // empty' "$SPOTIFY_TOKENS" 2>/dev/null)
-
-                        if [ -n "$SPOTIFY_REFRESH_TOKEN" ]; then
-                            log_success "Spotify configured successfully!"
-                            SPOTIFY_SETUP_SUCCESS=true
-                        fi
-                    fi
+            echo ""
+            log_info "Spotify setup is done via the web interface."
+            log_info "After installation, the beo-spotify service will start and serve"
+            log_info "a setup page at http://<device-ip>:8771/setup"
+            echo ""
+            # Check if tokens already exist from a previous setup
+            SPOTIFY_TOKENS="/etc/beosound5c/spotify_tokens.json"
+            if [ -f "$SPOTIFY_TOKENS" ]; then
+                SPOTIFY_CLIENT_ID=$(jq -r '.client_id // empty' "$SPOTIFY_TOKENS" 2>/dev/null)
+                SPOTIFY_REFRESH_TOKEN=$(jq -r '.refresh_token // empty' "$SPOTIFY_TOKENS" 2>/dev/null)
+                if [ -n "$SPOTIFY_REFRESH_TOKEN" ]; then
+                    log_success "Spotify tokens found from previous setup!"
+                    SPOTIFY_SETUP_SUCCESS=true
                 fi
-
-                if [ "$SPOTIFY_SETUP_SUCCESS" = false ]; then
-                    log_warn "Spotify setup was not completed"
-                    log_info "You can run the setup later with:"
-                    log_info "  python3 $SPOTIFY_SETUP_SCRIPT"
-                fi
-            else
-                log_error "Spotify setup script not found: $SPOTIFY_SETUP_SCRIPT"
+            fi
+            if [ "$SPOTIFY_SETUP_SUCCESS" = false ]; then
+                log_info "Open http://<device-ip>:8771/setup after starting services"
             fi
         else
             log_info "Skipping Spotify setup"
         fi
     else
         log_info "Skipping Spotify integration"
-        log_info "You can set it up later with: python3 $INSTALL_DIR/tools/spotify/setup_spotify.py"
+        log_info "You can set it up later at http://<device-ip>:8771/setup"
     fi
 
     # -------------------------------------------------------------------------
@@ -1534,7 +1518,7 @@ if [ "$BEOREMOTE_MAC" = "00:00:00:00:00:00" ] || [ -z "$BEOREMOTE_MAC" ]; then
 echo -e "${CYAN}║${NC}     ${GREEN}sudo ./tools/bt/pair-remote.sh${NC}    Pair BT remote       ${CYAN}║${NC}"
 fi
 if [ -z "$SPOTIFY_REFRESH_TOKEN" ]; then
-echo -e "${CYAN}║${NC}     ${GREEN}python3 ./tools/spotify/setup_spotify.py${NC}  Setup Spotify${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     ${GREEN}http://<device-ip>:8771/setup${NC}            Spotify${CYAN}║${NC}"
 fi
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"

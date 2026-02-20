@@ -77,17 +77,10 @@ def save_tokens(client_id, refresh_token):
     return path
 
 
-def get_client_id():
-    """Get the client_id from token store, or None."""
-    tokens = load_tokens()
-    if tokens:
-        return tokens.get("client_id")
-    return None
-
-
-def get_refresh_token():
-    """Get the refresh_token from token store, or None."""
-    tokens = load_tokens()
-    if tokens:
-        return tokens.get("refresh_token")
+def delete_tokens():
+    """Delete the token file from disk. Returns the path deleted, or None."""
+    path = _find_store_path()
+    if os.path.exists(path):
+        os.unlink(path)
+        return path
     return None

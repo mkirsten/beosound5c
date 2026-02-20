@@ -17,7 +17,6 @@ SERVICES=(
     "beo-cd-source.service"
     "beo-usb-source.service"
     "beo-ui.service"
-    "beo-spotify-fetch.timer"
 )
 
 # Service descriptions
@@ -31,7 +30,6 @@ SERVICE_DESC["beo-bluetooth.service"]="Bluetooth Remote Service"
 SERVICE_DESC["beo-cd-source.service"]="CD Source (Port 8769)"
 SERVICE_DESC["beo-usb-source.service"]="USB File Source (Port 8773)"
 SERVICE_DESC["beo-ui.service"]="Chromium UI Kiosk"
-SERVICE_DESC["beo-spotify-fetch.timer"]="Spotify Playlist Fetch (Hourly)"
 
 echo ""
 echo "📊 Service Overview:"

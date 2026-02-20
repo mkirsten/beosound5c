@@ -33,9 +33,8 @@ publish.sh
 deploy.sh
 .claude/
 
-# Spotify OAuth SSL certs (generated per-machine)
-tools/spotify/server.crt
-tools/spotify/server.key
+# Spotify token store (generated per-machine)
+services/sources/spotify/spotify_tokens.json
 
 # Device-specific config (personal IPs, MACs, scenes)
 config/church.json

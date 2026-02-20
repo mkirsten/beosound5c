@@ -26,8 +26,6 @@ SERVICES=(
     "beo-spotify.service"
     "beo-usb-source.service"
     "beo-ui.service"
-    "beo-spotify-fetch.service"
-    "beo-spotify-fetch.timer"
     "beo-notify-failure@.service"
     "beo-health.service"
     "beo-health.timer"
@@ -60,7 +58,7 @@ if [ ! -f "$SECRETS_FILE" ]; then
         echo ""
         echo "  ⚠️  IMPORTANT: Edit $SECRETS_FILE with credentials for this device!"
         echo "     - HA_TOKEN: Home Assistant long-lived access token"
-        echo "     For Spotify: run 'python3 ~/beosound5c/tools/spotify/setup_spotify.py'"
+        echo "     For Spotify: open the /setup page on port 8771 after starting beo-spotify"
         echo ""
     else
         echo "  ⚠️  Warning: secrets.env.example not found at $SECRETS_EXAMPLE"
@@ -239,11 +237,6 @@ systemctl start beo-usb-source.service
 echo "  🖥️  Starting UI service..."
 systemctl enable beo-ui.service
 systemctl start beo-ui.service
-
-# Enable Spotify playlist fetch timer (runs nightly at 3am)
-echo "  🎵 Enabling Spotify playlist fetch timer..."
-systemctl enable beo-spotify-fetch.timer
-systemctl start beo-spotify-fetch.timer
 
 # Enable health check timer (auto-recovers failed services every 5 min)
 echo "  🩺 Enabling health check timer..."

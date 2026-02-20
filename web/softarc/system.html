@@ -867,42 +867,7 @@
         <!-- Services Section -->
         <div class="section-content services-section" id="services">
             <div class="services-list" id="services-list">
-                <div class="service-item selected" data-service="beo-masterlink">
-                    <span class="name">beo-masterlink</span>
-                    <span class="status-dot" id="dot-masterlink"></span>
-                </div>
-                <div class="service-item" data-service="beo-bluetooth">
-                    <span class="name">beo-bluetooth</span>
-                    <span class="status-dot" id="dot-bluetooth"></span>
-                </div>
-                <div class="service-item" data-service="beo-router">
-                    <span class="name">beo-router</span>
-                    <span class="status-dot" id="dot-router"></span>
-                </div>
-                <div class="service-item" data-service="beo-player-sonos">
-                    <span class="name">beo-player-sonos</span>
-                    <span class="status-dot" id="dot-sonos"></span>
-                </div>
-                <div class="service-item" data-service="beo-cd">
-                    <span class="name">beo-cd</span>
-                    <span class="status-dot" id="dot-cd"></span>
-                </div>
-                <div class="service-item" data-service="beo-input">
-                    <span class="name">beo-input</span>
-                    <span class="status-dot" id="dot-input"></span>
-                </div>
-                <div class="service-item" data-service="beo-http">
-                    <span class="name">beo-http</span>
-                    <span class="status-dot" id="dot-http"></span>
-                </div>
-                <div class="service-item" data-service="beo-ui">
-                    <span class="name">beo-ui</span>
-                    <span class="status-dot" id="dot-ui"></span>
-                </div>
-                <div class="service-item" data-service="beo-spotify">
-                    <span class="name">beo-spotify</span>
-                    <span class="status-dot" id="dot-spotify"></span>
-                </div>
+                <!-- Service items generated dynamically from backend -->
                 <div class="service-item separator" data-service="all">
                     <span class="name">Restart All Services</span>
                     <span class="status-dot"></span>
@@ -1196,11 +1161,8 @@
                 document.getElementById('cd-output').textContent = '—';
 
                 // Service status - dev mode shows warning
-                ['masterlink', 'bluetooth', 'input', 'media', 'http', 'ui', 'cd', 'spotify-fetch'].forEach(svc => {
-                    const dot = document.getElementById(`dot-${svc}`);
-                    if (dot) {
-                        dot.className = 'status-dot warning';
-                    }
+                document.querySelectorAll('.service-item[data-service] .status-dot').forEach(dot => {
+                    dot.className = 'status-dot warning';
                 });
 
                 // Mock logs
@@ -1227,7 +1189,8 @@
                     ws.onopen = () => {
                         mediaEl.textContent = 'Connected';
                         mediaEl.className = 'value status-ok';
-                        const dotSonos = document.getElementById('dot-sonos');
+                        const sonosItem = document.querySelector('.service-item[data-service="beo-player-sonos"]');
+                        const dotSonos = sonosItem?.querySelector('.status-dot');
                         if (dotSonos) dotSonos.className = 'status-dot running';
                     };
 
@@ -1711,12 +1674,6 @@
                 selectedItem.style.background = '#332200';
                 setTimeout(() => { selectedItem.style.background = ''; }, 400);
 
-                // Spotify fetch: refresh playlists instead of restarting the timer
-                if (service === 'beo-spotify-fetch') {
-                    this.refreshSpotifyPlaylists();
-                    return;
-                }
-
                 if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
                     let action = '';
                     if (service === 'all') {
@@ -1788,8 +1745,23 @@
 
                 if (data.services) {
                     this.serviceStatus = data.services;
+                    const list = document.getElementById('services-list');
+                    const actionItems = list.querySelector('[data-service="all"]');
                     for (const [svc, status] of Object.entries(data.services)) {
-                        const dot = document.getElementById(`dot-${svc.replace('beo-', '')}`);
+                        let item = list.querySelector(`.service-item[data-service="${svc}"]`);
+                        if (!item) {
+                            // Create service item dynamically
+                            item = document.createElement('div');
+                            item.className = 'service-item';
+                            item.dataset.service = svc;
+                            item.innerHTML = `<span class="name">${svc}</span><span class="status-dot"></span>`;
+                            list.insertBefore(item, actionItems);
+                            // Select first service by default
+                            if (!list.querySelector('.service-item.selected')) {
+                                item.classList.add('selected');
+                            }
+                        }
+                        const dot = item.querySelector('.status-dot');
                         if (dot) {
                             dot.className = 'status-dot';
                             if (status === 'Running') dot.classList.add('running');
@@ -1905,14 +1877,14 @@
             async fetchSpotifyInfo() {
                 try {
                     // Fetch playlists data
-                    const playlistsResp = await fetch('../json/playlists_with_tracks.json');
+                    const playlistsResp = await fetch('../json/spotify_playlists.json');
                     if (playlistsResp.ok) {
                         const playlists = await playlistsResp.json();
                         document.getElementById('spotify-playlists').textContent = playlists.length;
 
                         // Try to get user ID from first playlist
                         if (playlists.length > 0 && playlists[0].owner) {
-                            document.getElementById('spotify-user').textContent = playlists[0].owner.id || '--';
+                            document.getElementById('spotify-user').textContent = playlists[0].owner;
                         }
 
                         // Get last modified time from response headers
@@ -2068,12 +2040,14 @@
                     }
 
                     // Update service dot
-                    const dot = document.getElementById('dot-cd');
-                    if (dot) dot.className = 'status-dot running';
+                    const cdItem = document.querySelector('.service-item[data-service="beo-cd-source"]');
+                    const cdDot = cdItem?.querySelector('.status-dot');
+                    if (cdDot) cdDot.className = 'status-dot running';
                 } catch (e) {
                     // CD service not running — show as disconnected
-                    const dot = document.getElementById('dot-cd');
-                    if (dot) dot.className = 'status-dot stopped';
+                    const cdItem = document.querySelector('.service-item[data-service="beo-cd-source"]');
+                    const cdDot = cdItem?.querySelector('.status-dot');
+                    if (cdDot) cdDot.className = 'status-dot stopped';
                 }
             }
 

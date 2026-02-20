@@ -4,6 +4,9 @@ PKCE (Proof Key for Code Exchange) helpers for Spotify OAuth.
 Uses the Authorization Code with PKCE flow — no client_secret needed.
 Only requires a client_id (shipped with the app).
 
+Uses blocking urllib.request intentionally — callers wrap in run_in_executor().
+Keeps this module dependency-free (no aiohttp needed).
+
 Usage:
     from pkce import generate_code_verifier, generate_code_challenge
     from pkce import exchange_code, refresh_access_token
@@ -75,11 +78,8 @@ def exchange_code(code, client_id, code_verifier, redirect_uri):
         return json.loads(resp.read().decode())
 
 
-def refresh_access_token(client_id, refresh_token, client_secret=None):
-    """Refresh an access token.
-
-    If client_secret is provided, uses the standard Authorization Code flow
-    (Basic auth header). Otherwise uses PKCE flow (client_id in body).
+def refresh_access_token(client_id, refresh_token):
+    """Refresh an access token using PKCE flow (client_id in body, no secret).
 
     Returns dict with 'access_token', optionally 'refresh_token' (rotated).
     Raises urllib.error.HTTPError on failure.
@@ -87,16 +87,9 @@ def refresh_access_token(client_id, refresh_token, client_secret=None):
     body = {
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
+        "client_id": client_id,
     }
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
-
-    if client_secret:
-        # Standard flow: Basic auth with client_id:client_secret
-        creds = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
-        headers["Authorization"] = f"Basic {creds}"
-    else:
-        # PKCE flow: client_id in body, no secret
-        body["client_id"] = client_id
 
     data = urllib.parse.urlencode(body).encode()
     req = urllib.request.Request(TOKEN_URL, data=data, headers=headers)

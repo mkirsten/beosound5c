@@ -166,18 +166,26 @@ def get_system_info() -> dict:
         except Exception:
             info['git_tag'] = '--'
 
-        # Service status
-        services = ['beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-player-sonos', 'beo-cd-source', 'beo-input', 'beo-http', 'beo-ui', 'beo-spotify-fetch']
+        # Service status — discover all beo-* units dynamically
         info['services'] = {}
-        for svc in services:
-            # For timers, check the timer status
-            unit = svc + '.timer' if svc == 'beo-spotify-fetch' else svc
+        try:
             result = subprocess.run(
-                ['systemctl', 'is-active', unit],
-                capture_output=True, text=True, timeout=2
+                ['systemctl', 'list-units', 'beo-*', '--no-legend', '--no-pager', '--plain'],
+                capture_output=True, text=True, timeout=5
             )
-            status = result.stdout.strip()
-            info['services'][svc] = 'Running' if status == 'active' else status.capitalize()
+            for line in result.stdout.strip().splitlines():
+                parts = line.split()
+                if not parts:
+                    continue
+                unit = parts[0]  # e.g. "beo-input.service" or "beo-health.timer"
+                # Skip timers — they're background infra, not user-facing
+                if unit.endswith('.timer'):
+                    continue
+                svc = unit.removesuffix('.service')
+                active = parts[2] if len(parts) > 2 else 'unknown'  # "active" or "failed" etc.
+                info['services'][svc] = 'Running' if active == 'active' else active.capitalize()
+        except Exception:
+            pass
 
         # Config from JSON file
         info['config'] = {}
@@ -383,9 +391,9 @@ async def refresh_spotify_playlists(ws):
     logger.info('Starting Spotify playlist refresh')
     try:
         # Run fetch_playlists.py in background
-        spotify_dir = os.path.join(BS5C_BASE_PATH, 'tools/spotify')
+        spotify_dir = os.path.join(BS5C_BASE_PATH, 'services/sources/spotify')
         process = subprocess.Popen(
-            ['python3', os.path.join(spotify_dir, 'fetch_playlists.py')],
+            ['python3', os.path.join(spotify_dir, 'fetch.py')],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
