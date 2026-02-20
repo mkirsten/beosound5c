@@ -22,9 +22,9 @@ SERVICES=(
     "beo-router.service"
     "beo-masterlink.service"
     "beo-bluetooth.service"
-    "beo-cd-source.service"
+    "beo-source-cd.service"
     "beo-spotify.service"
-    "beo-usb-source.service"
+    "beo-source-usb.service"
     "beo-ui.service"
     "beo-notify-failure@.service"
     "beo-health.service"
@@ -222,16 +222,16 @@ systemctl enable beo-bluetooth.service
 systemctl start beo-bluetooth.service
 
 echo "  💿 Starting CD source..."
-systemctl enable beo-cd-source.service
-systemctl start beo-cd-source.service
+systemctl enable beo-source-cd.service
+systemctl start beo-source-cd.service
 
 echo "  🎵 Starting Spotify source..."
 systemctl enable beo-spotify.service
 systemctl start beo-spotify.service
 
 echo "  💾 Starting USB source..."
-systemctl enable beo-usb-source.service
-systemctl start beo-usb-source.service
+systemctl enable beo-source-usb.service
+systemctl start beo-source-usb.service
 
 # Start UI service last (depends on HTTP)
 echo "  🖥️  Starting UI service..."

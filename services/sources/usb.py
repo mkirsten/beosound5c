@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BeoSound 5c USB File Source (beo-usb-source)
+BeoSound 5c USB File Source (beo-source-usb)
 
 Browses and plays audio files from local USB storage (e.g. the original
 BeoMaster 5 internal SATA drive connected via USB adapter).

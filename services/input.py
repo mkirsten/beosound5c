@@ -375,13 +375,13 @@ def restart_service(action: str):
         if action == 'reboot':
             subprocess.Popen(['sudo', 'reboot'])
         elif action == 'restart-all':
-            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-player-sonos', 'beo-cd-source', 'beo-input', 'beo-http', 'beo-ui'])
+            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-player-sonos', 'beo-source-cd', 'beo-input', 'beo-http', 'beo-ui'])
         elif action.startswith('restart-'):
             service = 'beo-' + action.replace('restart-', '')
             # CD source: eject disc first, use correct service name
             if service == 'beo-cd':
                 subprocess.run(['eject', '/dev/sr0'], timeout=5, capture_output=True)
-                service = 'beo-cd-source'
+                service = 'beo-source-cd'
             subprocess.Popen(['sudo', 'systemctl', 'restart', service])
     except Exception as e:
         logger.error('Restart error: %s', e)

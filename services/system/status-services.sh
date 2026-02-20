@@ -14,8 +14,8 @@ SERVICES=(
     "beo-router.service"
     "beo-masterlink.service"
     "beo-bluetooth.service"
-    "beo-cd-source.service"
-    "beo-usb-source.service"
+    "beo-source-cd.service"
+    "beo-source-usb.service"
     "beo-ui.service"
 )
 
@@ -27,8 +27,8 @@ SERVICE_DESC["beo-input.service"]="Hardware Input Server (Port 8765)"
 SERVICE_DESC["beo-router.service"]="Event Router (Port 8770)"
 SERVICE_DESC["beo-masterlink.service"]="MasterLink Sniffer"
 SERVICE_DESC["beo-bluetooth.service"]="Bluetooth Remote Service"
-SERVICE_DESC["beo-cd-source.service"]="CD Source (Port 8769)"
-SERVICE_DESC["beo-usb-source.service"]="USB File Source (Port 8773)"
+SERVICE_DESC["beo-source-cd.service"]="CD Source (Port 8769)"
+SERVICE_DESC["beo-source-usb.service"]="USB File Source (Port 8773)"
 SERVICE_DESC["beo-ui.service"]="Chromium UI Kiosk"
 
 echo ""
