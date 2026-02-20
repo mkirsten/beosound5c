@@ -6,6 +6,7 @@
     "CD": { "id": "cd", "hidden": true },
     "USB": { "id": "usb", "paths": ["/mnt/usb-music"] },
     "SPOTIFY": "spotify",
+    "NEWS": "news",
     "SCENES": "scenes",
     "SECURITY": { "id": "security", "dashboard": "dashboard-cameras/home" },
     "SYSTEM": "system",
@@ -45,5 +46,6 @@
     "output_name": "Sonos"
   },
   "cd": { "device": "/dev/sr0" },
-  "spotify": { "client_id": "" }
+  "spotify": { "client_id": "" },
+  "news": { "guardian_api_key": "" }
 }

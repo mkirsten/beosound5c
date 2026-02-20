@@ -29,6 +29,9 @@ const AppConfig = {
     // USB file source
     usbServiceUrl: 'http://localhost:8773',
 
+    // News source (Guardian)
+    newsServiceUrl: 'http://localhost:8776',
+
     // WebSocket endpoints (browser connects to same host as web UI)
     websocket: {
         input: 'ws://localhost:8765',
