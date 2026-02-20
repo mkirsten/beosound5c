@@ -472,9 +472,6 @@ class EventRouter:
         self.volume = max(0, min(100, volume))
         if broadcast:
             asyncio.ensure_future(self._broadcast_volume())
-        if not await self._volume.is_on():
-            logger.info("Output is OFF — skipping volume command (%.0f%%)", self.volume)
-            return
         await self._volume.set_volume(self.volume)
 
     async def report_volume(self, volume: float):
