@@ -1029,8 +1029,10 @@ async def _output_power(url):
     except Exception:
         pass
 
+_hid_alive = True   # cleared when scan_loop thread dies
+
 def scan_loop(loop):
-    global dev
+    global dev, _hid_alive
     devices = hid.enumerate(VID, PID)
     if not devices:
         logger.warning("BS5 not found (no HID device)")
@@ -1044,34 +1046,35 @@ def scan_loop(loop):
     last_laser = None
     first = True
 
-    while True:
-        rpt = dev.read(64, timeout_ms=50)
-        if rpt:
-            rep = list(rpt)
-            nav_evt, vol_evt, btn_evt, laser_pos = parse_report(rep, loop)
+    try:
+        while True:
+            rpt = dev.read(64, timeout_ms=50)
+            if rpt:
+                rep = list(rpt)
+                nav_evt, vol_evt, btn_evt, laser_pos = parse_report(rep, loop)
 
-            for evt_type, evt in (
-                ('nav',    nav_evt),
-                ('volume', vol_evt),
-                ('button', btn_evt),
-            ):
-                if evt:
+                for evt_type, evt in (
+                    ('nav',    nav_evt),
+                    ('volume', vol_evt),
+                    ('button', btn_evt),
+                ):
+                    if evt:
+                        asyncio.run_coroutine_threadsafe(
+                            broadcast(json.dumps({'type':evt_type,'data':evt})),
+                            loop
+                        )
+
+                if first or laser_pos != last_laser:
                     asyncio.run_coroutine_threadsafe(
-                        broadcast(json.dumps({'type':evt_type,'data':evt})),
+                        broadcast(json.dumps({'type':'laser','data':{'position':laser_pos}})),
                         loop
                     )
+                    last_laser, first = laser_pos, False
 
-
-            if first or laser_pos != last_laser:
-                asyncio.run_coroutine_threadsafe(
-                    broadcast(json.dumps({'type':'laser','data':{'position':laser_pos}})),
-                    loop
-                )
-                last_laser, first = laser_pos, False
-
-        # Turn screen on when anything happens
-        # set_backlight(True)
-        time.sleep(0.001)
+            time.sleep(0.001)
+    except Exception as e:
+        logger.error("HID scan_loop crashed: %s", e)
+        _hid_alive = False
 
 # ——— Media server communication ———
 
@@ -1158,8 +1161,16 @@ async def main():
     # Start media server connection task
     media_task = asyncio.create_task(connect_to_media_server())
 
-    # Start systemd watchdog heartbeat
-    asyncio.create_task(watchdog_loop())
+    # Start systemd watchdog heartbeat (stops if HID thread dies)
+    async def guarded_watchdog():
+        from lib.watchdog import sd_notify
+        sd_notify("READY=1")
+        logger.info("Watchdog started (guarded by HID thread)")
+        while _hid_alive:
+            sd_notify("WATCHDOG=1")
+            await asyncio.sleep(20)
+        logger.error("HID thread dead — stopping watchdog, systemd will restart us")
+    asyncio.create_task(guarded_watchdog())
 
     try:
         # Wait for server to close
