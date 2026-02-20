@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# BeoSound 5c
+# Copyright (C) 2024-2026 Markus Kirsten
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Attribution required — see LICENSE, Section 7(b).
+
 """
 BeoSound 5c Event Router (beo-router)
 
@@ -53,6 +59,7 @@ DEFAULT_SOURCE_HANDLES = {
     "usb": {"play", "pause", "next", "prev", "stop", "go", "left", "right",
             "up", "down"},
     "demo": {"play", "pause", "next", "prev", "stop", "go"},
+    "news": {"go", "left", "right", "up", "down"},
 }
 
 # Known source ports — used on startup to probe running sources for re-registration
@@ -60,6 +67,7 @@ DEFAULT_SOURCE_PORTS = {
     "cd": 8769,
     "spotify": 8771,
     "usb": 8772,
+    "news": 8776,
 }
 
 

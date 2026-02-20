@@ -1,3 +1,9 @@
+# BeoSound 5c
+# Copyright (C) 2024-2026 Markus Kirsten
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Attribution required — see LICENSE, Section 7(b).
+
 """
 SourceBase — shared plumbing for BeoSound 5c source services.
 

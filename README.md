@@ -156,7 +156,7 @@ services/                   # Backend services
 │   └── sonos.py            #   Sonos monitor (beo-sonos)
 ├── lib/
 │   ├── volume_adapters/    # Pluggable volume output control
-│   │   ├── beolab5.py      #   BeoLab 5 via ESP32 REST API
+│   │   ├── beolab5.py      #   BeoLab 5 via controller REST API
 │   │   ├── sonos.py        #   Sonos via SoCo
 │   │   ├── hdmi.py         #   HDMI (ALSA software volume)
 │   │   ├── spdif.py        #   S/PDIF / Optical (ALSA software volume)
