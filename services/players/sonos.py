@@ -479,6 +479,26 @@ class MediaServer(PlayerBase):
     async def get_capabilities(self) -> list:
         return ["spotify", "url_stream"]
 
+    async def get_status(self) -> dict:
+        """Rich cached status for the system panel."""
+        base = await super().get_status()
+        cached = self._cached_media_data or {}
+        base.update({
+            "speaker_name": cached.get("speaker_name", "—"),
+            "speaker_ip": SONOS_IP,
+            "state": self._current_playback_state or "stopped",
+            "volume": cached.get("volume"),
+            "current_track": {
+                "title": cached.get("title", "—"),
+                "artist": cached.get("artist", "—"),
+                "album": cached.get("album", "—"),
+            } if cached else None,
+            "is_grouped": cached.get("is_grouped", False),
+            "coordinator_name": cached.get("coordinator_name"),
+            "artwork_cache_size": len(artwork_cache),
+        })
+        return base
+
     async def _find_track_in_queue(self, coordinator, track_uri, loop) -> int:
         """Find a Spotify track in the Sonos queue by URI. Returns 0-based index."""
         # Extract Spotify track ID from URI (spotify:track:XXXXX)

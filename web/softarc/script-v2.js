@@ -66,6 +66,8 @@ class ArcList {
         this.isAnimating = false;
         this._animationAbort = null;  // AbortController for interruptible animations
         this.snapTimer = null;
+        this._inPageView = false;
+        this._pageScrollEl = null;
 
         // ===== DOM =====
         this.container = document.getElementById('arc-container');
@@ -114,12 +116,15 @@ class ArcList {
         return level.isContainer ? level.isContainer(item) : false;
     }
 
+    /** Check if a specific item is a page (has page content to display) */
+    isPage(item) { return !!(item.page); }
+
     /** Check if the current selected item can be drilled into */
     canDrillDown() {
         const idx = Math.round(this.currentIndex);
         const item = this.items[idx];
         if (!item) return false;
-        return this.isContainer(item);
+        return this.isContainer(item) || this.isPage(item);
     }
 
     // ─── INIT ────────────────────────────────────────────────────────
@@ -194,11 +199,23 @@ class ArcList {
 
     saveState() {
         try {
+            let depth = this.depth;
+            let currentIndex = this.currentIndex;
+            let stackFrames = this.navStack;
+
+            // When in page view, save as parent level scrolled to the page item
+            if (this._inPageView) {
+                const pageFrame = stackFrames[stackFrames.length - 1];
+                depth = this.depth - 1;
+                currentIndex = pageFrame ? pageFrame.selectedIndex : 0;
+                stackFrames = stackFrames.slice(0, -1);
+            }
+
             const state = {
                 version: 2,
-                depth: this.depth,
-                currentIndex: this.currentIndex,
-                stack: this.navStack.map(frame => ({
+                depth: depth,
+                currentIndex: currentIndex,
+                stack: stackFrames.map(frame => ({
                     selectedIndex: frame.selectedIndex,
                     selectedItemId: frame.selectedItem?.id || null,
                 })),
@@ -288,6 +305,12 @@ class ArcList {
         const item = this.items[idx];
         const level = this.getLevelDescriptor(this.depth);
 
+        // Page items get their own drill-in path
+        if (this.isPage(item)) {
+            this._drillIntoPage(idx, item);
+            return;
+        }
+
         if (!level.isContainer || !level.isContainer(item)) return;
 
         // Load children: async loader or inline childrenKey
@@ -360,6 +383,19 @@ class ArcList {
             const frame = this.navStack.pop();
             this.depth--;
 
+            // Clean up page view before backward animation
+            if (frame.isPageView) {
+                this._inPageView = false;
+                this._pageScrollEl = null;
+                const pageEl = this.container.querySelector('.page-view');
+                if (pageEl) {
+                    pageEl.style.transition = 'opacity 300ms ease';
+                    pageEl.style.opacity = '0';
+                    await this.delay(300);
+                    pageEl.remove();
+                }
+            }
+
             await this._animateBackward(frame);
 
             this.items = frame.items;
@@ -386,6 +422,77 @@ class ArcList {
         }
     }
 
+    // ─── PAGE VIEW ──────────────────────────────────────────────────
+
+    async _drillIntoPage(idx, item) {
+        this._abortAnimation();
+        this._pauseAnimation();
+        this._animationAbort = new AbortController();
+        this.isAnimating = true;
+
+        try {
+            const selectedElement = document.querySelector('.arc-item.selected:not(.breadcrumb)');
+
+            const frame = {
+                items: this.items,
+                rawItems: this._getCurrentRawItems(),
+                selectedIndex: idx,
+                selectedItem: item,
+                breadcrumbElement: null,
+                isPageView: true,
+            };
+            this.navStack.push(frame);
+
+            this.depth++;
+            this.items = [];
+            this._inPageView = true;
+
+            // Phases 1–4: shared drill animation
+            await this._animateDrillCommon(frame, selectedElement);
+
+            // Phase 5: render page view and fade in
+            const pageEl = this._renderPageView(item.page);
+            await this.delay(50);
+            pageEl.style.transition = 'opacity 300ms ease';
+            pageEl.style.opacity = '1';
+            await this.delay(300);
+
+            this.isAnimating = false;
+            this.updateCounter();
+            this.saveState();
+        } catch (e) {
+            console.error('Error in _drillIntoPage:', e);
+        } finally {
+            this.isAnimating = false;
+            this._animationAbort = null;
+            this._resumeAnimation();
+        }
+    }
+
+    _renderPageView(page) {
+        const el = document.createElement('div');
+        el.className = 'page-view';
+        el.style.opacity = '0';
+
+        const scroll = document.createElement('div');
+        scroll.className = 'page-view-scroll';
+
+        const title = document.createElement('h2');
+        title.className = 'page-view-title';
+        title.textContent = page.title;
+
+        const body = document.createElement('div');
+        body.className = 'page-view-body';
+        body.innerHTML = page.body;
+
+        scroll.appendChild(title);
+        scroll.appendChild(body);
+        el.appendChild(scroll);
+        this.container.appendChild(el);
+        this._pageScrollEl = scroll;
+        return el;
+    }
+
     /** Resolve childrenKey — supports string or function(item) */
     _resolveChildrenKey(level, item) {
         const key = level.childrenKey;
@@ -408,7 +515,8 @@ class ArcList {
 
     // ─── ANIMATION ───────────────────────────────────────────────────
 
-    async _animateForward(frame, selectedElement) {
+    /** Shared phases 1–4 of drill animation: background, breadcrumb shift, selected→breadcrumb, sibling fade, cleanup */
+    async _animateDrillCommon(frame, selectedElement) {
         // Phase 1: Activate/deepen hierarchy background
         const bg = document.getElementById('hierarchy-background');
         if (bg) {
@@ -473,6 +581,10 @@ class ArcList {
 
         // Phase 4: Remove hidden parent items from DOM
         this.container.querySelectorAll('.arc-item.parent-hidden').forEach(el => el.remove());
+    }
+
+    async _animateForward(frame, selectedElement) {
+        await this._animateDrillCommon(frame, selectedElement);
 
         // Phase 5: Render new children then fade them in
         this.isAnimating = false;
@@ -666,6 +778,7 @@ class ArcList {
 
     handleButton(button) {
         if (button === 'left') {
+            if (this._inPageView) return;
             if (this.canDrillDown()) {
                 this.drillDown();
             } else {
@@ -678,6 +791,7 @@ class ArcList {
                 this.sendButtonWebhook('right');
             }
         } else if (button === 'go') {
+            if (this._inPageView) return;
             this.handleGo();
         }
     }
@@ -686,6 +800,8 @@ class ArcList {
      *  Explicit `actionable` field wins; otherwise defaults to leaf. */
     isActionable(item) {
         if (item.actionable !== undefined) return !!item.actionable;
+        // Pages are navigatable (drill-in), not actionable
+        if (this.isPage(item)) return false;
         // Default: leaves are actionable, containers are not
         const level = this.getLevelDescriptor(this.depth);
         return !level.isContainer || !level.isContainer(item);
@@ -751,6 +867,17 @@ class ArcList {
     }
 
     handleKeyPress(e) {
+        if (this._inPageView && this._pageScrollEl) {
+            if (e.key === 'ArrowUp') {
+                this._pageScrollEl.scrollTop -= 40;
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                this._pageScrollEl.scrollTop += 40;
+                return;
+            }
+        }
+
         this.lastScrollTime = Date.now();
 
         if (e.key === 'ArrowUp') {
@@ -770,6 +897,16 @@ class ArcList {
 
     handleNavFromParent(data) {
         if (!data) return;
+        if (this._inPageView && this._pageScrollEl) {
+            const direction = data.direction;
+            const speed = data.speed || 1;
+            if (direction === 'clock') {
+                this._pageScrollEl.scrollTop += speed * 8;
+            } else if (direction === 'counter') {
+                this._pageScrollEl.scrollTop -= speed * 8;
+            }
+            return;
+        }
         const direction = data.direction;
         const speed = data.speed || 1;
         const speedMultiplier = Math.min(speed / 10, 5);
@@ -884,6 +1021,7 @@ class ArcList {
 
     render() {
         if (this.isAnimating) return;
+        if (this._inPageView) return;
 
         // Try to update existing elements in-place (fast path)
         if (this._updateExistingElements()) return;
@@ -906,8 +1044,8 @@ class ArcList {
 
             // Actionable detection (blue highlight on GO-able items)
             if (this.isActionable(item)) el.classList.add('actionable');
-            // Container detection (stack effect for drill-down-able items)
-            const navigatable = this.isContainer(item);
+            // Container/page detection (stack effect for drill-down-able items)
+            const navigatable = this.isContainer(item) || this.isPage(item);
             if (navigatable) el.classList.add('navigatable');
 
             const nameEl = document.createElement('div');
@@ -1006,9 +1144,14 @@ class ArcList {
     // ─── COUNTER + PATH ──────────────────────────────────────────────
 
     updateCounter() {
-        const displayIndex = Math.floor(this.currentIndex) + 1;
-        this.currentItemDisplay.textContent = displayIndex;
-        this.totalItemsDisplay.textContent = this.items.length;
+        if (this._inPageView) {
+            this.currentItemDisplay.textContent = '';
+            this.totalItemsDisplay.textContent = '';
+        } else {
+            const displayIndex = Math.floor(this.currentIndex) + 1;
+            this.currentItemDisplay.textContent = displayIndex;
+            this.totalItemsDisplay.textContent = this.items.length;
+        }
 
         // Update path indicator
         if (this.counterPath) {
@@ -1220,6 +1363,8 @@ class ArcList {
         });
         // Clean up: remove transitional elements, keep breadcrumbs for stack frames
         this.container.querySelectorAll('.arc-item.parent-hidden, .arc-item.track-exit').forEach(el => el.remove());
+        const pageEl = this.container.querySelector('.page-view');
+        if (pageEl) pageEl.remove();
         this.isAnimating = false;
     }
 

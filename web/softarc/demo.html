@@ -298,6 +298,52 @@
             ]
         };
 
+        // ── News articles with page content ──
+
+        const NEWS_DATA = {
+            id: 'cat-news', name: 'News', icon: 'newspaper', color: '#FF6348',
+            subcategories: [
+                {
+                    id: 'news-tech', name: 'Technology', icon: 'cpu', color: '#4ECDC4',
+                    albums: [
+                        {
+                            id: 'article-1', name: 'The Future of\nQuantum Computing', icon: 'atom', color: '#9B59B6',
+                            page: {
+                                title: 'The Future of Quantum Computing',
+                                body: '<p>Quantum computing stands at a pivotal moment. After decades of theoretical research and laboratory experiments, the technology is finally approaching practical utility.</p><p>Recent breakthroughs in error correction have brought us closer to fault-tolerant quantum computers. Google\'s Willow chip demonstrated that increasing the number of qubits can actually <em>reduce</em> errors — a milestone that was once thought to be years away.</p><blockquote>We are entering the era where quantum computers will solve problems that no classical computer could ever tackle.</blockquote><p>The implications span across industries: drug discovery, materials science, cryptography, and financial modeling could all be transformed. IBM\'s roadmap projects systems with over 100,000 qubits by 2033, while startups like IonQ and Rigetti are pursuing alternative architectures.</p><p>However, significant challenges remain. Quantum decoherence, the need for extreme cooling, and the difficulty of programming quantum algorithms mean we\'re still in the early innings. The race isn\'t just about building bigger machines — it\'s about making them useful.</p>'
+                            }
+                        },
+                        {
+                            id: 'article-2', name: 'Open Source AI\nChanges Everything', icon: 'code', color: '#2ECC71',
+                            page: {
+                                title: 'Open Source AI Changes Everything',
+                                body: '<p>The open-source AI movement has fundamentally altered the competitive landscape. What was once the exclusive domain of well-funded labs is now accessible to individual developers and small teams worldwide.</p><p>Meta\'s release of Llama models set off a chain reaction. Within months, fine-tuned variants appeared that rivalled proprietary offerings on specific tasks. The community rallied around projects like Hugging Face, creating an ecosystem of shared models, datasets, and training techniques.</p><p>This democratization has real consequences:</p><p><strong>For businesses:</strong> Companies can now deploy AI without vendor lock-in, customizing models for their specific needs while keeping data on-premises.</p><p><strong>For researchers:</strong> Reproducibility — long a challenge in AI — improves when models and training code are publicly available.</p><p><strong>For society:</strong> Transparency in how models work helps build trust and enables independent auditing of potential biases.</p><p>The debate continues about whether open-sourcing powerful AI models creates safety risks, but the momentum is clear. The future of AI will be shaped as much by open communities as by closed labs.</p>'
+                            }
+                        },
+                        {
+                            id: 'article-3', name: 'The Chip Wars\nHeat Up', icon: 'lightning', color: '#E74C3C',
+                            page: {
+                                title: 'The Chip Wars Heat Up',
+                                body: '<p>The global semiconductor industry has become a geopolitical battleground. Export controls, massive subsidies, and supply chain reshoring are reshaping an industry that underpins modern civilisation.</p><p>TSMC remains the world\'s most critical manufacturer, producing the most advanced chips for Apple, Nvidia, and AMD. Its new Arizona fabs represent a historic shift — advanced chip manufacturing returning to American soil for the first time in decades.</p><p>Meanwhile, the AI boom has created insatiable demand for high-performance GPUs. Nvidia\'s market capitalisation surpassed $3 trillion, making it one of the most valuable companies in history. But competition is intensifying: AMD, Intel, and a wave of AI chip startups are all vying for a share of the market.</p><blockquote>Whoever controls chip manufacturing controls the future of technology.</blockquote><p>The stakes extend beyond economics. Advanced chips power everything from military systems to scientific research. Nations increasingly view semiconductor capability as a matter of national security.</p>'
+                            }
+                        },
+                    ]
+                },
+                {
+                    id: 'news-science', name: 'Science', icon: 'flask', color: '#3498DB',
+                    albums: [
+                        {
+                            id: 'article-4', name: 'Mars Sample Return\nMission Update', icon: 'planet', color: '#E67E22',
+                            page: {
+                                title: 'Mars Sample Return Mission Update',
+                                body: '<p>NASA\'s most ambitious robotic mission is taking shape. The Mars Sample Return campaign aims to bring Martian soil and rock samples — carefully collected by the Perseverance rover — back to Earth for detailed laboratory analysis.</p><p>The samples, sealed in titanium tubes and cached at designated locations in Jezero Crater, represent the most scientifically valuable material ever collected from another planet. They could contain evidence of ancient microbial life.</p><p>The return architecture involves multiple spacecraft: an orbiter, a lander with a small rocket (the Mars Ascent Vehicle), and autonomous helicopters derived from the Ingenuity design to retrieve sample tubes.</p><p>If successful, scientists on Earth could study Martian geology with instruments far more powerful than anything that could be sent to Mars. The mission is expected to return samples by the early 2030s.</p>'
+                            }
+                        },
+                    ]
+                },
+            ]
+        };
+
         // ── Assemble top-level demo data ──
 
         const DEMO_DATA = [
@@ -374,6 +420,7 @@
                 ]
             },
             FILES_DATA,
+            NEWS_DATA,
             {
                 id: 'cat-games', name: 'Games', icon: 'game-controller', color: '#2ECC71',
                 subcategories: [

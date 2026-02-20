@@ -132,6 +132,7 @@ class PlayerBase:
         app.router.add_post("/player/stop", self._handle_stop)
         app.router.add_get("/player/state", self._handle_state)
         app.router.add_get("/player/capabilities", self._handle_capabilities)
+        app.router.add_get("/player/status", self._handle_status)
 
         # Let subclass add extra routes
         self.add_routes(app)
@@ -252,6 +253,18 @@ class PlayerBase:
         return web.json_response(
             {"capabilities": caps},
             headers=self._cors_headers())
+
+    async def _handle_status(self, request: web.Request) -> web.Response:
+        status = await self.get_status()
+        return web.json_response(status, headers=self._cors_headers())
+
+    async def get_status(self) -> dict:
+        """Return player status. Override in subclass for richer data."""
+        return {
+            "player": self.id,
+            "name": self.name,
+            "ws_clients": len(self._ws_clients),
+        }
 
     # ── Subclass hooks ──
 

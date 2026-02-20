@@ -35,7 +35,7 @@ from pkce import (
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from lib.config import cfg
 from lib.source_base import SourceBase
-from playlist_lookup import get_playlist_uri
+from playlist_lookup import get_playlist_uri, DIGIT_PLAYLISTS_FILE
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger('beo-spotify')
@@ -108,6 +108,9 @@ class SpotifyService(SourceBase):
         self._pkce_state = {}  # Single dict, not per-session — fine for single-user device
         self._fetching_playlists = False  # True while initial fetch is running
         self._last_refresh = 0  # monotonic timestamp of last completed refresh
+        self._last_refresh_wall = None  # wall-clock datetime of last completed refresh
+        self._last_refresh_duration = None  # seconds the last refresh took
+        self._display_name = None  # Spotify display name from /v1/me
 
     async def on_start(self):
         # Load credentials (may fail — setup flow will handle it)
@@ -116,6 +119,9 @@ class SpotifyService(SourceBase):
         if has_creds:
             self._load_playlists()
             self.player = "remote"
+
+            # Fetch display name from Spotify profile
+            asyncio.create_task(self._fetch_display_name())
 
             # Check if a player service is available (Sonos, BlueSound, etc.)
             caps = await self.player_capabilities()
@@ -173,6 +179,24 @@ class SpotifyService(SourceBase):
             log.warning("Could not load playlists: %s", e)
             self.playlists = []
 
+    async def _fetch_display_name(self):
+        """Fetch Spotify display name from /v1/me."""
+        try:
+            token = await self.auth.get_token()
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    'https://api.spotify.com/v1/me',
+                    headers={'Authorization': f'Bearer {token}'},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        self._display_name = data.get('display_name') or data.get('id')
+                        log.info("Spotify display name: %s", self._display_name)
+        except Exception as e:
+            log.warning("Could not fetch Spotify display name: %s", e)
+
     # -- SourceBase hooks --
 
     def add_routes(self, app):
@@ -183,12 +207,28 @@ class SpotifyService(SourceBase):
         app.router.add_post('/logout', self._handle_logout)
 
     async def handle_status(self) -> dict:
+        # Load digit playlists mapping
+        digit_playlists = {}
+        try:
+            with open(DIGIT_PLAYLISTS_FILE) as f:
+                raw = json.load(f)
+            for d, info in raw.items():
+                if info and info.get('name'):
+                    digit_playlists[d] = info['name']
+        except Exception:
+            pass
+
         return {
             'state': self.state,
             'now_playing': self.now_playing,
             'playlist_count': len(self.playlists),
             'has_credentials': self.auth.is_configured,
             'needs_reauth': self.auth.revoked,
+            'display_name': self._display_name,
+            'last_refresh': self._last_refresh_wall.isoformat() if self._last_refresh_wall else None,
+            'last_refresh_duration': self._last_refresh_duration,
+            'digit_playlists': digit_playlists,
+            'fetching': self._fetching_playlists,
         }
 
     async def handle_resync(self) -> dict:
@@ -347,6 +387,7 @@ class SpotifyService(SourceBase):
         if self.auth.revoked:
             return  # don't bother — token is dead
         self._fetching_playlists = True
+        t0 = time.monotonic()
         try:
             # Get a valid access token to pass to the subprocess
             try:
@@ -366,7 +407,10 @@ class SpotifyService(SourceBase):
             if proc.returncode == 0:
                 self._load_playlists()
                 self._last_refresh = time.monotonic()
-                log.info("Playlist refresh complete (%d playlists)", len(self.playlists))
+                self._last_refresh_wall = datetime.now()
+                self._last_refresh_duration = round(time.monotonic() - t0, 1)
+                log.info("Playlist refresh complete (%d playlists, %.1fs)",
+                         len(self.playlists), self._last_refresh_duration)
             else:
                 err_msg = (stdout.decode() + stderr.decode())[-500:]
                 log.error("fetch.py failed (rc=%d): %s",
@@ -675,6 +719,9 @@ label{{display:block;margin-top:12px;color:#666;font-size:13px;text-transform:up
 
             # Register as available now that we have credentials
             await self.register("available")
+
+            # Fetch display name
+            asyncio.create_task(self._fetch_display_name())
 
             # Kick off playlist refresh in background (no initial delay)
             self._fetching_playlists = True
