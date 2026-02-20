@@ -23,10 +23,7 @@ import time
 import logging
 import sys
 import os
-from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-import base64
-from io import BytesIO
 import aiohttp
 
 # Import Sonos libraries
@@ -38,26 +35,17 @@ except ImportError:
     print("ERROR: soco library not installed. Install with: pip install soco")
     sys.exit(1)
 
-try:
-    from PIL import Image
-except ImportError:
-    print("ERROR: Pillow library not installed. Install with: pip install pillow")
-    sys.exit(1)
-
 # Ensure services/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.config import cfg
 from lib.player_base import PlayerBase
-from lib.watchdog import watchdog_loop
 
 # Configuration
 SONOS_IP = cfg("player", "ip", default="192.168.0.190")
 POLL_INTERVAL = 0.5  # seconds between change checks (fast for responsive track changes)
-MAX_ARTWORK_SIZE = 500 * 1024  # 500KB limit for artwork
-ARTWORK_CACHE_SIZE = 100  # number of artworks to cache (~3-5MB RAM)
 PREFETCH_COUNT = 5  # number of upcoming tracks to prefetch
 
-# Thread pool for CPU-bound image processing
+# Thread pool for blocking SoCo calls
 executor = ThreadPoolExecutor(max_workers=2)
 
 # Logging setup
@@ -68,46 +56,13 @@ logging.basicConfig(
 logger = logging.getLogger('beo-player-sonos')
 
 
-class ArtworkCache:
-    """Simple LRU cache for artwork data (URL -> base64)."""
-
-    def __init__(self, max_size=20):
-        self.max_size = max_size
-        self._cache = OrderedDict()
-
-    def get(self, url):
-        """Get cached artwork, moving to end (most recently used)."""
-        if url in self._cache:
-            self._cache.move_to_end(url)
-            return self._cache[url]
-        return None
-
-    def put(self, url, data):
-        """Cache artwork data, evicting oldest if full."""
-        if url in self._cache:
-            self._cache.move_to_end(url)
-        else:
-            if len(self._cache) >= self.max_size:
-                self._cache.popitem(last=False)  # Remove oldest
-            self._cache[url] = data
-
-    def __contains__(self, url):
-        return url in self._cache
-
-    def __len__(self):
-        return len(self._cache)
-
-
-# Global artwork cache
-artwork_cache = ArtworkCache(max_size=ARTWORK_CACHE_SIZE)
-
-
 class SonosArtworkViewer:
     """Integrated Sonos artwork viewer for direct communication with Sonos devices."""
 
-    def __init__(self, sonos_ip):
+    def __init__(self, sonos_ip, player=None):
         self.sonos_ip = sonos_ip
         self.sonos = SoCo(sonos_ip)
+        self._player = player  # PlayerBase instance for artwork cache
         self._cached_coordinator = None
         self._coordinator_check_time = 0
 
@@ -179,81 +134,10 @@ class SonosArtworkViewer:
         return artwork_url
 
     async def fetch_artwork_async(self, url, session=None):
-        """Fetch artwork from URL asynchronously and return as base64 string."""
-        global artwork_cache
-
-        cached = artwork_cache.get(url)
-        if cached is not None:
-            logger.debug(f"Artwork cache hit for {url}")
-            return cached
-
-        logger.debug(f"Artwork cache miss, fetching: {url}")
-
-        try:
-            close_session = False
-            if session is None:
-                session = aiohttp.ClientSession()
-                close_session = True
-
-            try:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    response.raise_for_status()
-                    image_bytes = await response.read()
-
-                    if len(image_bytes) == 0:
-                        logger.warning("Artwork URL returned 0 bytes")
-                        return None
-
-                    logger.debug(f"Downloaded {len(image_bytes)} bytes of artwork data")
-
-                    loop = asyncio.get_event_loop()
-                    result = await loop.run_in_executor(
-                        executor, self._process_image, image_bytes
-                    )
-
-                    if result:
-                        artwork_cache.put(url, result)
-                        logger.info(f"Cached artwork for {url} ({len(artwork_cache)} items in cache)")
-
-                    return result
-
-            finally:
-                if close_session:
-                    await session.close()
-
-        except aiohttp.ClientError as e:
-            logger.warning(f"Error fetching artwork: {e}")
-            return None
-        except Exception as e:
-            logger.warning(f"Error processing artwork: {e}")
-            return None
-
-    def _process_image(self, image_bytes):
-        """Process image bytes into base64 string (CPU-bound, runs in thread pool)."""
-        try:
-            image = Image.open(BytesIO(image_bytes))
-
-            if image.mode in ('RGBA', 'LA', 'P'):
-                image = image.convert('RGB')
-
-            img_io = BytesIO()
-            image.save(img_io, 'JPEG', quality=85)
-
-            if img_io.tell() > MAX_ARTWORK_SIZE:
-                img_io = BytesIO()
-                image.save(img_io, 'JPEG', quality=60)
-
-            img_io.seek(0)
-            base64_data = base64.b64encode(img_io.getvalue()).decode('utf-8')
-
-            return {
-                'base64': base64_data,
-                'size': image.size
-            }
-
-        except Exception as e:
-            logger.warning(f"Error processing image: {e}")
-            return None
+        """Delegate to PlayerBase.fetch_artwork (shared cache + image processing)."""
+        if self._player:
+            return await self._player.fetch_artwork(url, session=session)
+        return None
 
     def get_queue_artwork_urls(self, count=3):
         """Get artwork URLs for upcoming tracks in the queue."""
@@ -301,7 +185,7 @@ class SonosArtworkViewer:
         async with aiohttp.ClientSession() as session:
             tasks = []
             for position, url in urls:
-                if url in artwork_cache:
+                if self._player and url in self._player._artwork_cache:
                     logger.debug(f"Track {position} artwork already cached")
                     continue
                 tasks.append(self._prefetch_single(session, position, url))
@@ -327,10 +211,6 @@ class SonosArtworkViewer:
             logger.debug(f"Failed to prefetch track {position}: {e}")
 
 
-ROUTER_VOLUME_REPORT_URL = "http://localhost:8770/router/volume/report"
-ROUTER_PLAYBACK_OVERRIDE_URL = "http://localhost:8770/router/playback_override"
-
-
 class MediaServer(PlayerBase):
     id = "sonos"
     name = "Sonos"
@@ -338,18 +218,12 @@ class MediaServer(PlayerBase):
 
     def __init__(self):
         super().__init__()
-        self.running = False
-        self.sonos_viewer = SonosArtworkViewer(SONOS_IP)
-        self._last_reported_volume = None
-        self._monitor_task = None
-        self._http_session = None
-        # Monitoring state
+        self.sonos_viewer = SonosArtworkViewer(SONOS_IP, player=self)
+        # Sonos-specific monitoring state
         self._current_track_id = None
         self._current_position = None
-        self._current_playback_state = None
-        self._cached_media_data = None
         self._last_update_time = 0
-        # Broadcast suppression during track switches
+        # Broadcast suppression during Spotify track switches
         self._suppress_until_track = None   # Spotify track ID to wait for
         self._suppress_set_time = 0.0       # monotonic time when suppression was set
 
@@ -473,9 +347,6 @@ class MediaServer(PlayerBase):
             logger.error("Stop failed: %s", e)
             return False
 
-    async def get_state(self) -> str:
-        return self._current_playback_state or "stopped"
-
     async def get_capabilities(self) -> list:
         return ["spotify", "url_stream"]
 
@@ -495,7 +366,7 @@ class MediaServer(PlayerBase):
             } if cached else None,
             "is_grouped": cached.get("is_grouped", False),
             "coordinator_name": cached.get("coordinator_name"),
-            "artwork_cache_size": len(artwork_cache),
+            "artwork_cache_size": len(self._artwork_cache),
         })
         return base
 
@@ -525,23 +396,8 @@ class MediaServer(PlayerBase):
     # ── PlayerBase hooks ──
 
     async def on_start(self):
-        self.running = True
-        self._http_session = aiohttp.ClientSession()
-        logger.info(f"Starting media server for Sonos at {SONOS_IP}")
-
-        # Start systemd watchdog heartbeat
-        asyncio.create_task(watchdog_loop())
-
-        # Start background monitoring
+        logger.info("Starting media server for Sonos at %s", SONOS_IP)
         self._monitor_task = asyncio.create_task(self.monitor_sonos())
-
-    async def on_stop(self):
-        self.running = False
-        if self._monitor_task:
-            self._monitor_task.cancel()
-        if self._http_session:
-            await self._http_session.close()
-            self._http_session = None
 
     async def on_ws_connect(self, ws):
         """Send cached media data to new WebSocket client."""
@@ -596,13 +452,12 @@ class MediaServer(PlayerBase):
 
                     self._current_playback_state = state
 
-                    # Report volume changes to the router
+                    # Report volume changes to the router (base deduplicates)
                     try:
                         vol = await loop.run_in_executor(
                             executor, lambda: coordinator.volume) if coordinator else None
-                        if vol is not None and vol != self._last_reported_volume:
-                            self._last_reported_volume = vol
-                            await self._report_volume_to_router(vol)
+                        if vol is not None:
+                            await self.report_volume_to_router(vol)
                     except Exception as e:
                         logger.debug(f"Could not check Sonos volume: {e}")
 
@@ -675,7 +530,7 @@ class MediaServer(PlayerBase):
                             )
                         )
                         asyncio.create_task(
-                            self._notify_router_playback_override(force=is_native_service)
+                            self.notify_router_playback_override(force=is_native_service)
                         )
 
                     self._current_position = position
@@ -779,54 +634,6 @@ class MediaServer(PlayerBase):
         except (ValueError, TypeError, IndexError):
             pass
         return 0
-
-    async def trigger_wake(self):
-        """Trigger screen wake via input service webhook."""
-        try:
-            async with self._http_session.post(
-                'http://localhost:8767/webhook',
-                json={'command': 'wake', 'params': {'page': 'now_playing'}},
-                timeout=aiohttp.ClientTimeout(total=2)
-            ) as response:
-                if response.status == 200:
-                    logger.info("Triggered screen wake")
-                else:
-                    logger.warning(f"Wake trigger returned status {response.status}")
-        except Exception as e:
-            logger.warning(f"Could not trigger wake: {e}")
-
-    async def _report_volume_to_router(self, volume: int):
-        """Report a Sonos volume change to the router so the UI arc stays in sync."""
-        try:
-            async with self._http_session.post(
-                ROUTER_VOLUME_REPORT_URL,
-                json={'volume': volume},
-                timeout=aiohttp.ClientTimeout(total=2)
-            ) as response:
-                if response.status == 200:
-                    logger.info(f"Reported volume {volume}% to router")
-                else:
-                    logger.debug(f"Router volume report returned {response.status}")
-        except Exception as e:
-            logger.debug(f"Could not report volume to router: {e}")
-
-    async def _notify_router_playback_override(self, force=False):
-        """Notify the router that Sonos media changed externally."""
-        try:
-            async with self._http_session.post(
-                ROUTER_PLAYBACK_OVERRIDE_URL,
-                json={"force": force},
-                timeout=aiohttp.ClientTimeout(total=2)
-            ) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if result.get('cleared'):
-                        logger.info("Router active source cleared (playback override)")
-                    else:
-                        logger.debug(f"Playback override not applied: {result.get('reason')}")
-        except Exception as e:
-            logger.debug(f"Could not notify router of playback override: {e}")
-
 
 async def main():
     """Main entry point."""

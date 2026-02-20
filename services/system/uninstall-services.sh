@@ -15,12 +15,14 @@ fi
 # Define service files
 SERVICES=(
     "beo-ui.service"
+    "beo-source-news.service"
     "beo-source-usb.service"
     "beo-source-cd.service"
     "beo-bluetooth.service"
     "beo-masterlink.service"
     "beo-router.service"
     "beo-input.service"
+    "beo-player-bluesound.service"
     "beo-player-sonos.service"
     "beo-http.service"
 )

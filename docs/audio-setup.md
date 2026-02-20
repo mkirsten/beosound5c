@@ -80,9 +80,9 @@ The Sonos speaker handles playback natively. The BS5c sends commands and monitor
 
 The BS5c plays audio locally and streams it wirelessly to an AirPlay-compatible speaker. This works with any AirPlay receiver (HomePod, airport, third-party speakers, etc.).
 
-### BeoLab 5 (via ESP32 Controller)
+### BeoLab 5 (via BeoLab 5 Controller)
 
-A custom option for controlling a pair of BeoLab 5 speakers via their sync port. Requires the BeoLab 5 Controller — an ESP32 board running a custom ESPHome component that sends serial commands to both speakers.
+A custom option for controlling a pair of BeoLab 5 speakers via their sync port. Requires the BeoLab 5 Controller — a dedicated board that sends serial commands to both speakers.
 
 **Config:**
 ```json

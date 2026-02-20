@@ -43,9 +43,19 @@ def _validate(config: dict, path: str) -> None:
     if not ha.get("webhook_url"):
         logger.warning("Config %s: missing home_assistant.webhook_url — HA integration disabled", path)
     vol = config.get("volume") or {}
-    vol_type = vol.get("type", "esphome")
-    if vol_type not in ("esphome", "beolab5", "sonos", "powerlink", "c4amp", "hdmi", "spdif", "rca"):
+    vol_type = vol.get("type", "beolab5")
+    if vol_type not in ("esphome", "beolab5", "sonos", "bluesound", "powerlink", "c4amp", "hdmi", "spdif", "rca"):
         logger.warning("Config %s: unknown volume.type '%s'", path, vol_type)
+    # News source requires a Guardian API key
+    menu = config.get("menu") or {}
+    has_news = any(
+        (v == "news") or (isinstance(v, dict) and v.get("id") == "news")
+        for v in menu.values()
+    )
+    if has_news:
+        news_cfg = config.get("news") or {}
+        if not news_cfg.get("guardian_api_key"):
+            logger.error("Config %s: NEWS source in menu but no news.guardian_api_key — service will refuse to start", path)
 
 
 def load_config() -> dict:

@@ -1,5 +1,5 @@
 """
-BeoLab 5 volume adapter — controls volume via ESPHome REST API on an ESP32.
+BeoLab 5 volume adapter — controls volume via BeoLab 5 controller REST API.
 """
 
 import asyncio
@@ -13,7 +13,7 @@ logger = logging.getLogger("beo-router.volume.beolab5")
 
 
 class BeoLab5Volume(VolumeAdapter):
-    """Volume control via an ESPHome REST API (e.g. BeoLab 5 ESP32)."""
+    """Volume control via the BeoLab 5 controller REST API."""
 
     def __init__(self, host: str, max_volume: int, session: aiohttp.ClientSession):
         self._host = host
@@ -126,7 +126,7 @@ class BeoLab5Volume(VolumeAdapter):
     # -- internal --
 
     async def _flush(self):
-        """Send the most recent pending volume value to ESPHome."""
+        """Send the most recent pending volume value to the BeoLab 5 controller."""
         vol = self._pending_volume
         if vol is None:
             return

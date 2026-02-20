@@ -3,7 +3,7 @@ PowerLink volume adapter — controls B&O speakers via masterlink.py HTTP API.
 
 masterlink.py owns the PC2 USB device and exposes mixer control on a local
 HTTP port (default 8768).  This adapter is a thin HTTP client, following the
-same pattern as BeoLab5Volume → ESPHome REST API.
+same pattern as BeoLab5Volume → BeoLab 5 controller REST API.
 
 Chain: router.py → PowerLinkVolume → HTTP → masterlink.py → PC2 USB → speakers
 """

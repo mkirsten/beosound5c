@@ -6,8 +6,9 @@ specific output type.  The factory function ``create_volume_adapter`` reads
 config.json and returns the correct adapter.
 
 Supported types:
-  - ``beolab5`` / ``esphome``  – BeoLab 5 via ESPHome REST API (default)
+  - ``beolab5`` (or ``esphome`` for compat) – BeoLab 5 via controller REST API (default)
   - ``sonos``                  – Sonos speaker via SoCo library
+  - ``bluesound``              – BlueSound speaker via BluOS HTTP API
   - ``powerlink``              – B&O speakers via masterlink.py mixer HTTP API
   - ``c4amp``                  – Control4 amplifier via UDP
   - ``hdmi``                   – HDMI1 audio output (ALSA software volume)
@@ -22,6 +23,7 @@ import aiohttp
 from ..config import cfg
 from .base import VolumeAdapter
 from .beolab5 import BeoLab5Volume
+from .bluesound import BluesoundVolume
 from .c4amp import C4AmpVolume
 from .hdmi import HdmiVolume
 from .powerlink import PowerLinkVolume
@@ -34,6 +36,7 @@ logger = logging.getLogger("beo-router.volume")
 __all__ = [
     "VolumeAdapter",
     "BeoLab5Volume",
+    "BluesoundVolume",
     "C4AmpVolume",
     "HdmiVolume",
     "PowerLinkVolume",
@@ -48,16 +51,34 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
     """Create the right volume adapter based on config.json.
 
     Reads from config.json "volume" section:
-      type        – "esphome"/"beolab5" (default), "sonos", "powerlink",
-                    "c4amp", "hdmi", "spdif", or "rca"
+      type        – "beolab5" (also accepts "esphome"), "sonos", "bluesound",
+                    "powerlink", "c4amp", "hdmi", "spdif", or "rca".
+                    If omitted, defaults to player.type for sonos/bluesound,
+                    "powerlink" for local/powerlink, otherwise "beolab5".
       host        – target host/IP (not used by hdmi/spdif/rca/powerlink-localhost)
       max         – max volume percentage (default 70)
       zone        – C4 amp output zone, e.g. "01" (c4amp only, default "01")
       input       – C4 amp source input for power_on (c4amp only, default "01")
       mixer_port  – masterlink.py mixer HTTP port (default 8768, powerlink only)
     """
-    vol_type = str(cfg("volume", "type", default="esphome")).lower()
-    vol_host = cfg("volume", "host", default="beolab5-controller.local")
+    vol_type = cfg("volume", "type")
+    if vol_type is None:
+        # Default to matching the player type for sonos/bluesound
+        player_type = str(cfg("player", "type", default="")).lower()
+        if player_type in ("sonos", "bluesound"):
+            vol_type = player_type
+        elif player_type in ("local", "powerlink"):
+            vol_type = "powerlink"
+        else:
+            vol_type = "beolab5"
+    vol_type = str(vol_type).lower()
+    # Default host: use player IP for sonos/bluesound, otherwise beolab5 controller
+    vol_host_default = "beolab5-controller.local"
+    if vol_type in ("sonos", "bluesound") and not cfg("volume", "host"):
+        vol_host_default = cfg("player", "ip", default="")
+    elif vol_type == "powerlink" and not cfg("volume", "host"):
+        vol_host_default = "localhost"
+    vol_host = cfg("volume", "host", default=vol_host_default)
     vol_max = int(cfg("volume", "max", default=70))
 
     if vol_type == "powerlink":
@@ -72,6 +93,9 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
         logger.info("Volume adapter: C4 amp @ %s zone %s (max %d%%)",
                      vol_host, zone, vol_max)
         return C4AmpVolume(vol_host, vol_max, zone, input_id)
+    elif vol_type == "bluesound":
+        logger.info("Volume adapter: BlueSound @ %s (max %d%%)", vol_host, vol_max)
+        return BluesoundVolume(vol_host, vol_max, session)
     elif vol_type == "sonos":
         logger.info("Volume adapter: Sonos @ %s (max %d%%)", vol_host, vol_max)
         return SonosVolume(vol_host, vol_max)

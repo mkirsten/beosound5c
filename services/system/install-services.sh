@@ -25,6 +25,7 @@ SERVICES=(
     "beo-source-cd.service"
     "beo-spotify.service"
     "beo-source-usb.service"
+    "beo-source-news.service"
     "beo-ui.service"
     "beo-notify-failure@.service"
     "beo-health.service"
@@ -205,6 +206,10 @@ echo "  📡 Starting Sonos player..."
 systemctl enable beo-player-sonos.service
 systemctl start beo-player-sonos.service
 
+echo "  📡 Starting BlueSound player..."
+systemctl enable beo-player-bluesound.service
+systemctl start beo-player-bluesound.service
+
 echo "  🎮 Starting input server..."
 systemctl enable beo-input.service
 systemctl start beo-input.service
@@ -232,6 +237,10 @@ systemctl start beo-spotify.service
 echo "  💾 Starting USB source..."
 systemctl enable beo-source-usb.service
 systemctl start beo-source-usb.service
+
+echo "  📰 Starting News source..."
+systemctl enable beo-source-news.service
+systemctl start beo-source-news.service
 
 # Start UI service last (depends on HTTP)
 echo "  🖥️  Starting UI service..."

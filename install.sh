@@ -692,7 +692,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     echo ""
     echo "  1) Sonos      - Sonos speaker (most common)"
     echo "  2) BlueSound  - BlueSound player"
-    echo "  3) None       - No network player"
+    echo "  3) Local      - Local from the BeoSound 5c"
     echo ""
 
     PLAYER_TYPE="sonos"
@@ -1186,37 +1186,124 @@ if [ ! -f "$CONFIG_FILE" ]; then
     echo ""
     echo "Volume control method:"
     echo ""
-    echo "  1) ESPHome  - Control volume via ESPHome REST API (e.g. BeoLab 5 ESP32 controller)"
-    echo "  2) Sonos    - Control volume directly on the Sonos speaker"
-    echo ""
 
-    VOLUME_TYPE="esphome"
+    VOLUME_TYPE="beolab5"
     VOLUME_HOST=""
     VOLUME_MAX="70"
+    VOLUME_ZONE=""
+    VOLUME_INPUT=""
+    VOLUME_MIXER_PORT=""
 
-    while true; do
-        read -p "Select volume control [1-2, default 1]: " VOLUME_CHOICE
-        VOLUME_CHOICE="${VOLUME_CHOICE:-1}"
-        case "$VOLUME_CHOICE" in
-            1) VOLUME_TYPE="esphome"; break ;;
-            2) VOLUME_TYPE="sonos"; break ;;
-            *) echo "Invalid selection. Please enter 1 or 2." ;;
-        esac
-    done
-
-    if [[ "$VOLUME_TYPE" == "esphome" ]]; then
-        DEFAULT_VOLUME_HOST="beolab5-controller.local"
-        read -p "ESPHome controller hostname [$DEFAULT_VOLUME_HOST]: " VOLUME_HOST
-        VOLUME_HOST="${VOLUME_HOST:-$DEFAULT_VOLUME_HOST}"
+    if [[ "$PLAYER_TYPE" == "sonos" ]]; then
+        echo "  1) Sonos       - Control volume directly on the Sonos speaker (Recommended)"
+        echo "  2) BeoLab 5    - BeoLab 5 via controller REST API"
+        echo "  3) PowerLink   - B&O speakers via MasterLink mixer"
+        echo "  4) C4 Amp      - Control4 amplifier via UDP"
+        echo "  5) HDMI        - HDMI audio output (ALSA software volume)"
+        echo "  6) S/PDIF      - S/PDIF HAT output (ALSA software volume)"
+        echo "  7) RCA         - RCA analog output (no volume control)"
+        echo ""
+        while true; do
+            read -p "Select volume control [1-7, default 1]: " VOLUME_CHOICE
+            VOLUME_CHOICE="${VOLUME_CHOICE:-1}"
+            case "$VOLUME_CHOICE" in
+                1) VOLUME_TYPE="sonos"; break ;;
+                2) VOLUME_TYPE="beolab5"; break ;;
+                3) VOLUME_TYPE="powerlink"; break ;;
+                4) VOLUME_TYPE="c4amp"; break ;;
+                5) VOLUME_TYPE="hdmi"; break ;;
+                6) VOLUME_TYPE="spdif"; break ;;
+                7) VOLUME_TYPE="rca"; break ;;
+                *) echo "Invalid selection. Please enter 1-7." ;;
+            esac
+        done
+    elif [[ "$PLAYER_TYPE" == "bluesound" ]]; then
+        echo "  1) BlueSound   - Control volume directly on the BlueSound player (Recommended)"
+        echo "  2) BeoLab 5    - BeoLab 5 via controller REST API"
+        echo "  3) PowerLink   - B&O speakers via MasterLink mixer"
+        echo "  4) C4 Amp      - Control4 amplifier via UDP"
+        echo "  5) HDMI        - HDMI audio output (ALSA software volume)"
+        echo "  6) S/PDIF      - S/PDIF HAT output (ALSA software volume)"
+        echo "  7) RCA         - RCA analog output (no volume control)"
+        echo ""
+        while true; do
+            read -p "Select volume control [1-7, default 1]: " VOLUME_CHOICE
+            VOLUME_CHOICE="${VOLUME_CHOICE:-1}"
+            case "$VOLUME_CHOICE" in
+                1) VOLUME_TYPE="bluesound"; break ;;
+                2) VOLUME_TYPE="beolab5"; break ;;
+                3) VOLUME_TYPE="powerlink"; break ;;
+                4) VOLUME_TYPE="c4amp"; break ;;
+                5) VOLUME_TYPE="hdmi"; break ;;
+                6) VOLUME_TYPE="spdif"; break ;;
+                7) VOLUME_TYPE="rca"; break ;;
+                *) echo "Invalid selection. Please enter 1-7." ;;
+            esac
+        done
     else
-        VOLUME_HOST="$PLAYER_IP"
-        log_info "Using player IP ($PLAYER_IP) for volume control"
+        echo "  1) PowerLink   - B&O speakers via MasterLink mixer (Recommended)"
+        echo "  2) BeoLab 5    - BeoLab 5 via controller REST API"
+        echo "  3) C4 Amp      - Control4 amplifier via UDP"
+        echo "  4) HDMI        - HDMI audio output (ALSA software volume)"
+        echo "  5) S/PDIF      - S/PDIF HAT output (ALSA software volume)"
+        echo "  6) RCA         - RCA analog output (no volume control)"
+        echo ""
+        while true; do
+            read -p "Select volume control [1-6, default 1]: " VOLUME_CHOICE
+            VOLUME_CHOICE="${VOLUME_CHOICE:-1}"
+            case "$VOLUME_CHOICE" in
+                1) VOLUME_TYPE="powerlink"; break ;;
+                2) VOLUME_TYPE="beolab5"; break ;;
+                3) VOLUME_TYPE="c4amp"; break ;;
+                4) VOLUME_TYPE="hdmi"; break ;;
+                5) VOLUME_TYPE="spdif"; break ;;
+                6) VOLUME_TYPE="rca"; break ;;
+                *) echo "Invalid selection. Please enter 1-6." ;;
+            esac
+        done
     fi
+
+    # Per-type configuration
+    case "$VOLUME_TYPE" in
+        beolab5)
+            DEFAULT_VOLUME_HOST="beolab5-controller.local"
+            read -p "BeoLab 5 controller hostname [$DEFAULT_VOLUME_HOST]: " VOLUME_HOST
+            VOLUME_HOST="${VOLUME_HOST:-$DEFAULT_VOLUME_HOST}"
+            ;;
+        sonos|bluesound)
+            VOLUME_HOST="$PLAYER_IP"
+            log_info "Using player IP ($PLAYER_IP) for volume control"
+            ;;
+        powerlink)
+            DEFAULT_VOLUME_HOST="localhost"
+            read -p "MasterLink mixer host [$DEFAULT_VOLUME_HOST]: " VOLUME_HOST
+            VOLUME_HOST="${VOLUME_HOST:-$DEFAULT_VOLUME_HOST}"
+            read -p "Mixer HTTP port [8768]: " VOLUME_MIXER_PORT
+            VOLUME_MIXER_PORT="${VOLUME_MIXER_PORT:-8768}"
+            ;;
+        c4amp)
+            read -p "C4 amplifier IP address: " VOLUME_HOST
+            VOLUME_HOST="${VOLUME_HOST:-192.168.1.100}"
+            read -p "Output zone [01]: " VOLUME_ZONE
+            VOLUME_ZONE="${VOLUME_ZONE:-01}"
+            read -p "Source input [01]: " VOLUME_INPUT
+            VOLUME_INPUT="${VOLUME_INPUT:-01}"
+            ;;
+        hdmi|spdif|rca)
+            VOLUME_HOST=""
+            ;;
+    esac
 
     read -p "Maximum volume percentage [70]: " VOLUME_MAX
     VOLUME_MAX="${VOLUME_MAX:-70}"
 
-    log_success "Output: $OUTPUT_NAME, volume: $VOLUME_TYPE @ $VOLUME_HOST (max $VOLUME_MAX%%)"
+    # Build extra volume config fields
+    VOLUME_EXTRA=""
+    [[ -n "$VOLUME_ZONE" ]] && VOLUME_EXTRA="$VOLUME_EXTRA, \"zone\": \"$VOLUME_ZONE\""
+    [[ -n "$VOLUME_INPUT" ]] && VOLUME_EXTRA="$VOLUME_EXTRA, \"input\": \"$VOLUME_INPUT\""
+    [[ -n "$VOLUME_MIXER_PORT" ]] && VOLUME_EXTRA="$VOLUME_EXTRA, \"mixer_port\": $VOLUME_MIXER_PORT"
+
+    log_success "Output: $OUTPUT_NAME, volume: $VOLUME_TYPE @ ${VOLUME_HOST:-local} (max $VOLUME_MAX%%)"
 
     # -------------------------------------------------------------------------
     # Write config.json
@@ -1257,7 +1344,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     "host": "$VOLUME_HOST",
     "max": $VOLUME_MAX,
     "step": 3,
-    "output_name": "$OUTPUT_NAME"
+    "output_name": "$OUTPUT_NAME"$VOLUME_EXTRA
   },
   "cd": { "device": "/dev/sr0" },
   "spotify": { "client_id": "$SPOTIFY_CLIENT_ID" }
@@ -1455,7 +1542,7 @@ echo -e "${CYAN}║${NC}                                                        
 echo -e "${CYAN}║${NC}  ${YELLOW}Audio Output${NC}                                                ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  Output:           ${GREEN}${OUTPUT_NAME:-BeoLab 5}${NC}"
-echo -e "${CYAN}║${NC}  Volume Control:   ${GREEN}${VOLUME_TYPE:-esphome} @ ${VOLUME_HOST:-beolab5-controller.local}${NC}"
+echo -e "${CYAN}║${NC}  Volume Control:   ${GREEN}${VOLUME_TYPE:-beolab5} @ ${VOLUME_HOST:-beolab5-controller.local}${NC}"
 echo -e "${CYAN}║${NC}  Max Volume:       ${GREEN}${VOLUME_MAX:-70}%%${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  ${YELLOW}Bluetooth Remote${NC}                                          ${CYAN}║${NC}"
