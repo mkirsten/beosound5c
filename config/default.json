@@ -47,5 +47,5 @@
   },
   "cd": { "device": "/dev/sr0" },
   "spotify": { "client_id": "" },
-  "news": { "guardian_api_key": "" }
+  "news": { "guardian_api_key": "test" }
 }

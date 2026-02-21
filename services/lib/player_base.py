@@ -275,6 +275,11 @@ class PlayerBase:
         if configured and configured != self.id:
             log.info("Config player.type=%s but this is %s — exiting",
                      configured, self.id)
+            # Tell systemd we started and are stopping (avoids 'protocol' failure
+            # with Type=notify when we exit before sending READY=1)
+            from .watchdog import sd_notify
+            sd_notify("READY=1\nSTATUS=Wrong player type, exiting")
+            sd_notify("STOPPING=1")
             sys.exit(0)
 
         self.running = True

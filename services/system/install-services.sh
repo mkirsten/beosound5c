@@ -78,6 +78,23 @@ echo ""
 sudo systemctl daemon-reload
 sudo systemctl reset-failed
 
+# Remove stale/renamed service files
+STALE_SERVICES=(
+    "beo-cd-source.service"      # renamed to beo-source-cd
+    "beo-usb-source.service"     # renamed to beo-source-usb
+    "beo-media.service"          # removed
+    "beo-spotify-fetch.service"  # removed
+)
+echo "🧹 Cleaning up stale services..."
+for svc in "${STALE_SERVICES[@]}"; do
+    if [ -f "$SERVICE_DIR/$svc" ]; then
+        echo "  🗑️  Removing $svc"
+        systemctl stop "$svc" 2>/dev/null || true
+        systemctl disable "$svc" 2>/dev/null || true
+        rm -f "$SERVICE_DIR/$svc"
+    fi
+done
+
 # Copy service files to systemd directory
 echo "📋 Copying service files..."
 for service in "${SERVICES[@]}"; do
@@ -202,13 +219,31 @@ echo "  🌐 Starting HTTP server..."
 systemctl enable beo-http.service
 systemctl start beo-http.service
 
-echo "  📡 Starting Sonos player..."
-systemctl enable beo-player-sonos.service
-systemctl start beo-player-sonos.service
+# Determine configured player type from config.json
+PLAYER_TYPE=$(python3 -c "import json; print(json.load(open('$CONFIG_DIR/config.json')).get('player',{}).get('type','sonos'))" 2>/dev/null || echo "sonos")
+echo "  ℹ️  Configured player type: $PLAYER_TYPE"
 
-echo "  📡 Starting BlueSound player..."
-systemctl enable beo-player-bluesound.service
-systemctl start beo-player-bluesound.service
+if [ "$PLAYER_TYPE" = "sonos" ]; then
+    echo "  📡 Starting Sonos player..."
+    systemctl enable beo-player-sonos.service
+    systemctl start beo-player-sonos.service
+    echo "  📡 Disabling BlueSound player (not configured)..."
+    systemctl disable beo-player-bluesound.service 2>/dev/null || true
+    systemctl stop beo-player-bluesound.service 2>/dev/null || true
+elif [ "$PLAYER_TYPE" = "bluesound" ]; then
+    echo "  📡 Starting BlueSound player..."
+    systemctl enable beo-player-bluesound.service
+    systemctl start beo-player-bluesound.service
+    echo "  📡 Disabling Sonos player (not configured)..."
+    systemctl disable beo-player-sonos.service 2>/dev/null || true
+    systemctl stop beo-player-sonos.service 2>/dev/null || true
+else
+    echo "  ⚠️  Unknown player type '$PLAYER_TYPE', starting both..."
+    systemctl enable beo-player-sonos.service
+    systemctl start beo-player-sonos.service || true
+    systemctl enable beo-player-bluesound.service
+    systemctl start beo-player-bluesound.service || true
+fi
 
 echo "  🎮 Starting input server..."
 systemctl enable beo-input.service
