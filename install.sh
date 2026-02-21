@@ -195,16 +195,7 @@ log_success "System packages installed"
 log_section "Installing Python Packages"
 
 log_info "Installing Python packages via pip..."
-pip3 install --break-system-packages \
-    'soco>=0.30.0' \
-    'pillow>=10.0.0' \
-    'requests>=2.31.0' \
-    'websockets>=12.0' \
-    'websocket-client>=1.6.0' \
-    'aiohttp>=3.9.0' \
-    'pyusb>=1.2.1' \
-    'aiomqtt>=2.0.0' \
-    'edge-tts>=6.1.0'
+pip3 install --break-system-packages -r "$SCRIPT_DIR/requirements.txt"
 
 log_success "Python packages installed"
 
@@ -1373,11 +1364,10 @@ EOF
     chmod 600 "$SECRETS_FILE"
     log_success "Secrets saved to $SECRETS_FILE"
 
-    # Also copy config.json into web/json/ so the UI can load it
+    # Symlink web/json/config.json → /etc/beosound5c/config.json so the UI can load it via HTTP
     mkdir -p "$INSTALL_DIR/web/json"
-    cp "$CONFIG_FILE" "$INSTALL_DIR/web/json/config.json"
-    chown "$INSTALL_USER:$INSTALL_USER" "$INSTALL_DIR/web/json/config.json"
-    log_success "Config copied to web/json/config.json for UI"
+    ln -sf "$CONFIG_FILE" "$INSTALL_DIR/web/json/config.json"
+    log_success "Config symlinked to web/json/config.json for UI"
 fi
 
 # =============================================================================

@@ -37,7 +37,7 @@ pip install soco pillow websockets aiohttp
 cd services && python3 players/sonos.py
 ```
 
-Set your Sonos speaker IP in `config/default.json` under `sonos.ip` before starting the service.
+Set your Sonos speaker IP in `config/default.json` under `player.ip` before starting the service.
 
 ### Install on Raspberry Pi 5
 
@@ -65,7 +65,7 @@ The installer creates both during setup. To reconfigure: edit `/etc/beosound5c/c
 
 ### config.json
 
-The installer creates this interactively during setup. Here's the full structure for reference:
+The installer creates this interactively during setup. Here's a minimal example:
 
 ```json
 {
@@ -73,9 +73,7 @@ The installer creates this interactively during setup. Here's the full structure
 
   "menu": {
     "PLAYING": "playing",
-    "CD": "cd",
     "SPOTIFY": "spotify",
-    "MUSIC": "music",
     "SCENES": "scenes",
     "SYSTEM": "system"
   },
@@ -85,7 +83,7 @@ The installer creates this interactively during setup. Here's the full structure
     { "id": "all_off", "name": "All off", "icon": "power", "color": "#c55" }
   ],
 
-  "sonos": { "ip": "192.168.1.100" },
+  "player": { "type": "sonos", "ip": "192.168.1.100" },
   "bluetooth": { "remote_mac": "" },
   "home_assistant": {
     "url": "http://homeassistant.local:8123",
@@ -99,10 +97,11 @@ The installer creates this interactively during setup. Here's the full structure
     "step": 3,
     "output_name": "Sonos"
   },
-  "cd": { "device": "/dev/sr0" },
   "spotify": { "client_id": "" }
 }
 ```
+
+For the full list of fields, volume adapter types, menu item options, and scene configuration, see the **[config schema](docs/config.schema.json)**.
 
 ### secrets.env
 
@@ -114,8 +113,8 @@ Credentials live separately in `/etc/beosound5c/secrets.env` (created by the ins
 |---------|------|-------------|
 | `beo-input` | [`services/input.py`](services/input.py) | USB HID driver for BS5 rotary encoder, buttons, and laser pointer |
 | `beo-router` | [`services/router.py`](services/router.py) | Event router: dispatches remote events to HA or the active source, controls volume |
-| `beo-sonos` | [`services/players/sonos.py`](services/players/sonos.py) | Sonos player monitor: artwork, metadata, volume reporting |
-| `beo-cd-source` | [`services/sources/cd.py`](services/sources/cd.py) | CD player: disc detection, MusicBrainz metadata, mpv playback |
+| `beo-player-sonos` | [`services/players/sonos.py`](services/players/sonos.py) | Sonos player monitor: artwork, metadata, volume reporting |
+| `beo-source-cd` | [`services/sources/cd.py`](services/sources/cd.py) | CD player: disc detection, MusicBrainz metadata, mpv playback |
 | `beo-masterlink` | [`services/masterlink.py`](services/masterlink.py) | USB sniffer for B&O IR and MasterLink bus commands |
 | `beo-bluetooth` | [`services/bluetooth.py`](services/bluetooth.py) | HID service for BeoRemote One wireless control |
 | `beo-http` | — | Simple HTTP server for static files |
@@ -250,7 +249,7 @@ For multi-device setups, create a JSON file per device in `config/` (e.g. `confi
 ```bash
 # Sync files and restart services
 ./deploy.sh                    # default: beo-http + beo-ui
-./deploy.sh beo-sonos          # restart a specific service
+./deploy.sh beo-player-sonos   # restart a specific service
 ./deploy.sh beo-*              # restart all beo services
 ./deploy.sh --no-restart       # sync files only
 
