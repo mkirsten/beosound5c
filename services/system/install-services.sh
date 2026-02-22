@@ -72,6 +72,28 @@ if [ ! -f "$CONFIG_DIR/config.json" ]; then
     echo "  ⚠️  No config.json found — run deploy.sh to install device config"
 fi
 
+# Generate self-signed SSL cert for Spotify OAuth (HTTPS required for non-localhost)
+SSL_DIR="$CONFIG_DIR/ssl"
+if [ ! -f "$SSL_DIR/cert.pem" ]; then
+    echo "  🔐 Generating SSL certificate for Spotify OAuth..."
+    mkdir -p "$SSL_DIR"
+    HOSTNAME=$(hostname)
+    LOCAL_IP=$(hostname -I | awk '{print $1}')
+    openssl req -x509 -newkey rsa:2048 \
+        -keyout "$SSL_DIR/key.pem" -out "$SSL_DIR/cert.pem" \
+        -days 3650 -nodes \
+        -subj "/CN=$HOSTNAME" \
+        -addext "subjectAltName=IP:$LOCAL_IP,DNS:$HOSTNAME.local,DNS:$HOSTNAME.kirstenhome" \
+        2>/dev/null
+    # Service runs as kirsten, needs to read the key
+    chown kirsten:kirsten "$SSL_DIR/key.pem" "$SSL_DIR/cert.pem"
+    chmod 600 "$SSL_DIR/key.pem"
+    chmod 644 "$SSL_DIR/cert.pem"
+    echo "  ✅ SSL cert created (CN=$HOSTNAME, IP=$LOCAL_IP)"
+else
+    echo "  ℹ️  SSL certificate already exists"
+fi
+
 echo ""
 
 # Ensure we are updated
@@ -84,6 +106,7 @@ STALE_SERVICES=(
     "beo-usb-source.service"     # renamed to beo-source-usb
     "beo-media.service"          # removed
     "beo-spotify-fetch.service"  # removed
+    "beo-spotify-fetch.timer"    # removed
 )
 echo "🧹 Cleaning up stale services..."
 for svc in "${STALE_SERVICES[@]}"; do

@@ -577,8 +577,18 @@ class SpotifyService(SourceBase):
             return tokens['client_id']
         return cfg("spotify", "client_id", default="")
 
+    def _ssl_available(self):
+        return os.path.isfile(SSL_CERT) and os.path.isfile(SSL_KEY)
+
+    def _require_https(self, request):
+        """If SSL is available and request came over HTTP, redirect to HTTPS."""
+        if self._ssl_available() and request.scheme == 'http':
+            url = f'https://{request.host.split(":")[0]}:{SSL_PORT}{request.path_qs}'
+            raise web.HTTPFound(url)
+
     async def _handle_setup(self, request):
         """Serve the Spotify OAuth setup page (opened on phone via QR)."""
+        self._require_https(request)
         client_id = self._load_client_id()
         redirect_uri = self._build_redirect_uri()
         is_reconnect = self.auth.revoked
@@ -659,6 +669,7 @@ label{{display:block;margin-top:12px;color:#666;font-size:13px;text-transform:up
 
     async def _handle_start_auth(self, request):
         """Start PKCE auth flow — generate verifier, redirect to Spotify."""
+        self._require_https(request)
         client_id = request.query.get('client_id', '').strip()
         if not client_id:
             return web.Response(text='Client ID is required', status=400)
@@ -685,8 +696,10 @@ label{{display:block;margin-top:12px;color:#666;font-size:13px;text-transform:up
 
         code = request.query.get('code', '')
         if not code or not self._pkce_state:
-            return web.Response(text='Missing code or expired session. Please try again.',
-                                status=400)
+            setup_url = self._build_setup_url()
+            return web.Response(
+                text=f'Session expired. <a href="{setup_url}">Try again</a>',
+                content_type='text/html', status=400)
 
         client_id = self._pkce_state['client_id']
         verifier = self._pkce_state['code_verifier']

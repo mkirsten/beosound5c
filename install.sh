@@ -563,6 +563,62 @@ scan_sonos_devices() {
     fi
 }
 
+# Scan for Bluesound devices on the network
+scan_bluesound_devices() {
+    log_info "Scanning for Bluesound devices on the network..."
+    local bluesound_devices=()
+    local timeout=2
+
+    # Method 1: Try avahi/mDNS discovery (_musc._tcp is BluOS service type)
+    if command -v avahi-browse &>/dev/null; then
+        while IFS= read -r line; do
+            if [[ "$line" =~ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+                local ip="${BASH_REMATCH[1]}"
+                # Verify it's a BluOS device by checking port 11000
+                if timeout $timeout bash -c "echo >/dev/tcp/$ip/11000" 2>/dev/null; then
+                    # Get device name from BluOS SyncStatus API
+                    local name=$(curl -s --connect-timeout $timeout "http://$ip:11000/SyncStatus" 2>/dev/null | grep -oP '(?<=<name>)[^<]+' | head -1)
+                    if [ -z "$name" ]; then
+                        # Fallback: try Status endpoint
+                        name=$(curl -s --connect-timeout $timeout "http://$ip:11000/Status" 2>/dev/null | grep -oP '(?<=<name>)[^<]+' | head -1)
+                    fi
+                    if [ -n "$name" ]; then
+                        bluesound_devices+=("$ip|$name")
+                    else
+                        bluesound_devices+=("$ip|Bluesound Device")
+                    fi
+                fi
+            fi
+        done < <(avahi-browse -rtp _musc._tcp 2>/dev/null | grep "=" | head -10)
+    fi
+
+    # Method 2: Fallback - scan for port 11000 on local network
+    if [ ${#bluesound_devices[@]} -eq 0 ]; then
+        local network=$(ip route | grep -oP 'src \K[0-9.]+' | head -1 | sed 's/\.[0-9]*$/./')
+        if [ -n "$network" ]; then
+            log_info "Scanning network ${network}0/24 for Bluesound devices (port 11000)..."
+            for i in $(seq 1 254); do
+                local ip="${network}${i}"
+                if timeout $timeout bash -c "echo >/dev/tcp/$ip/11000" 2>/dev/null; then
+                    local name=$(curl -s --connect-timeout $timeout "http://$ip:11000/SyncStatus" 2>/dev/null | grep -oP '(?<=<name>)[^<]+' | head -1)
+                    if [ -n "$name" ]; then
+                        bluesound_devices+=("$ip|$name")
+                    fi
+                fi
+            done &
+            local scan_pid=$!
+            sleep 10
+            kill $scan_pid 2>/dev/null
+            wait $scan_pid 2>/dev/null
+        fi
+    fi
+
+    # Return results
+    if [ ${#bluesound_devices[@]} -gt 0 ]; then
+        printf '%s\n' "${bluesound_devices[@]}"
+    fi
+}
+
 # Detect Home Assistant on the network
 detect_home_assistant() {
     log_info "Looking for Home Assistant..."
@@ -730,7 +786,33 @@ if [ ! -f "$CONFIG_FILE" ]; then
         fi
         PLAYER_IP="${PLAYER_IP:-192.168.1.100}"
     elif [[ "$PLAYER_TYPE" == "bluesound" ]]; then
-        read -p "Enter BlueSound player IP address: " PLAYER_IP
+        # Scan for Bluesound devices
+        mapfile -t bluesound_results < <(scan_bluesound_devices)
+
+        if [ ${#bluesound_results[@]} -gt 0 ]; then
+            # Format results for display
+            bluesound_display=()
+            bluesound_ips=()
+            for result in "${bluesound_results[@]}"; do
+                ip=$(echo "$result" | cut -d'|' -f1)
+                name=$(echo "$result" | cut -d'|' -f2)
+                bluesound_display+=("$name ($ip)")
+                bluesound_ips+=("$ip")
+            done
+
+            log_success "Found ${#bluesound_results[@]} Bluesound device(s)!"
+
+            if selection=$(select_from_list "Select Bluesound player to control:" "${bluesound_display[@]}"); then
+                # Extract IP from selection
+                PLAYER_IP=$(echo "$selection" | grep -oP '\(([0-9.]+)\)' | tr -d '()')
+            else
+                read -p "Enter Bluesound player IP address: " PLAYER_IP
+            fi
+        else
+            log_warn "No Bluesound devices found on the network"
+            log_info "Make sure your Bluesound player is powered on and connected to the same network"
+            read -p "Enter Bluesound player IP address: " PLAYER_IP
+        fi
         PLAYER_IP="${PLAYER_IP:-192.168.1.100}"
     fi
 

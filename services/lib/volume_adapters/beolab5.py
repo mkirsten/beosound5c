@@ -28,6 +28,8 @@ class BeoLab5Volume(VolumeAdapter):
         self._power_cache: bool | None = None
         self._power_cache_time: float = 0
         self._power_cache_ttl = 30.0  # seconds
+        self._last_volume: float = 0  # last volume sent, for safe power-on
+        self._power_on_max = 40  # cap volume on power-on (%)
 
     # -- public API --
 
@@ -35,6 +37,7 @@ class BeoLab5Volume(VolumeAdapter):
         capped = min(volume, self._max_volume)
         if volume > self._max_volume:
             logger.warning("Volume %.0f%% capped to %d%%", volume, self._max_volume)
+        self._last_volume = capped
         self._pending_volume = capped
         # Cancel any pending send and schedule a new one
         if self._debounce_handle is not None:
@@ -52,6 +55,7 @@ class BeoLab5Volume(VolumeAdapter):
             ) as resp:
                 data = await resp.json()
                 vol = float(data.get("value", 0))
+                self._last_volume = vol
                 logger.info("BeoLab 5 volume read: %.0f%%", vol)
                 return vol
         except Exception as e:
@@ -93,6 +97,12 @@ class BeoLab5Volume(VolumeAdapter):
                 self._power_cache_time = asyncio.get_event_loop().time()
         except Exception as e:
             logger.warning("Could not power on BeoLab 5: %s", e)
+            return
+        # Send remembered volume, capped for safety
+        safe_vol = min(self._last_volume, self._power_on_max)
+        if safe_vol > 0:
+            logger.info("Power-on volume: %.0f%% (capped from %.0f%%)", safe_vol, self._last_volume)
+            await self.set_volume(safe_vol)
 
     async def power_off(self) -> None:
         try:
@@ -138,6 +148,7 @@ class BeoLab5Volume(VolumeAdapter):
                 params={"value": str(vol)},
                 timeout=aiohttp.ClientTimeout(total=2.0),
             ) as resp:
+                self._last_volume = vol
                 logger.info("-> BeoLab 5 volume: %.0f%% (HTTP %d)", vol, resp.status)
         except Exception as e:
             logger.warning("BeoLab 5 controller unreachable: %s", e)
