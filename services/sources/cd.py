@@ -761,7 +761,7 @@ class CDService(SourceBase):
             return await self._handle_cd_button_action()
         elif cmd == 'play':
             await self.player.play()
-            await self.register('playing')
+            await self.register('playing', auto_power=True)
             await self._broadcast_cd_update()
         elif cmd == 'pause':
             await self.player.pause()
@@ -770,7 +770,7 @@ class CDService(SourceBase):
         elif cmd == 'toggle':
             await self.player.toggle_playback()
             if self.player.state == 'playing':
-                await self.register('playing')
+                await self.register('playing', auto_power=True)
             else:
                 await self.register('paused')
             await self._broadcast_cd_update()
@@ -788,7 +788,7 @@ class CDService(SourceBase):
             # Track number from action ("5") or explicit track field
             track = data.get('track') or int(data.get('action', 1))
             await self.player.play_track(track)
-            await self.register('playing')
+            await self.register('playing', auto_power=True)
             await self._broadcast_cd_update()
         elif cmd == 'eject':
             await self.player.stop()
@@ -905,7 +905,7 @@ class CDService(SourceBase):
             await self._broadcast_cd_update()
             if autoplay:
                 await self.player.play_track(1)
-                await self.register('playing', navigate=True)
+                await self.register('playing', navigate=True, auto_power=True)
                 artist = self.metadata.get('artist', '')
                 album = self.metadata.get('title', '')
                 if album and album != 'Unknown Album':
@@ -1032,7 +1032,7 @@ class CDService(SourceBase):
 
         # Start playback
         await self.player.play()
-        await self.register('playing', navigate=True)
+        await self.register('playing', navigate=True, auto_power=True)
         await self._broadcast_cd_update()
         return {'command': 'cd', 'playback': self.player.get_status()}
 

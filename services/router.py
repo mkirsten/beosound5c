@@ -188,9 +188,11 @@ class SourceRegistry:
                 })
                 actions.append("source_change")
                 logger.info("Source activated: %s (player=%s)", id, source.player)
-                # Auto-power output
-                if router._volume and not await router._volume.is_on():
-                    await router._volume.power_on()
+
+            # Auto-power output — only when source explicitly requests it
+            # (user-initiated playback, not external detection)
+            if fields.get("auto_power") and router._volume and not await router._volume.is_on():
+                await router._volume.power_on()
 
         elif state == "paused":
             # Still active, user can resume
@@ -428,6 +430,9 @@ class EventRouter:
             delta = self._volume_step if action == "volup" else -self._volume_step
             new_vol = max(0, min(100, self.volume + delta))
             logger.info("-> volume: %.0f%% -> %.0f%% (%s)", self.volume, new_vol, action)
+            # Auto-power output on volume up (cached check only — no network query)
+            if action == "volup" and self._volume and self._volume.is_on_cached() is False:
+                asyncio.ensure_future(self._volume.power_on())
             # Fire-and-forget — adapter debounces internally, don't block event loop
             asyncio.ensure_future(self.set_volume(new_vol))
             return
@@ -570,7 +575,7 @@ async def handle_source(request: web.Request) -> web.Response:
 
     # Extract optional fields
     fields = {}
-    for key in ("name", "command_url", "menu_preset", "handles", "navigate", "player"):
+    for key in ("name", "command_url", "menu_preset", "handles", "navigate", "player", "auto_power"):
         if key in data:
             fields[key] = data[key]
 

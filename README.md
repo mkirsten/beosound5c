@@ -149,7 +149,7 @@ config/                     # Per-device configuration
 services/                   # Backend services
 ├── sources/                # Content providers (register with router)
 │   ├── cd.py               #   CD player (beo-cd-source)
-│   ├── spotify.py          #   Spotify source (beo-spotify)
+│   ├── spotify.py          #   Spotify source (beo-source-spotify)
 │   └── usb.py              #   USB file playback (beo-usb-source)
 ├── players/                # External playback monitors
 │   └── sonos.py            #   Sonos monitor (beo-sonos)

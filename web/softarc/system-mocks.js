@@ -8,6 +8,7 @@
         'beo-http': 'Running', 'beo-ui': 'Running', 'beo-input': 'Running',
         'beo-bluetooth': 'Running', 'beo-masterlink': 'Running',
         'beo-player-sonos': 'Running', 'beo-source-cd': 'Running',
+        'beo-source-spotify': 'Running',
         'beo-source-usb': 'Inactive', 'beo-source-news': 'Running',
     };
 

@@ -23,7 +23,7 @@ SERVICES=(
     "beo-masterlink.service"
     "beo-bluetooth.service"
     "beo-source-cd.service"
-    "beo-spotify.service"
+    "beo-source-spotify.service"
     "beo-source-usb.service"
     "beo-source-news.service"
     "beo-ui.service"
@@ -59,7 +59,7 @@ if [ ! -f "$SECRETS_FILE" ]; then
         echo ""
         echo "  ⚠️  IMPORTANT: Edit $SECRETS_FILE with credentials for this device!"
         echo "     - HA_TOKEN: Home Assistant long-lived access token"
-        echo "     For Spotify: open the /setup page on port 8771 after starting beo-spotify"
+        echo "     For Spotify: open the /setup page on port 8771 after starting beo-source-spotify"
         echo ""
     else
         echo "  ⚠️  Warning: secrets.env.example not found at $SECRETS_EXAMPLE"
@@ -105,6 +105,7 @@ STALE_SERVICES=(
     "beo-cd-source.service"      # renamed to beo-source-cd
     "beo-usb-source.service"     # renamed to beo-source-usb
     "beo-media.service"          # removed
+    "beo-spotify.service"        # renamed to beo-source-spotify
     "beo-spotify-fetch.service"  # removed
     "beo-spotify-fetch.timer"    # removed
 )
@@ -289,8 +290,8 @@ systemctl enable beo-source-cd.service
 systemctl start beo-source-cd.service
 
 echo "  🎵 Starting Spotify source..."
-systemctl enable beo-spotify.service
-systemctl start beo-spotify.service
+systemctl enable beo-source-spotify.service
+systemctl start beo-source-spotify.service
 
 echo "  💾 Starting USB source..."
 systemctl enable beo-source-usb.service

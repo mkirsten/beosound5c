@@ -27,6 +27,11 @@ class VolumeAdapter(ABC):
     @abstractmethod
     async def is_on(self) -> bool: ...
 
+    def is_on_cached(self) -> bool | None:
+        """Return cached power state without querying the device.
+        Returns None if no cached value is available."""
+        return None
+
     # -- Optional: override in adapters that support power control --
 
     async def power_on(self) -> None:
