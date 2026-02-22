@@ -1,0 +1,20 @@
+[Unit]
+Description=BeoSound5c News Source (Guardian API article browser)
+After=network-online.target beo-input.service beo-router.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kirsten
+Group=kirsten
+WorkingDirectory=/home/kirsten/beosound5c/services
+EnvironmentFile=-/etc/beosound5c/secrets.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/sources/news.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -2,13 +2,16 @@
 Description=BeoSound5c HTTP Server
 After=network.target
 Wants=network.target
+OnFailure=beo-notify-failure@%n.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/beosound5c/web
+User=kirsten
+WorkingDirectory=/home/kirsten/beosound5c/web
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 -m http.server 8000
+ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/http_server.py 8000
 Restart=always
 RestartSec=5
 StandardOutput=journal

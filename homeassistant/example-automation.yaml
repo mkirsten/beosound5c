@@ -36,48 +36,73 @@
 #
 # This automation receives all button presses from BeoSound 5c and routes them
 # to the appropriate handler based on device_type (Video, Audio, Light, etc.)
+#
+# Choose ONE trigger based on your TRANSPORT_MODE setting:
+#   - webhook: Use the webhook trigger (default)
+#   - mqtt:    Use the MQTT trigger
+#   - both:    Use both triggers (events arrive on both)
 
 - alias: "BeoSound5C Webhook Control"
   id: beosound5c_webhook_control
   description: "Central handler for all BeoSound 5c button events"
   trigger:
+    # --- Option A: Webhook trigger (TRANSPORT_MODE=webhook or both) ---
     - platform: webhook
       webhook_id: beosound5c
       local_only: true
+      id: webhook_trigger
+
+    # --- Option B: MQTT trigger (TRANSPORT_MODE=mqtt or both) ---
+    # Uncomment the lines below if using MQTT transport.
+    # Replace "church" with your device slug (DEVICE_NAME lowercased, spaces->underscores)
+    #
+    # - platform: mqtt
+    #   topic: "beosound5c/church/out"
+    #   id: mqtt_trigger
+
   action:
+    # Normalize payload: webhook uses trigger.json, MQTT uses trigger.payload_json
+    - variables:
+        payload: >-
+          {% if trigger.id == 'mqtt_trigger' %}
+            {{ trigger.payload_json }}
+          {% else %}
+            {{ trigger.json }}
+          {% endif %}
     - choose:
         # Video mode - TV controls
         - conditions:
             - condition: template
-              value_template: "{{ trigger.json.device_type == 'Video' }}"
+              value_template: "{{ payload.device_type == 'Video' }}"
           sequence:
             - service: script.beosound_video
               data:
-                action: "{{ trigger.json.action }}"
-                device_name: "{{ trigger.json.device_name }}"
-                source: "{{ trigger.json.source | default('unknown') }}"
+                action: "{{ payload.action }}"
+                device_name: "{{ payload.device_name }}"
+                source: "{{ payload.source | default('unknown') }}"
 
         # Audio mode - Music controls
         - conditions:
             - condition: template
-              value_template: "{{ trigger.json.device_type == 'Audio' }}"
+              value_template: "{{ payload.device_type == 'Audio' }}"
           sequence:
             - service: script.beosound_audio
               data:
-                action: "{{ trigger.json.action }}"
-                device_name: "{{ trigger.json.device_name }}"
-                source: "{{ trigger.json.source | default('unknown') }}"
-                playlist_uri: "{{ trigger.json.playlist_uri | default('') }}"
+                action: "{{ payload.action }}"
+                device_name: "{{ payload.device_name }}"
+                source: "{{ payload.source | default('unknown') }}"
+                playlist_uri: "{{ payload.playlist_uri | default('') }}"
 
         # Light mode - Lighting controls
         - conditions:
             - condition: template
-              value_template: "{{ trigger.json.device_type == 'Light' }}"
+              value_template: "{{ payload.device_type == 'Light' }}"
           sequence:
             - service: script.beosound_light
               data:
-                action: "{{ trigger.json.action }}"
-                source: "{{ trigger.json.source | default('unknown') }}"
+                action: "{{ payload.action }}"
+                device_name: "{{ payload.device_name }}"
+                source: "{{ payload.source | default('unknown') }}"
 
 # =============================================================================
 # SCRIPTS - Action handlers
@@ -180,28 +205,44 @@
 #     mode: queued
 #     fields:
 #       action:
-#         description: "Button action"
+#         description: "Button action (green, red, yellow, blue, up, down, go)"
+#       device_name:
+#         description: "Source device name (Kitchen or Church)"
 #     sequence:
 #       - choose:
-#           - conditions: "{{ action == 'up' }}"
+#           # --- Color buttons: scene selection per device ---
+#           - conditions: "{{ action == 'green' }}"
 #             sequence:
-#               - service: light.turn_on
+#               - service: scene.turn_on
 #                 target:
-#                   entity_id: light.living_room
-#                 data:
-#                   brightness_step_pct: 10
-#           - conditions: "{{ action == 'down' }}"
+#                   entity_id: >-
+#                     {% if device_name == 'Church' %}scene.church_all_on
+#                     {% elif device_name == 'Kitchen' %}scene.kitchen_area_bright
+#                     {% endif %}
+#           - conditions: "{{ action == 'red' }}"
 #             sequence:
-#               - service: light.turn_on
+#               - service: scene.turn_on
 #                 target:
-#                   entity_id: light.living_room
-#                 data:
-#                   brightness_step_pct: -10
-#           - conditions: "{{ action == 'go' }}"
+#                   entity_id: >-
+#                     {% if device_name == 'Church' %}scene.church_off
+#                     {% elif device_name == 'Kitchen' %}scene.kitchen_area_off
+#                     {% endif %}
+#           - conditions: "{{ action == 'yellow' }}"
 #             sequence:
-#               - service: light.toggle
+#               - service: scene.turn_on
 #                 target:
-#                   entity_id: light.living_room
+#                   entity_id: >-
+#                     {% if device_name == 'Church' %}scene.church_cozy
+#                     {% elif device_name == 'Kitchen' %}scene.kitchen_area_cozy
+#                     {% endif %}
+#           - conditions: "{{ action == 'blue' }}"
+#             sequence:
+#               - service: scene.turn_on
+#                 target:
+#                   entity_id: >-
+#                     {% if device_name == 'Church' %}scene.church_dinner
+#                     {% elif device_name == 'Kitchen' %}scene.kitchen_area_dimmed
+#                     {% endif %}
 
 # =============================================================================
 # REST COMMANDS - Control BeoSound 5c from Home Assistant
@@ -290,3 +331,76 @@
       at: "03:00:00"
   action:
     - service: rest_command.bs5c_screen_off
+
+# =============================================================================
+# MQTT COMMANDS - Control BeoSound 5c via MQTT (alternative to REST commands)
+# =============================================================================
+#
+# When using MQTT transport, you can send commands to BeoSound 5c by publishing
+# to the commands topic. This is often simpler than REST commands because:
+#   - No need to know the BS5c IP address
+#   - Works through the MQTT broker (no direct network access required)
+#   - Persistent connection = lower latency
+#
+# Topic: beosound5c/{device_slug}/in
+# Replace "church" with your device slug (DEVICE_NAME lowercased, spaces->underscores)
+#
+# Available commands (same as the HTTP webhook API):
+#   {"command": "screen_on"}
+#   {"command": "screen_off"}
+#   {"command": "screen_toggle"}
+#   {"command": "wake", "params": {"page": "now_playing"}}
+#   {"command": "show_page", "params": {"page": "music"}}
+#   {"command": "next_screen"}
+#   {"command": "prev_screen"}
+#   {"command": "show_camera", "params": {"title": "Doorbell", "camera_entity": "camera.doorbell"}}
+#   {"command": "dismiss_camera"}
+#   {"command": "status"}
+#   {"command": "restart", "params": {"target": "all"}}
+
+# Example: Wake BS5c via MQTT when music starts playing
+# - alias: "BS5c - Wake on Music (MQTT)"
+#   id: bs5c_wake_on_music_mqtt
+#   trigger:
+#     - platform: state
+#       entity_id: <YOUR_MEDIA_PLAYER>
+#       to: "playing"
+#       from:
+#         - "paused"
+#         - "idle"
+#         - "off"
+#   action:
+#     - service: mqtt.publish
+#       data:
+#         topic: "beosound5c/church/in"
+#         payload: '{"command": "wake", "params": {"page": "now_playing"}}'
+
+# Example: Turn off BS5c screen via MQTT
+# - alias: "BS5c - Screen Off (MQTT)"
+#   id: bs5c_screen_off_mqtt
+#   trigger:
+#     - platform: time
+#       at: "03:00:00"
+#   action:
+#     - service: mqtt.publish
+#       data:
+#         topic: "beosound5c/church/in"
+#         payload: '{"command": "screen_off"}'
+
+# =============================================================================
+# MQTT STATUS MONITORING
+# =============================================================================
+#
+# BeoSound 5c publishes online/offline status (retained) to:
+#   beosound5c/{device_slug}/status
+#
+# You can use this to create a binary sensor:
+
+# mqtt:
+#   binary_sensor:
+#     - name: "BeoSound 5c Status"
+#       state_topic: "beosound5c/church/status"
+#       value_template: "{{ value_json.status }}"
+#       payload_on: "online"
+#       payload_off: "offline"
+#       device_class: connectivity

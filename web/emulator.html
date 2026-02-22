@@ -747,7 +747,7 @@
 
             async loadPlaylists() {
                 try {
-                    const response = await fetch('json/playlists_with_tracks.json');
+                    const response = await fetch('json/spotify_playlists.json');
                     this.playlists = await response.json();
 
                     // Initialize queue with first playlist's tracks

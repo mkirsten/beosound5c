@@ -15,6 +15,11 @@
     <link rel="manifest" href="../assets/favicons/site.webmanifest">
     <meta name="theme-color" content="#000000">
 
+    <script>
+        if (/Mac/.test(navigator.userAgent) && /^(localhost|127\.0\.0\.1)$/.test(location.hostname))
+            document.write('<script src="system-mocks.js"><\/script>');
+    </script>
+
     <style>
         * {
             margin: 0;
@@ -123,233 +128,144 @@
             color: #888;
         }
 
-        /* Debug section */
-        .debug-section .debug-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 25px;
+        /* ── Services subcards ── */
+        .services-section {
+            position: relative;
         }
 
-        .debug-card {
-            background: #111;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 18px;
-        }
-
-        .debug-card h3 {
-            font-size: 13px;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 12px;
-        }
-
-        .debug-item {
+        .subcard-header {
             display: flex;
-            justify-content: space-between;
-            padding: 6px 0;
-            border-bottom: 1px solid #222;
-            font-size: 13px;
-        }
-
-        .debug-item:last-child {
-            border-bottom: none;
-        }
-
-        .debug-item .label {
-            color: #666;
-        }
-
-        .debug-item .value {
-            color: #fff;
-            font-family: 'Monaco', 'Consolas', monospace;
-            font-size: 12px;
-        }
-
-        .debug-item .value.status-ok {
-            color: #4a4;
-        }
-
-        .debug-item .value.status-warning {
-            color: #fa0;
-        }
-
-        .debug-item .value.status-error {
-            color: #a44;
-        }
-
-        .refresh-btn {
-            padding: 4px 10px;
-            background: #1a1a2a;
-            border: 1px solid #446;
-            border-radius: 4px;
-            color: #0af;
-            font-size: 11px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .refresh-btn:hover {
-            background: #222244;
-            border-color: #0af;
-        }
-
-        .refresh-btn:disabled {
-            color: #555;
-            border-color: #333;
-            cursor: not-allowed;
-        }
-
-        /* Logs section */
-        .logs-section .log-services {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
-        }
-
-        .log-service-btn {
-            padding: 6px 14px;
-            background: #1a1a1a;
-            border: 1px solid #333;
-            border-radius: 4px;
-            color: #666;
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .log-service-btn.active {
-            background: #222;
-            border-color: #0af;
-            color: #0af;
-        }
-
-        .log-output {
-            background: #0a0a0a;
-            border: 1px solid #333;
-            border-radius: 4px;
-            padding: 12px;
-            font-family: 'Monaco', 'Consolas', monospace;
-            font-size: 10px;
-            line-height: 1.4;
-            color: #0f0;
-            height: 400px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            word-break: break-all;
-        }
-
-        .log-output .log-error {
-            color: #f66;
-        }
-
-        .log-output .log-warning {
-            color: #fa0;
-        }
-
-        .log-output .log-info {
-            color: #0af;
-        }
-
-        .log-loading {
-            color: #666;
-            font-style: italic;
-        }
-
-        .live-indicator {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            background: #4a4;
-            border-radius: 50%;
-            margin-right: 8px;
-            animation: pulse 1.5s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
-
-        /* Services section */
-        .services-section .services-list {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            max-width: 400px;
-        }
-
-        .service-item {
-            display: flex;
-            justify-content: space-between;
             align-items: center;
-            padding: 10px 14px;
-            background: #111;
-            border: 1px solid #333;
-            border-radius: 4px;
-            transition: all 0.15s;
+            gap: 14px;
+            margin-bottom: 18px;
         }
 
-        .service-item.selected {
-            background: #1a1a2a;
-            border-color: #446;
+        .subcard-title {
+            font-size: 16px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
         }
 
-        .service-item.separator {
-            margin-top: 10px;
-            border-top: 1px solid #333;
-            padding-top: 16px;
-        }
-
-        .service-item .name {
-            color: #fff;
-            font-size: 13px;
-        }
-
-        .service-item .status-dot {
+        .subcard-status-dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
             background: #555;
+            flex-shrink: 0;
         }
 
-        .service-item .status-dot.running {
-            background: #4a4;
-        }
+        .subcard-status-dot.online { background: #4a4; }
+        .subcard-status-dot.offline { background: #a44; }
+        .subcard-status-dot.warning { background: #fa0; }
 
-        .service-item .status-dot.warning {
-            background: #fa0;
-        }
-
-        .service-item .status-dot.stopped {
-            background: #a44;
-        }
-
-        .services-legend {
-            display: flex;
-            gap: 20px;
-            margin-top: 20px;
-            font-size: 11px;
+        .subcard-counter {
+            margin-left: auto;
+            font-size: 12px;
             color: #555;
+            letter-spacing: 1px;
         }
 
-        .services-legend .legend-item {
+        .subcard-body {
+            display: grid;
+            grid-template-columns: 130px 1fr;
+            gap: 4px 16px;
+            font-size: 13px;
+            max-width: 650px;
+        }
+
+        .subcard-body .label {
+            color: #666;
+            padding: 4px 0;
+        }
+
+        .subcard-body .value {
+            color: #fff;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 12px;
+            padding: 4px 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .subcard-body .value.ok { color: #4a4; }
+        .subcard-body .value.warn { color: #fa0; }
+        .subcard-body .value.err { color: #a44; }
+
+        .subcard-body .value.dim { color: #555; }
+
+        /* Spotify digit grid */
+        .digit-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 4px;
+            margin-top: 6px;
+            max-width: 500px;
+        }
+
+        .digit-item {
+            background: #111;
+            border: 1px solid #222;
+            border-radius: 3px;
+            padding: 4px 6px;
+            font-size: 11px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .digit-item .digit-num {
+            color: #555;
+            margin-right: 4px;
+        }
+
+        .digit-item .digit-name {
+            color: #999;
+        }
+
+        /* CD artwork */
+        .cd-artwork {
+            width: 80px;
+            height: 80px;
+            border-radius: 4px;
+            background: #111;
+            border: 1px solid #333;
+            object-fit: cover;
+            margin-top: 4px;
+        }
+
+        /* Service list in SYSTEM subcard */
+        .svc-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 3px 20px;
+            margin-top: 4px;
+        }
+
+        .svc-item {
             display: flex;
             align-items: center;
             gap: 6px;
+            font-size: 12px;
+            padding: 2px 0;
         }
 
-        .services-legend .dot {
+        .svc-dot {
             width: 6px;
             height: 6px;
             border-radius: 50%;
+            background: #555;
+            flex-shrink: 0;
         }
 
-        .services-legend .dot.green { background: #4a4; }
-        .services-legend .dot.yellow { background: #fa0; }
-        .services-legend .dot.red { background: #a44; }
+        .svc-dot.running { background: #4a4; }
+        .svc-dot.stopped { background: #a44; }
+        .svc-dot.warning { background: #fa0; }
+
+        .svc-name {
+            color: #888;
+        }
 
         /* People section */
         .people-section .people-grid {
@@ -430,6 +346,96 @@
             font-size: 13px;
         }
 
+        /* Remotes section */
+        .remotes-section .remotes-content {
+            max-width: 500px;
+        }
+
+        .remotes-section h3 {
+            font-size: 13px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+
+        .supported-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 4px 30px;
+            margin-bottom: 25px;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .supported-list li {
+            list-style: none;
+            padding: 3px 0;
+        }
+
+        .supported-list li::before {
+            content: "- ";
+            color: #444;
+        }
+
+        .service-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 4px;
+            transition: all 0.15s;
+        }
+
+        .service-item.selected {
+            background: #1a1a2a;
+            border-color: #446;
+        }
+
+        .service-item.separator {
+            margin-top: 10px;
+            border-top: 1px solid #333;
+            padding-top: 16px;
+        }
+
+        .service-item .name {
+            color: #fff;
+            font-size: 13px;
+        }
+
+        .service-item .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #555;
+        }
+
+        .service-item .status-dot.running { background: #4a4; }
+        .service-item .status-dot.warning { background: #fa0; }
+        .service-item .status-dot.stopped { background: #a44; }
+
+        .remote-item .mac {
+            font-size: 11px;
+            color: #555;
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
+
+        .remote-item .remote-meta {
+            display: flex;
+            gap: 12px;
+            font-size: 11px;
+            color: #555;
+        }
+
+        .pairing-status {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #0af;
+            min-height: 18px;
+        }
+
         /* Section hint */
         .section-hint {
             margin-top: 15px;
@@ -471,18 +477,46 @@
             color: #555;
         }
 
+        /* Meter bars (used in SYSTEM subcard) */
+        .meter {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 2px 0;
+            max-width: 300px;
+        }
+
+        .meter-bar {
+            flex: 1;
+            height: 5px;
+            background: #1a1a1a;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .meter-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+
+        .meter-label {
+            font-size: 11px;
+            color: #888;
+            min-width: 40px;
+            text-align: right;
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
+
         /* Scrollbar styling */
-        .log-output::-webkit-scrollbar,
         .section-content::-webkit-scrollbar {
             width: 6px;
         }
 
-        .log-output::-webkit-scrollbar-track,
         .section-content::-webkit-scrollbar-track {
             background: #111;
         }
 
-        .log-output::-webkit-scrollbar-thumb,
         .section-content::-webkit-scrollbar-thumb {
             background: #333;
             border-radius: 3px;
@@ -493,9 +527,8 @@
     <div id="app">
         <nav class="section-nav">
             <div class="section-tab active" data-section="info">Info</div>
-            <div class="section-tab" data-section="debug">Debug</div>
-            <div class="section-tab" data-section="logs">Logs</div>
             <div class="section-tab" data-section="services">Services</div>
+            <div class="section-tab" data-section="remotes">Remotes</div>
             <div class="section-tab" data-section="people">People</div>
         </nav>
 
@@ -519,218 +552,41 @@
             <div class="creator">Created by <span>Markus Kirsten</span></div>
         </div>
 
-        <!-- Debug Section -->
-        <div class="section-content debug-section" id="debug">
-            <div class="debug-grid">
-                <div class="debug-card">
-                    <h3>Sonos</h3>
-                    <div class="debug-item">
-                        <span class="label">Speaker</span>
-                        <span class="value" id="sonos-speaker">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">IP Address</span>
-                        <span class="value" id="sonos-ip">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Grouped With</span>
-                        <span class="value" id="sonos-grouped">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">State</span>
-                        <span class="value" id="sonos-state">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Volume</span>
-                        <span class="value" id="sonos-volume">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Track</span>
-                        <span class="value" id="sonos-track">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Artist</span>
-                        <span class="value" id="sonos-artist">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Album</span>
-                        <span class="value" id="sonos-album">--</span>
-                    </div>
-                </div>
-
-                <div class="debug-card">
-                    <h3>Device Config</h3>
-                    <div class="debug-item">
-                        <span class="label">Device Name</span>
-                        <span class="value" id="cfg-device-name">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Sonos IP</span>
-                        <span class="value" id="cfg-sonos-ip">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">HA URL</span>
-                        <span class="value" id="cfg-ha-url">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">BeoRemote MAC</span>
-                        <span class="value" id="cfg-beoremote-mac">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">BT Name</span>
-                        <span class="value" id="cfg-bt-name">--</span>
-                    </div>
-                </div>
-
-                <div class="debug-card">
-                    <h3>System</h3>
-                    <div class="debug-item">
-                        <span class="label">Hostname</span>
-                        <span class="value" id="sys-hostname">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">IP Address</span>
-                        <span class="value" id="sys-ip">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Uptime</span>
-                        <span class="value" id="sys-uptime">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">CPU Temp</span>
-                        <span class="value" id="sys-temp">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Memory</span>
-                        <span class="value" id="sys-memory">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Git Version</span>
-                        <span class="value" id="sys-git">--</span>
-                    </div>
-                </div>
-
-                <div class="debug-card">
-                    <h3>Connections</h3>
-                    <div class="debug-item">
-                        <span class="label">Input WS</span>
-                        <span class="value" id="conn-input">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Media WS</span>
-                        <span class="value" id="conn-media">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Home Assistant</span>
-                        <span class="value" id="conn-ha">--</span>
-                    </div>
-                </div>
-
-                <div class="debug-card">
-                    <h3>Hardware</h3>
-                    <div class="debug-item">
-                        <span class="label">Laser Position</span>
-                        <span class="value" id="hw-laser">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Last Button</span>
-                        <span class="value" id="hw-button">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Backlight</span>
-                        <span class="value" id="hw-backlight">--</span>
-                    </div>
-                </div>
-
-                <div class="debug-card">
-                    <h3>Spotify</h3>
-                    <div class="debug-item">
-                        <span class="label">User ID</span>
-                        <span class="value" id="spotify-user">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Playlists</span>
-                        <span class="value" id="spotify-playlists">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Digit Playlists</span>
-                        <span class="value" id="spotify-digits">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Last Fetch</span>
-                        <span class="value" id="spotify-fetch-time">--</span>
-                    </div>
-                    <div class="debug-item">
-                        <span class="label">Actions</span>
-                        <button class="refresh-btn" id="spotify-refresh-btn">Refresh Playlists</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Logs Section -->
-        <div class="section-content logs-section" id="logs">
-            <div class="log-services" id="log-services">
-                <div class="log-service-btn active" data-service="beo-masterlink">masterlink</div>
-                <div class="log-service-btn" data-service="beo-bluetooth">bluetooth</div>
-                <div class="log-service-btn" data-service="beo-input">input</div>
-                <div class="log-service-btn" data-service="beo-media">media</div>
-                <div class="log-service-btn" data-service="beo-http">http</div>
-                <div class="log-service-btn" data-service="beo-ui">ui</div>
-                <div class="log-service-btn" data-service="beo-spotify-fetch">spotify</div>
-            </div>
-            <div class="log-output" id="log-output">
-                <span class="log-loading">Connecting to log stream...</span>
-            </div>
-            <div class="section-hint"><span class="live-indicator"></span>Live &nbsp; <span class="key">GO</span> Switch service &nbsp; <span class="key">WHEEL</span> Scroll</div>
-        </div>
-
-        <!-- Services Section -->
+        <!-- Services Section (subcards) -->
         <div class="section-content services-section" id="services">
-            <div class="services-list" id="services-list">
-                <div class="service-item selected" data-service="beo-masterlink">
-                    <span class="name">beo-masterlink</span>
-                    <span class="status-dot" id="dot-masterlink"></span>
-                </div>
-                <div class="service-item" data-service="beo-bluetooth">
-                    <span class="name">beo-bluetooth</span>
-                    <span class="status-dot" id="dot-bluetooth"></span>
-                </div>
-                <div class="service-item" data-service="beo-input">
-                    <span class="name">beo-input</span>
-                    <span class="status-dot" id="dot-input"></span>
-                </div>
-                <div class="service-item" data-service="beo-media">
-                    <span class="name">beo-media</span>
-                    <span class="status-dot" id="dot-media"></span>
-                </div>
-                <div class="service-item" data-service="beo-http">
-                    <span class="name">beo-http</span>
-                    <span class="status-dot" id="dot-http"></span>
-                </div>
-                <div class="service-item" data-service="beo-ui">
-                    <span class="name">beo-ui</span>
-                    <span class="status-dot" id="dot-ui"></span>
-                </div>
-                <div class="service-item" data-service="beo-spotify-fetch">
-                    <span class="name">beo-spotify-fetch (timer)</span>
-                    <span class="status-dot" id="dot-spotify-fetch"></span>
-                </div>
-                <div class="service-item separator" data-service="all">
-                    <span class="name">Restart All Services</span>
-                    <span class="status-dot"></span>
-                </div>
-                <div class="service-item" data-service="system">
-                    <span class="name">Reboot System</span>
-                    <span class="status-dot"></span>
-                </div>
+            <div id="subcard-container">
+                <!-- Rendered by JS -->
             </div>
-            <div class="services-legend">
-                <div class="legend-item"><span class="dot green"></span> Running</div>
-                <div class="legend-item"><span class="dot yellow"></span> Issue</div>
-                <div class="legend-item"><span class="dot red"></span> Stopped</div>
+            <div class="section-hint">
+                <span class="key">UP/DOWN</span> Navigate &nbsp;
+                <span class="key">GO</span> Restart service
             </div>
-            <div class="section-hint"><span class="key">GO</span> Restart selected</div>
+        </div>
+
+        <!-- Remotes Section -->
+        <div class="section-content remotes-section" id="remotes">
+            <div class="remotes-content">
+                <h3>Supported IR Remotes</h3>
+                <ul class="supported-list">
+                    <li>Beo4 (all versions)</li>
+                    <li>BeoLink 1000</li>
+                    <li>BeoLink 5000</li>
+                    <li>BeoLink 7000</li>
+                    <li>BeoTime</li>
+                    <li>Beo1</li>
+                    <li>BeoSound 8 remote</li>
+                    <li>AV Terminal</li>
+                    <li>B&O KeyChain</li>
+                    <li>BeoWatch</li>
+                </ul>
+                <div class="separator" style="border-top: 1px solid #333; margin-bottom: 20px;"></div>
+                <h3>BeoRemote One (Bluetooth)</h3>
+                <div class="services-list" id="remotes-list">
+                    <span class="people-loading">Loading remotes...</span>
+                </div>
+                <div class="pairing-status" id="pairing-status"></div>
+            </div>
+            <div class="section-hint"><span class="key">GO</span> Pair new remote</div>
         </div>
 
         <!-- People Section -->
@@ -747,18 +603,400 @@
     </div>
 
     <script>
+        // ── History buffer for sparkline charts ──
+        const HISTORY = { cpu_temp: [], memory: [] };
+        const HISTORY_MAX = 30;  // ~2.5 min at 5s refresh
+
+        // ── Subcard definitions ──
+        const SUBCARDS = [
+            {
+                id: 'overview',
+                title: 'OVERVIEW',
+                service: null,
+                fetch: async () => {
+                    const results = {};
+                    await Promise.all([
+                        fetch('http://localhost:8767/webhook', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ command: 'status' }),
+                        }).then(r => r.json()).then(d => results.input = d).catch(() => {}),
+                        fetch('http://localhost:8770/router/status')
+                            .then(r => r.json()).then(d => results.router = d).catch(() => {}),
+                        fetch('http://localhost:8766/player/status')
+                            .then(r => r.json()).then(d => results.player = d).catch(() => {}),
+                    ]);
+                    return results;
+                },
+                render: (data) => {
+                    const inp = data?.input || {};
+                    const rtr = data?.router || {};
+                    const plr = data?.player || {};
+                    const sys = inp.system || {};
+                    const cfg = inp.config || {};
+                    const svcs = inp.services || {};
+
+                    let html = '<div class="subcard-body">';
+                    html += row('Device', cfg.DEVICE_NAME || sys.hostname);
+                    html += row('IP', sys.ip_address);
+                    html += row('Version', sys.git_tag || inp.git_tag);
+                    html += row('Uptime', sys.uptime);
+
+                    // Services summary
+                    const total = Object.keys(svcs).length;
+                    const running = Object.values(svcs).filter(s => s === 'Running').length;
+                    if (total > 0) {
+                        html += row('Services', `${running}/${total} running`, running === total ? 'ok' : 'warn');
+                    }
+
+                    // Sources configured
+                    if (rtr.sources && Object.keys(rtr.sources).length > 0) {
+                        const names = Object.values(rtr.sources).map(s => s.name);
+                        html += row('Sources', names.join(', '));
+                    }
+
+                    // Audio output
+                    html += row('Output', rtr.output_device || '—');
+
+                    // Player
+                    if (plr.player) {
+                        const info = plr.player === 'sonos'
+                            ? `Sonos — ${plr.speaker_name || '?'} (${plr.speaker_ip || '?'})`
+                            : plr.player;
+                        html += row('Player', info);
+                    } else {
+                        html += row('Player', rtr.active_player || '—');
+                    }
+
+                    html += '</div>';
+
+                    // Show services with issues
+                    const issues = Object.entries(svcs).filter(([_, s]) => s !== 'Running');
+                    if (issues.length > 0) {
+                        html += sectionLabel('Issues');
+                        html += '<div class="svc-list">';
+                        for (const [name, status] of issues) {
+                            html += `<div class="svc-item"><span class="svc-dot stopped"></span><span class="svc-name">${name} (${status})</span></div>`;
+                        }
+                        html += '</div>';
+                    }
+                    return html;
+                },
+            },
+            {
+                id: 'system',
+                title: 'SYSTEM',
+                service: null,
+                fetch: async () => {
+                    const results = {};
+                    await Promise.all([
+                        fetch('http://localhost:8767/webhook', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ command: 'status' }),
+                        }).then(r => r.json()).then(d => results.input = d).catch(() => {}),
+                    ]);
+
+                    // Accumulate history for charts
+                    const sys = results.input?.system || {};
+                    const temp = parseFloat(sys.cpu_temp);
+                    if (!isNaN(temp)) {
+                        HISTORY.cpu_temp.push(temp);
+                        if (HISTORY.cpu_temp.length > HISTORY_MAX) HISTORY.cpu_temp.shift();
+                    }
+                    const memPct = parseMemPct(sys.memory);
+                    if (memPct != null) {
+                        HISTORY.memory.push(memPct);
+                        if (HISTORY.memory.length > HISTORY_MAX) HISTORY.memory.shift();
+                    }
+                    results.history = { cpu_temp: [...HISTORY.cpu_temp], memory: [...HISTORY.memory] };
+                    return results;
+                },
+                render: (data) => {
+                    const inp = data?.input || {};
+                    const sys = inp.system || {};
+                    const svcs = inp.services || {};
+                    const cfg = inp.config || {};
+                    const hist = data?.history || {};
+
+                    let html = '';
+
+                    // Performance
+                    html += sectionLabel('Performance');
+                    html += '<div class="subcard-body">';
+                    const temp = parseFloat(sys.cpu_temp);
+                    html += row('CPU Temp', sys.cpu_temp, tempClass(sys.cpu_temp));
+                    html += '</div>';
+                    if (!isNaN(temp)) {
+                        html += meterBar(temp, 85, tempColor(temp));
+                        html += sparkline(hist.cpu_temp, 250, 24, tempColor(temp));
+                    }
+
+                    const memPct = parseMemPct(sys.memory);
+                    html += '<div class="subcard-body">';
+                    html += row('Memory', sys.memory);
+                    html += '</div>';
+                    if (memPct != null) {
+                        const memCol = memPct > 85 ? '#a44' : memPct > 70 ? '#fa0' : '#4a4';
+                        html += meterBar(memPct, 100, memCol);
+                    }
+
+                    // Network
+                    html += sectionLabel('Network');
+                    html += '<div class="subcard-body">';
+                    html += row('Hostname', sys.hostname);
+                    html += row('IP', sys.ip_address);
+                    html += row('Device', cfg.DEVICE_NAME);
+                    if (sys.interfaces) {
+                        for (const [iface, info] of Object.entries(sys.interfaces)) {
+                            html += row(iface, typeof info === 'string' ? info : JSON.stringify(info));
+                        }
+                    }
+                    html += '</div>';
+
+                    // All services
+                    html += sectionLabel('All Services');
+                    if (Object.keys(svcs).length > 0) {
+                        html += '<div class="svc-list">';
+                        for (const [name, status] of Object.entries(svcs)) {
+                            const cls = status === 'Running' ? 'running' : (status === 'Inactive' || status === 'Failed') ? 'stopped' : 'warning';
+                            html += `<div class="svc-item"><span class="svc-dot ${cls}"></span><span class="svc-name">${name.replace('beo-', '')}</span></div>`;
+                        }
+                        html += '</div>';
+                    }
+                    return html;
+                },
+            },
+            {
+                id: 'bluetooth',
+                title: 'BLUETOOTH',
+                service: 'beo-bluetooth',
+                fetch: async () => {
+                    const resp = await fetch('http://localhost:8767/bt/remotes');
+                    if (!resp.ok) throw new Error('offline');
+                    return resp.json();
+                },
+                render: (data) => {
+                    if (!data || !Array.isArray(data)) return '<div class="subcard-body">' + row('Status', 'No data', 'dim') + '</div>';
+                    let html = '';
+                    for (const r of data) {
+                        const name = r.name === 'BEORC' ? 'BeoRemote One' : r.name;
+                        html += '<div class="subcard-body" style="margin-bottom:12px">';
+                        html += row('Remote', name);
+                        html += row('MAC', r.mac);
+                        html += row('Connected', r.connected ? 'Yes' : 'No', r.connected ? 'ok' : 'err');
+                        html += row('RSSI', r.rssi != null ? r.rssi + ' dBm' : '—');
+                        html += row('Battery', r.battery != null ? r.battery + '%' : '—');
+                        html += '</div>';
+                    }
+                    if (data.length === 0) {
+                        html = '<div class="subcard-body">' + row('Remotes', 'None paired', 'dim') + '</div>';
+                    }
+                    return html;
+                },
+            },
+            {
+                id: 'masterlink',
+                title: 'MASTERLINK',
+                service: 'beo-masterlink',
+                fetch: async () => {
+                    const resp = await fetch('http://localhost:8768/mixer/status');
+                    if (!resp.ok) throw new Error('offline');
+                    return resp.json();
+                },
+                render: (data) => {
+                    if (!data) return '<div class="subcard-body">' + row('Status', 'No data', 'dim') + '</div>';
+                    let html = '<div class="subcard-body">';
+                    html += row('USB', data.usb_connected ? 'Connected' : 'Not found', data.usb_connected ? 'ok' : 'err');
+                    if (data.volume !== undefined) html += row('Volume', data.volume);
+                    if (data.mute !== undefined) html += row('Mute', data.mute ? 'Yes' : 'No');
+                    if (data.speakers_on !== undefined) html += row('Speakers', data.speakers_on ? 'On' : 'Off');
+                    html += '</div>';
+                    return html;
+                },
+            },
+            {
+                id: 'sonos',
+                title: 'SONOS',
+                service: 'beo-player-sonos',
+                fetch: async () => {
+                    const resp = await fetch('http://localhost:8766/player/status');
+                    if (!resp.ok) throw new Error('offline');
+                    return resp.json();
+                },
+                render: (data) => {
+                    if (!data) return '<div class="subcard-body">' + row('Status', 'No data', 'dim') + '</div>';
+                    let html = '<div class="subcard-body">';
+                    html += row('Speaker', data.speaker_name);
+                    html += row('IP', data.speaker_ip);
+                    html += row('State', data.state, data.state === 'playing' ? 'ok' : '');
+                    if (data.volume !== undefined && data.volume !== null) html += row('Volume', data.volume + '%');
+                    if (data.current_track) {
+                        html += row('Track', trunc(data.current_track.title, 40));
+                        html += row('Artist', trunc(data.current_track.artist, 40));
+                        html += row('Album', trunc(data.current_track.album, 40));
+                    }
+                    html += row('Grouped', data.is_grouped ? data.coordinator_name : 'No');
+                    html += row('Art Cache', data.artwork_cache_size + ' items');
+                    html += row('WS Clients', data.ws_clients);
+                    html += '</div>';
+                    return html;
+                },
+            },
+            {
+                id: 'spotify',
+                title: 'SPOTIFY',
+                service: 'beo-spotify',
+                fetch: async () => {
+                    const resp = await fetch('http://localhost:8771/status');
+                    if (!resp.ok) throw new Error('offline');
+                    return resp.json();
+                },
+                render: (data) => {
+                    if (!data) return '<div class="subcard-body">' + row('Status', 'No data', 'dim') + '</div>';
+                    let html = '<div class="subcard-body">';
+                    html += row('Account', data.display_name || '—');
+                    html += row('Auth', data.has_credentials ? (data.needs_reauth ? 'Expired' : 'OK') : 'Not connected',
+                        data.has_credentials ? (data.needs_reauth ? 'warn' : 'ok') : 'err');
+                    html += row('State', data.state);
+                    html += row('Playlists', data.playlist_count);
+                    html += row('Fetching', data.fetching ? 'Yes' : 'No', data.fetching ? 'warn' : '');
+                    if (data.last_refresh) {
+                        const d = new Date(data.last_refresh);
+                        html += row('Last Refresh', d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                    }
+                    if (data.last_refresh_duration != null) {
+                        html += row('Refresh Time', data.last_refresh_duration + 's');
+                    }
+                    html += '</div>';
+
+                    // Digit playlists grid
+                    if (data.digit_playlists && Object.keys(data.digit_playlists).length > 0) {
+                        html += '<div style="margin-top:12px; font-size:11px; color:#555; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px">Digit Playlists</div>';
+                        html += '<div class="digit-grid">';
+                        for (let i = 0; i <= 9; i++) {
+                            const name = data.digit_playlists[String(i)] || '—';
+                            html += `<div class="digit-item"><span class="digit-num">${i}</span><span class="digit-name">${trunc(name, 14)}</span></div>`;
+                        }
+                        html += '</div>';
+                    }
+                    return html;
+                },
+            },
+            {
+                id: 'cd',
+                title: 'CD',
+                service: 'beo-source-cd',
+                fetch: async () => {
+                    const resp = await fetch('http://localhost:8769/status');
+                    if (!resp.ok) throw new Error('offline');
+                    return resp.json();
+                },
+                render: (data) => {
+                    if (!data) return '<div class="subcard-body">' + row('Status', 'No data', 'dim') + '</div>';
+                    let html = '<div class="subcard-body">';
+                    html += row('Drive', data.drive_connected ? 'Connected' : 'Not found', data.drive_connected ? 'ok' : 'err');
+                    html += row('Disc', data.disc_inserted ? 'Inserted' : 'Empty', data.disc_inserted ? 'ok' : '');
+                    if (data.metadata) {
+                        html += row('Artist', trunc(data.metadata.artist, 35));
+                        html += row('Album', trunc(data.metadata.title, 35));
+                        if (data.metadata.musicbrainz) html += row('MusicBrainz', 'Yes', 'ok');
+                    }
+                    if (data.playback) {
+                        html += row('State', data.playback.state, data.playback.state === 'playing' ? 'ok' : '');
+                        if (data.playback.current_track) {
+                            html += row('Track', data.playback.current_track + ' / ' + data.playback.total_tracks);
+                        }
+                    }
+                    if (data.current_sink) {
+                        const active = data.audio_outputs?.find(o => o.name === data.current_sink);
+                        html += row('Output', active?.label || data.current_sink);
+                    }
+                    html += '</div>';
+
+                    // Artwork
+                    if (data.metadata?.artwork) {
+                        html += `<img class="cd-artwork" src="${data.metadata.artwork}" alt="Album art">`;
+                    }
+                    return html;
+                },
+            },
+        ];
+
+        // ── Helper functions ──
+
+        function row(label, value, cls) {
+            const v = value != null ? value : '—';
+            const c = cls ? ` ${cls}` : '';
+            return `<span class="label">${label}</span><span class="value${c}">${v}</span>`;
+        }
+
+        function trunc(str, max) {
+            if (!str) return '—';
+            return str.length > max ? str.substring(0, max) + '...' : str;
+        }
+
+        function tempClass(temp) {
+            if (!temp) return '';
+            const n = parseFloat(temp);
+            if (isNaN(n)) return '';
+            return n > 70 ? 'err' : n > 55 ? 'warn' : 'ok';
+        }
+
+        function tempColor(temp) {
+            if (temp < 50) return '#4a4';
+            if (temp < 65) return '#fa0';
+            return '#a44';
+        }
+
+        function sectionLabel(text) {
+            return `<div style="margin-top:14px;font-size:11px;color:#555;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">${text}</div>`;
+        }
+
+        function meterBar(value, max, color) {
+            const pct = Math.min(100, Math.max(0, (value / max) * 100));
+            return `<div class="meter"><div class="meter-bar"><div class="meter-fill" style="width:${pct.toFixed(0)}%;background:${color}"></div></div><span class="meter-label">${pct.toFixed(0)}%</span></div>`;
+        }
+
+        function sparkline(values, width, height, color) {
+            if (!values || values.length < 2) return '';
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+            const range = max - min || 1;
+            const step = width / (values.length - 1);
+            const c = color || '#4a4';
+            const points = values.map((v, i) =>
+                `${(i * step).toFixed(1)},${(height - 1 - ((v - min) / range) * (height - 2)).toFixed(1)}`
+            ).join(' ');
+            return `<svg width="${width}" height="${height}" style="display:block;margin:4px 0"><polyline points="${points}" fill="none" stroke="${c}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        }
+
+        function parseMemPct(memStr) {
+            if (!memStr) return null;
+            let m = memStr.match(/(\d+(?:\.\d+)?)\s*%/);
+            if (m) return parseFloat(m[1]);
+            m = memStr.match(/(\d+(?:\.\d+)?)\s*[GMK]?\s*\/\s*(\d+(?:\.\d+)?)/);
+            if (m) return (parseFloat(m[1]) / parseFloat(m[2])) * 100;
+            return null;
+        }
+
+
         class SystemPanel {
             constructor() {
-                this.sections = ['info', 'debug', 'logs', 'services', 'people'];
+                this.sections = ['info', 'services', 'remotes', 'people'];
                 this.currentSection = 0;
-                this.logServices = ['beo-masterlink', 'beo-bluetooth', 'beo-input', 'beo-media', 'beo-http', 'beo-ui', 'beo-spotify-fetch'];
-                this.currentLogService = 0;
-                this.serviceItems = document.querySelectorAll('.service-item');
-                this.currentServiceItem = 0;
                 this.inputWs = null;
                 this.serviceStatus = {};
-                this.isStreaming = false;
-                this.isDemoMode = false;
+                this.remoteItems = [];
+                this.currentRemoteItem = 0;
+                this.btRemotes = [];
+                this.remotesRefreshInterval = null;
+
+                // Service subcards
+                this.currentSubcard = 0;
+                this.subcardData = {};    // id -> last fetched data
+                this.subcardOnline = {};  // id -> bool
+                this.subcardRefreshTimer = null;
 
                 // Debouncing
                 this.lastButtonTime = 0;
@@ -766,259 +1004,150 @@
                 this.lastNavTime = 0;
                 this.navDebounceMs = 80;
 
-                // Check for emulator mode
-                this.checkDemoMode();
                 this.init();
             }
 
-            checkDemoMode() {
-                // Check URL parameter
-                const urlParams = new URLSearchParams(window.location.search);
-                if (urlParams.get('demo') === 'true') {
-                    this.isDemoMode = true;
-                }
-                // Check parent window for emulator mode
-                if (window.parent !== window && window.parent.EmulatorModeManager?.isActive) {
-                    this.isDemoMode = true;
-                }
-                // Check top-level EmulatorModeManager
-                if (window.top?.EmulatorModeManager?.isActive) {
-                    this.isDemoMode = true;
-                }
-                // Auto-detect development mode (running on Mac/localhost without real backend)
-                const platform = navigator.platform?.toLowerCase() || '';
-                const userAgent = navigator.userAgent?.toLowerCase() || '';
-                const isMac = platform.includes('mac') || userAgent.includes('macintosh') || userAgent.includes('mac os');
-                const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                console.log('[SYSTEM] Platform detection:', { platform, isMac, hostname: window.location.hostname, isLocalhost });
-                if (isMac && isLocalhost) {
-                    this.isDemoMode = true;
-                    console.log('[SYSTEM] Development mode detected (Mac + localhost)');
-                }
-
-                if (this.isDemoMode) {
-                    console.log('[SYSTEM] Demo mode enabled - using mock data');
-                    this.loadMockData();
-                }
-            }
-
-            loadMockData() {
-                // Mock system info
-                const mockSystemInfo = window.top?.EmulatorModeManager?.getSystemInfo?.() || {
-                    hostname: window.location.hostname,
-                    ip_address: 'localhost',
-                    uptime: 'Development Mode',
-                    cpu_temp: 'N/A',
-                    memory: 'N/A',
-                    git_tag: 'dev'
+            init() {
+                this._messageHandler = (event) => {
+                    this.handleMessage(event.data);
                 };
+                window.addEventListener('message', this._messageHandler);
 
-                // Update UI with mock data
-                document.getElementById('sys-hostname').textContent = mockSystemInfo.hostname;
-                document.getElementById('sys-ip').textContent = mockSystemInfo.ip_address;
-                document.getElementById('sys-uptime').textContent = mockSystemInfo.uptime;
-                document.getElementById('sys-temp').textContent = mockSystemInfo.cpu_temp;
-                document.getElementById('sys-temp').className = 'value';
-                document.getElementById('sys-memory').textContent = mockSystemInfo.memory || 'N/A';
-                document.getElementById('sys-git').textContent = mockSystemInfo.git_tag || 'dev';
-                document.getElementById('git-tag').textContent = mockSystemInfo.git_tag || 'dev';
-
-                // Connection status - check actual WebSocket connections
-                document.getElementById('conn-input').textContent = 'Dev Mode';
-                document.getElementById('conn-input').className = 'value status-warning';
-                document.getElementById('conn-media').textContent = 'Checking...';
-                document.getElementById('conn-media').className = 'value';
-                document.getElementById('conn-ha').textContent = 'Dev Mode';
-                document.getElementById('conn-ha').className = 'value status-warning';
-
-                // Mock Sonos data - will be updated by media server if connected
-                document.getElementById('sonos-speaker').textContent = 'Development Mode';
-                document.getElementById('sonos-ip').textContent = '—';
-                document.getElementById('sonos-grouped').textContent = '—';
-                document.getElementById('sonos-state').textContent = '—';
-                document.getElementById('sonos-state').className = 'value';
-                document.getElementById('sonos-volume').textContent = '—';
-                document.getElementById('sonos-track').textContent = '—';
-                document.getElementById('sonos-artist').textContent = '—';
-                document.getElementById('sonos-album').textContent = '—';
-
-                // Config data from AppConfig
-                const deviceName = window.top?.AppConfig?.deviceName || 'Development';
-                document.getElementById('cfg-device-name').textContent = deviceName;
-                document.getElementById('cfg-sonos-ip').textContent = '—';
-                document.getElementById('cfg-ha-url').textContent = window.top?.AppConfig?.homeAssistant?.url?.replace('http://', '') || '—';
-                document.getElementById('cfg-beoremote-mac').textContent = '—';
-                document.getElementById('cfg-bt-name').textContent = '—';
-
-                // Mock hardware data
-                document.getElementById('hw-laser').textContent = '93';
-                document.getElementById('hw-button').textContent = '—';
-                document.getElementById('hw-backlight').textContent = 'Simulated';
-                document.getElementById('hw-backlight').className = 'value status-warning';
-
-                // Spotify data - will be updated by fetchSpotifyInfo
-                document.getElementById('spotify-user').textContent = 'mkirsten';
-                document.getElementById('spotify-playlists').textContent = '—';
-                document.getElementById('spotify-digits').textContent = '—';
-                document.getElementById('spotify-fetch-time').textContent = '—';
-
-                // Service status - dev mode shows warning
-                ['masterlink', 'bluetooth', 'input', 'media', 'http', 'ui', 'spotify-fetch'].forEach(svc => {
-                    const dot = document.getElementById(`dot-${svc}`);
-                    if (dot) {
-                        dot.className = 'status-dot warning';
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'ArrowLeft') this.handleButton('left');
+                    else if (e.key === 'ArrowRight') this.handleButton('right');
+                    else if (e.key === 'ArrowUp') this.handleNav('counter', 1);
+                    else if (e.key === 'ArrowDown') this.handleNav('clock', 1);
+                    else if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        this.handleButton('go');
                     }
                 });
 
-                // Mock logs
-                document.getElementById('log-output').innerHTML = this.generateMockLogs();
-
-                // Mock people
-                this.loadMockPeople();
-
-                // Still try to connect to media server (it might be running locally)
-                this.connectMediaWebSocketDev();
-            }
-
-            connectMediaWebSocketDev() {
-                try {
-                    const ws = new WebSocket('ws://localhost:8766');
-                    const mediaEl = document.getElementById('conn-media');
-
-                    ws.onopen = () => {
-                        mediaEl.textContent = 'Connected';
-                        mediaEl.className = 'value status-ok';
-                        document.getElementById('dot-media').className = 'status-dot running';
-                    };
-
-                    ws.onmessage = (event) => {
-                        try {
-                            const msg = JSON.parse(event.data);
-                            if (msg.type === 'media_update' && msg.data) {
-                                this.updateSonosInfo(msg.data);
-                            }
-                        } catch (e) {}
-                    };
-
-                    ws.onerror = () => {
-                        mediaEl.textContent = 'Not Running';
-                        mediaEl.className = 'value status-error';
-                    };
-
-                    ws.onclose = () => {
-                        mediaEl.textContent = 'Disconnected';
-                        mediaEl.className = 'value status-error';
-                    };
-                } catch (e) {
-                    document.getElementById('conn-media').textContent = 'Error';
-                    document.getElementById('conn-media').className = 'value status-error';
-                }
-            }
-
-            generateMockLogs() {
-                const now = new Date();
-                const time = now.toTimeString().slice(0, 8);
-                const logLines = [
-                    `[${time}] [INFO] Development mode - running on localhost`,
-                    `[${time}] [INFO] BeoSound 5c UI loaded`,
-                    `[${time}] [INFO] Dummy hardware simulation active`,
-                    '<span class="log-warning">[' + time + '] [WARN] Not connected to real hardware services</span>',
-                    `[${time}] [INFO] Use trackpad scroll for laser pointer`,
-                    `[${time}] [INFO] Use arrow keys for navigation wheel`,
-                    `[${time}] [INFO] Use Enter/Space for GO button`,
-                    '<span class="log-info">[' + time + '] [INFO] Media server may be running on :8766</span>'
-                ];
-                return logLines.join('\n');
-            }
-
-            loadMockPeople() {
-                const grid = document.getElementById('people-grid');
-                const mockPeople = [
-                    { friendly_name: 'Demo User', state: 'home', entity_picture: null },
-                    { friendly_name: 'Guest', state: 'away', entity_picture: null },
-                    { friendly_name: 'Family', state: 'home', entity_picture: null }
-                ];
-
-                grid.innerHTML = mockPeople.map(person => {
-                    const isHome = person.state === 'home';
-                    const initials = this.getInitials(person.friendly_name);
-                    return `
-                        <div class="person-card">
-                            <div class="person-avatar ${isHome ? 'home' : 'away'}">${initials}</div>
-                            <div class="person-name">${person.friendly_name}</div>
-                            <div class="person-status ${isHome ? 'home' : ''}">${person.state}</div>
-                        </div>
-                    `;
-                }).join('');
-            }
-
-            init() {
-                window.addEventListener('message', (event) => {
-                    this.handleMessage(event.data);
+                // Tab click handlers
+                document.querySelectorAll('.section-tab').forEach((tab, index) => {
+                    tab.addEventListener('click', () => {
+                        this.currentSection = index;
+                        this.updateSection();
+                    });
                 });
 
                 this.connectInputWebSocket();
-                this.connectMediaWebSocket();
-                this.checkServiceStatus();
-                this.fetchSpotifyInfo();
                 this.fetchPeople();
-                setInterval(() => this.checkServiceStatus(), 10000);
-                setInterval(() => this.fetchPeople(), 30000);
+                this.fetchBTRemotes();
 
-                // Spotify refresh button handler
-                document.getElementById('spotify-refresh-btn').addEventListener('click', () => {
-                    this.refreshSpotifyPlaylists();
-                });
+                this._intervals = [
+                    setInterval(() => this.fetchPeople(), 30000),
+                ];
             }
 
-            connectInputWebSocket() {
-                // Skip WebSocket connection in emulator mode
-                if (this.isDemoMode) {
-                    console.log('[SYSTEM] Demo mode - skipping Input WebSocket connection');
-                    return;
+            // ── Subcards ──
+
+            async fetchSubcard(index) {
+                const card = SUBCARDS[index];
+                try {
+                    const data = await card.fetch();
+                    this.subcardData[card.id] = data;
+                    this.subcardOnline[card.id] = !!data;
+                } catch (e) {
+                    this.subcardOnline[card.id] = false;
+                }
+                if (this.currentSubcard === index && this.sections[this.currentSection] === 'services') {
+                    this.renderCurrentSubcard();
+                }
+            }
+
+            renderCurrentSubcard() {
+                const card = SUBCARDS[this.currentSubcard];
+                const data = this.subcardData[card.id];
+                const online = this.subcardOnline[card.id] !== false;
+
+                const container = document.getElementById('subcard-container');
+                let html = '<div class="subcard-header">';
+                html += `<span class="subcard-status-dot ${online ? 'online' : 'offline'}"></span>`;
+                html += `<span class="subcard-title">${card.title}</span>`;
+                html += `<span class="subcard-counter">${this.currentSubcard + 1} / ${SUBCARDS.length}</span>`;
+                html += '</div>';
+
+                if (!online) {
+                    html += '<div class="subcard-body">';
+                    html += row('Status', 'Offline', 'err');
+                    html += '</div>';
+                } else {
+                    try {
+                        html += card.render(data);
+                    } catch (e) {
+                        html += '<div class="subcard-body">' + row('Error', e.message, 'err') + '</div>';
+                    }
                 }
 
+                container.innerHTML = html;
+
+                // Update git tag from system data (overview and system both fetch it)
+                const tag = data?.input?.system?.git_tag || data?.input?.git_tag;
+                if ((card.id === 'overview' || card.id === 'system') && tag) {
+                    document.getElementById('git-tag').textContent = tag;
+                }
+            }
+
+            startSubcardRefresh() {
+                this.stopSubcardRefresh();
+                this.fetchSubcard(this.currentSubcard);
+                this.subcardRefreshTimer = setInterval(() => {
+                    this.fetchSubcard(this.currentSubcard);
+                }, 5000);
+            }
+
+            stopSubcardRefresh() {
+                if (this.subcardRefreshTimer) {
+                    clearInterval(this.subcardRefreshTimer);
+                    this.subcardRefreshTimer = null;
+                }
+            }
+
+            // ── WebSocket ──
+
+            connectInputWebSocket() {
                 try {
                     this.inputWs = new WebSocket('ws://localhost:8765');
 
                     this.inputWs.onopen = () => {
-                        document.getElementById('conn-input').textContent = 'Connected';
-                        document.getElementById('conn-input').className = 'value status-ok';
-                        this.checkServiceStatus();
-                        // Start log stream for default service
-                        this.startLogStream(this.logServices[this.currentLogService]);
+                        console.log('[SYSTEM] Input WS connected');
+                        // Fetch system info for git tag
+                        this.inputWs.send(JSON.stringify({
+                            type: 'command', command: 'get_system_info'
+                        }));
                     };
 
                     this.inputWs.onmessage = (event) => {
                         try {
                             const data = JSON.parse(event.data);
-                            if (data.type === 'logs') {
-                                this.displayLogs(data.service, data.logs);
-                            } else if (data.type === 'log_line') {
-                                this.appendLogLine(data.line);
-                            } else if (data.type === 'system_info') {
-                                this.updateSystemInfo(data);
-                            } else if (data.type === 'laser') {
-                                document.getElementById('hw-laser').textContent = data.data?.position ?? '--';
-                            } else if (data.type === 'button') {
-                                document.getElementById('hw-button').textContent = data.data?.button ?? data.button ?? '--';
-                            } else if (data.type === 'backlight') {
-                                const el = document.getElementById('hw-backlight');
-                                el.textContent = data.data?.state ?? (data.on ? 'On' : 'Off');
-                                el.className = data.on ? 'value status-ok' : 'value';
+                            if (data.type === 'system_info') {
+                                if (data.git_tag) {
+                                    document.getElementById('git-tag').textContent = data.git_tag;
+                                }
+                            } else if (data.type === 'bt_remotes') {
+                                this.btRemotes = data.remotes || [];
+                                this.renderRemotesList(this.btRemotes);
+                            } else if (data.type === 'bt_pairing') {
+                                const statusEl = document.getElementById('pairing-status');
+                                if (data.status === 'started') {
+                                    statusEl.textContent = data.message || 'Scanning...';
+                                } else if (data.status === 'completed') {
+                                    statusEl.textContent = data.message || 'Pairing complete';
+                                    this.fetchBTRemotes();
+                                    setTimeout(() => { statusEl.textContent = ''; }, 5000);
+                                } else if (data.status === 'error') {
+                                    statusEl.textContent = data.message || 'Pairing failed';
+                                    setTimeout(() => { statusEl.textContent = ''; }, 5000);
+                                }
                             }
                         } catch (e) {}
                     };
 
-                    this.inputWs.onerror = () => {
-                        document.getElementById('conn-input').textContent = 'Error';
-                        document.getElementById('conn-input').className = 'value status-error';
-                    };
+                    this.inputWs.onerror = () => {};
 
                     this.inputWs.onclose = () => {
-                        document.getElementById('conn-input').textContent = 'Disconnected';
-                        document.getElementById('conn-input').className = 'value status-error';
-                        this.isStreaming = false;
                         setTimeout(() => this.connectInputWebSocket(), 5000);
                     };
                 } catch (e) {
@@ -1026,84 +1155,11 @@
                 }
             }
 
-            startLogStream(service) {
-                if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
-                    // Clear log output
-                    document.getElementById('log-output').innerHTML = '<span class="log-loading">Starting log stream...</span>';
-                    this.inputWs.send(JSON.stringify({
-                        type: 'command',
-                        command: 'start_log_stream',
-                        params: { service: service }
-                    }));
-                    this.isStreaming = true;
-                    this.updateLogServiceButtons();
-                }
-            }
-
-            appendLogLine(line) {
-                const logOutput = document.getElementById('log-output');
-                // Remove loading message if present
-                const loading = logOutput.querySelector('.log-loading');
-                if (loading) loading.remove();
-
-                // Colorize and append
-                let colorClass = '';
-                if (line.includes('error') || line.includes('Error') || line.includes('ERROR')) {
-                    colorClass = 'log-error';
-                } else if (line.includes('warning') || line.includes('Warning') || line.includes('WARN')) {
-                    colorClass = 'log-warning';
-                }
-
-                const lineEl = document.createElement('div');
-                lineEl.className = colorClass;
-                lineEl.textContent = line;
-                logOutput.appendChild(lineEl);
-
-                // Keep only last 500 lines
-                while (logOutput.children.length > 500) {
-                    logOutput.removeChild(logOutput.firstChild);
-                }
-
-                // Auto-scroll to bottom
-                logOutput.scrollTop = logOutput.scrollHeight;
-            }
-
-            displayLogs(service, logs) {
-                const logOutput = document.getElementById('log-output');
-                if (!logs || logs.length === 0) {
-                    logOutput.innerHTML = '<span class="log-loading">No logs available</span>';
-                    return;
-                }
-
-                const colorizedLogs = logs.map(line => {
-                    if (line.includes('error') || line.includes('Error') || line.includes('ERROR')) {
-                        return `<span class="log-error">${this.escapeHtml(line)}</span>`;
-                    } else if (line.includes('warning') || line.includes('Warning') || line.includes('WARN')) {
-                        return `<span class="log-warning">${this.escapeHtml(line)}</span>`;
-                    }
-                    return this.escapeHtml(line);
-                }).join('\n');
-
-                logOutput.innerHTML = colorizedLogs;
-                logOutput.scrollTop = logOutput.scrollHeight;
-            }
-
-            updateLogServiceButtons() {
-                document.querySelectorAll('.log-service-btn').forEach((btn, index) => {
-                    btn.classList.toggle('active', index === this.currentLogService);
-                });
-            }
-
-            escapeHtml(text) {
-                const div = document.createElement('div');
-                div.textContent = text;
-                return div.innerHTML;
-            }
+            // ── Navigation ──
 
             handleMessage(msg) {
-                if (msg.type === 'button') {
-                    this.handleButton(msg.button);
-                } else if (msg.type === 'nav') {
+                if (msg.type === 'button') this.handleButton(msg.button);
+                else if (msg.type === 'nav') {
                     const data = msg.data || msg;
                     this.handleNav(data.direction, data.speed || 1);
                 }
@@ -1124,10 +1180,12 @@
                     this.updateSection();
                 } else if (button === 'go') {
                     if (section === 'services') {
-                        this.restartSelectedService();
-                    } else if (section === 'logs') {
-                        this.currentLogService = (this.currentLogService + 1) % this.logServices.length;
-                        this.startLogStream(this.logServices[this.currentLogService]);
+                        this.restartSubcardService();
+                    } else if (section === 'remotes') {
+                        const selected = this.remoteItems[this.currentRemoteItem];
+                        if (selected && selected.dataset.action === 'pair') {
+                            this.startBTPairing();
+                        }
                     }
                 }
             }
@@ -1139,29 +1197,21 @@
 
                 const section = this.sections[this.currentSection];
 
-                if (section === 'logs') {
-                    const logOutput = document.getElementById('log-output');
-                    const scrollAmount = Math.min(speed * 30, 150);
+                if (section === 'services') {
                     if (direction === 'counter') {
-                        logOutput.scrollTop -= scrollAmount;
+                        this.currentSubcard = (this.currentSubcard - 1 + SUBCARDS.length) % SUBCARDS.length;
                     } else if (direction === 'clock') {
-                        logOutput.scrollTop += scrollAmount;
+                        this.currentSubcard = (this.currentSubcard + 1) % SUBCARDS.length;
                     }
-                } else if (section === 'services') {
-                    // Single item navigation
-                    if (direction === 'counter') {
-                        this.currentServiceItem = Math.max(0, this.currentServiceItem - 1);
-                    } else if (direction === 'clock') {
-                        this.currentServiceItem = Math.min(this.serviceItems.length - 1, this.currentServiceItem + 1);
-                    }
-                    this.updateServiceSelection();
-                } else if (section === 'debug') {
-                    const debugSection = document.getElementById('debug');
-                    const scrollAmount = Math.min(speed * 30, 150);
-                    if (direction === 'counter') {
-                        debugSection.scrollTop -= scrollAmount;
-                    } else if (direction === 'clock') {
-                        debugSection.scrollTop += scrollAmount;
+                    this.startSubcardRefresh();
+                } else if (section === 'remotes') {
+                    if (this.remoteItems.length > 0) {
+                        if (direction === 'counter') {
+                            this.currentRemoteItem = Math.max(0, this.currentRemoteItem - 1);
+                        } else if (direction === 'clock') {
+                            this.currentRemoteItem = Math.min(this.remoteItems.length - 1, this.currentRemoteItem + 1);
+                        }
+                        this.updateRemoteSelection();
                     }
                 }
             }
@@ -1175,234 +1225,148 @@
                     content.classList.toggle('active', this.sections.indexOf(content.id) === this.currentSection);
                 });
 
-                // Start log stream when entering logs section
-                if (this.sections[this.currentSection] === 'logs' && !this.isStreaming) {
-                    this.startLogStream(this.logServices[this.currentLogService]);
+                const section = this.sections[this.currentSection];
+
+                // Start/stop subcard refresh
+                if (section === 'services') {
+                    this.startSubcardRefresh();
+                } else {
+                    this.stopSubcardRefresh();
                 }
 
-                // Refresh people when entering people section
-                if (this.sections[this.currentSection] === 'people') {
+                // Fetch remotes when entering remotes section
+                if (section === 'remotes') {
+                    this.fetchBTRemotes();
+                    this.remotesRefreshInterval = setInterval(() => this.fetchBTRemotes(), 10000);
+                } else {
+                    if (this.remotesRefreshInterval) {
+                        clearInterval(this.remotesRefreshInterval);
+                        this.remotesRefreshInterval = null;
+                    }
+                }
+
+                if (section === 'people') {
                     this.fetchPeople();
                 }
             }
 
-            updateServiceSelection() {
-                this.serviceItems.forEach((item, index) => {
-                    item.classList.toggle('selected', index === this.currentServiceItem);
-                });
-            }
+            // ── Service restart ──
 
-            restartSelectedService() {
-                const selectedItem = this.serviceItems[this.currentServiceItem];
-                const service = selectedItem.dataset.service;
+            restartSubcardService() {
+                const card = SUBCARDS[this.currentSubcard];
+                if (!card.service) {
+                    // SYSTEM card — restart all
+                    if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
+                        this.inputWs.send(JSON.stringify({
+                            type: 'command', command: 'restart_service',
+                            params: { action: 'restart-all' }
+                        }));
+                    }
+                    return;
+                }
 
-                selectedItem.style.background = '#332200';
-                setTimeout(() => { selectedItem.style.background = ''; }, 400);
+                // Flash feedback
+                const container = document.getElementById('subcard-container');
+                container.style.opacity = '0.5';
+                setTimeout(() => { container.style.opacity = '1'; }, 400);
 
                 if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
-                    let action = '';
-                    if (service === 'all') {
-                        action = 'restart-all';
-                    } else if (service === 'system') {
-                        action = 'reboot';
-                    } else {
-                        action = 'restart-' + service.replace('beo-', '');
-                    }
+                    const action = 'restart-' + card.service.replace('beo-', '');
                     this.inputWs.send(JSON.stringify({
-                        type: 'command',
-                        command: 'restart_service',
+                        type: 'command', command: 'restart_service',
                         params: { action: action }
                     }));
                 }
+
+                // Refresh after a short delay
+                setTimeout(() => this.fetchSubcard(this.currentSubcard), 3000);
             }
 
-            checkServiceStatus() {
-                if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
-                    this.inputWs.send(JSON.stringify({
-                        type: 'command',
-                        command: 'get_system_info'
-                    }));
-                }
-            }
+            // ── BT Remotes ──
 
-            updateSystemInfo(data) {
-                if (data.uptime) document.getElementById('sys-uptime').textContent = data.uptime;
-                if (data.cpu_temp) {
-                    const el = document.getElementById('sys-temp');
-                    el.textContent = data.cpu_temp;
-                    el.className = parseFloat(data.cpu_temp) > 70 ? 'value status-error' : 'value status-ok';
-                }
-                if (data.memory) document.getElementById('sys-memory').textContent = data.memory;
-                if (data.ip_address) document.getElementById('sys-ip').textContent = data.ip_address;
-                if (data.hostname) document.getElementById('sys-hostname').textContent = data.hostname;
-                if (data.git_tag) {
-                    document.getElementById('sys-git').textContent = data.git_tag;
-                    document.getElementById('git-tag').textContent = data.git_tag;
-                }
-
-                // Backlight status
-                if (data.backlight) {
-                    const el = document.getElementById('hw-backlight');
-                    el.textContent = data.backlight;
-                    el.className = data.backlight === 'On' ? 'value status-ok' : 'value';
-                }
-
-                // Config from ENV file
-                if (data.config) {
-                    const cfg = data.config;
-                    if (cfg.DEVICE_NAME) document.getElementById('cfg-device-name').textContent = cfg.DEVICE_NAME;
-                    if (cfg.SONOS_IP) document.getElementById('cfg-sonos-ip').textContent = cfg.SONOS_IP;
-                    if (cfg.HA_URL) document.getElementById('cfg-ha-url').textContent = cfg.HA_URL.replace('http://', '');
-                    if (cfg.BEOREMOTE_MAC) document.getElementById('cfg-beoremote-mac').textContent = cfg.BEOREMOTE_MAC;
-                    if (cfg.BT_DEVICE_NAME) document.getElementById('cfg-bt-name').textContent = cfg.BT_DEVICE_NAME;
-                    if (cfg.SPOTIFY_USER_ID) document.getElementById('spotify-user').textContent = cfg.SPOTIFY_USER_ID;
-                }
-
-                if (data.services) {
-                    this.serviceStatus = data.services;
-                    for (const [svc, status] of Object.entries(data.services)) {
-                        const dot = document.getElementById(`dot-${svc.replace('beo-', '')}`);
-                        if (dot) {
-                            dot.className = 'status-dot';
-                            if (status === 'Running') dot.classList.add('running');
-                            else if (status === 'Inactive' || status === 'Failed') dot.classList.add('stopped');
-                            else dot.classList.add('warning');
-                        }
+            async fetchBTRemotes() {
+                try {
+                    const resp = await fetch('http://localhost:8767/bt/remotes');
+                    if (resp.ok) {
+                        const remotes = await resp.json();
+                        this.btRemotes = remotes;
+                        this.renderRemotesList(remotes);
+                        return;
                     }
+                } catch (e) {}
+
+                if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
+                    this.inputWs.send(JSON.stringify({ type: 'command', command: 'get_bt_remotes' }));
                 }
             }
 
-            connectMediaWebSocket() {
-                // Skip WebSocket connection in emulator mode
-                if (this.isDemoMode) {
-                    console.log('[SYSTEM] Demo mode - skipping Media WebSocket connection');
+            renderRemotesList(remotes) {
+                const list = document.getElementById('remotes-list');
+                if (!remotes || remotes.length === 0) {
+                    list.innerHTML = '<span class="people-loading">No paired BeoRemote devices</span>';
+                    this.remoteItems = [];
+                    this.currentRemoteItem = 0;
                     return;
                 }
 
-                const mediaEl = document.getElementById('conn-media');
+                let html = remotes.map((r, i) => {
+                    const statusClass = r.connected ? 'running' : 'stopped';
+                    const rssiText = r.rssi != null ? `${r.rssi} dBm` : '—';
+                    const batteryText = r.battery != null ? `${r.battery}%` : '—';
+                    const selected = i === this.currentRemoteItem ? ' selected' : '';
+                    const displayName = r.name === 'BEORC' ? 'BeoRemote One Bluetooth' : r.name;
+                    return `
+                        <div class="service-item remote-item${selected}" data-mac="${r.mac}">
+                            <div>
+                                <span class="name">${displayName}</span>
+                                <div class="mac">${r.mac}</div>
+                                <div class="remote-meta">
+                                    <span>RSSI: ${rssiText}</span>
+                                    <span>Battery: ${batteryText}</span>
+                                </div>
+                            </div>
+                            <span class="status-dot ${statusClass}"></span>
+                        </div>
+                    `;
+                }).join('');
 
-                try {
-                    const ws = new WebSocket('ws://localhost:8766');
+                const pairSelected = remotes.length === this.currentRemoteItem ? ' selected' : '';
+                html += `
+                    <div class="service-item separator${pairSelected}" data-action="pair">
+                        <span class="name">Pair New Remote</span>
+                        <span class="status-dot"></span>
+                    </div>
+                `;
 
-                    ws.onopen = () => {
-                        mediaEl.textContent = 'Connected';
-                        mediaEl.className = 'value status-ok';
-                    };
-
-                    ws.onmessage = (event) => {
-                        try {
-                            const msg = JSON.parse(event.data);
-                            if (msg.type === 'media_update' && msg.data) {
-                                this.updateSonosInfo(msg.data);
-                            }
-                        } catch (e) {}
-                    };
-
-                    ws.onerror = () => {
-                        mediaEl.textContent = 'Error';
-                        mediaEl.className = 'value status-error';
-                    };
-
-                    ws.onclose = () => {
-                        mediaEl.textContent = 'Disconnected';
-                        mediaEl.className = 'value status-error';
-                        setTimeout(() => this.connectMediaWebSocket(), 5000);
-                    };
-                } catch (e) {
-                    mediaEl.textContent = 'Error';
-                    mediaEl.className = 'value status-error';
-                }
+                list.innerHTML = html;
+                this.remoteItems = list.querySelectorAll('.service-item');
             }
 
-            updateSonosInfo(data) {
-                if (data.speaker_name) document.getElementById('sonos-speaker').textContent = data.speaker_name;
-                if (data.speaker_ip) document.getElementById('sonos-ip').textContent = data.speaker_ip;
-
-                // Show grouped status
-                const groupedEl = document.getElementById('sonos-grouped');
-                if (data.is_grouped && data.coordinator_name) {
-                    groupedEl.textContent = data.coordinator_name;
-                    groupedEl.className = 'value status-warning';
-                } else {
-                    groupedEl.textContent = 'No (standalone)';
-                    groupedEl.className = 'value';
-                }
-
-                if (data.state) {
-                    const el = document.getElementById('sonos-state');
-                    el.textContent = data.state;
-                    el.className = data.state === 'playing' ? 'value status-ok' : 'value';
-                }
-                if (data.volume !== undefined) document.getElementById('sonos-volume').textContent = data.volume + '%';
-                if (data.title) document.getElementById('sonos-track').textContent = data.title.substring(0, 35);
-                if (data.artist) document.getElementById('sonos-artist').textContent = data.artist.substring(0, 35);
-                if (data.album) document.getElementById('sonos-album').textContent = data.album.substring(0, 35);
+            updateRemoteSelection() {
+                this.remoteItems.forEach((item, index) => {
+                    item.classList.toggle('selected', index === this.currentRemoteItem);
+                });
             }
 
-            async fetchSpotifyInfo() {
-                try {
-                    // Fetch playlists data
-                    const playlistsResp = await fetch('../json/playlists_with_tracks.json');
-                    if (playlistsResp.ok) {
-                        const playlists = await playlistsResp.json();
-                        document.getElementById('spotify-playlists').textContent = playlists.length;
-
-                        // Try to get user ID from first playlist
-                        if (playlists.length > 0 && playlists[0].owner) {
-                            document.getElementById('spotify-user').textContent = playlists[0].owner.id || '--';
-                        }
-
-                        // Get last modified time from response headers
-                        const lastModified = playlistsResp.headers.get('Last-Modified');
-                        if (lastModified) {
-                            const date = new Date(lastModified);
-                            document.getElementById('spotify-fetch-time').textContent =
-                                date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                        }
-                    }
-
-                    // Fetch digit playlists data
-                    const digitsResp = await fetch('../json/digit_playlists.json');
-                    if (digitsResp.ok) {
-                        const digits = await digitsResp.json();
-                        const mappedCount = Object.keys(digits).filter(k => digits[k]).length;
-                        document.getElementById('spotify-digits').textContent = `${mappedCount}/10`;
-                    }
-                } catch (e) {
-                    console.error('[SPOTIFY] Error fetching info:', e);
-                }
-            }
-
-            refreshSpotifyPlaylists() {
-                const btn = document.getElementById('spotify-refresh-btn');
-                btn.disabled = true;
-                btn.textContent = 'Refreshing...';
+            startBTPairing() {
+                const statusEl = document.getElementById('pairing-status');
+                statusEl.textContent = 'Scanning for remotes... (60s)';
 
                 if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
-                    this.inputWs.send(JSON.stringify({
-                        type: 'command',
-                        command: 'refresh_playlists'
-                    }));
-
-                    // Re-enable button after delay and refresh info
-                    setTimeout(() => {
-                        btn.disabled = false;
-                        btn.textContent = 'Refresh Playlists';
-                        this.fetchSpotifyInfo();
-                    }, 30000);  // 30s timeout for playlist fetch
+                    this.inputWs.send(JSON.stringify({ type: 'command', command: 'start_bt_pairing' }));
                 } else {
-                    btn.disabled = false;
-                    btn.textContent = 'Refresh Playlists';
+                    fetch('http://localhost:8767/bt/remotes', { method: 'POST' }).catch(() => {});
                 }
+
+                setTimeout(() => {
+                    statusEl.textContent = '';
+                    this.fetchBTRemotes();
+                }, 60000);
             }
+
+            // ── People ──
 
             async fetchPeople() {
-                // Use mock data in emulator mode
-                if (this.isDemoMode) {
-                    this.loadMockPeople();
-                    return;
-                }
-
                 const grid = document.getElementById('people-grid');
                 try {
                     const resp = await fetch('http://localhost:8767/people');
@@ -1425,20 +1389,15 @@
                         const avatarContent = person.entity_picture
                             ? `<img src="${person.entity_picture}" alt="${person.friendly_name}" onerror="this.parentElement.innerHTML='${initials}'">`
                             : initials;
-
                         return `
                             <div class="person-card">
-                                <div class="person-avatar ${isHome ? 'home' : 'away'}">
-                                    ${avatarContent}
-                                </div>
+                                <div class="person-avatar ${isHome ? 'home' : 'away'}">${avatarContent}</div>
                                 <div class="person-name">${person.friendly_name}</div>
                                 <div class="person-status ${isHome ? 'home' : ''}">${person.state.replace('_', ' ')}</div>
                             </div>
                         `;
                     }).join('');
                 } catch (e) {
-                    console.error('[PEOPLE] Error fetching:', e);
-                    // Keep existing content on error, or show error if empty
                     if (grid.querySelector('.people-loading')) {
                         grid.innerHTML = '<span class="people-error">Unable to connect to Home Assistant</span>';
                     }
@@ -1451,10 +1410,30 @@
                     .slice(0, 2)
                     .join('');
             }
+
+            destroy() {
+                if (this._intervals) {
+                    this._intervals.forEach(id => clearInterval(id));
+                    this._intervals = null;
+                }
+                if (this.remotesRefreshInterval) {
+                    clearInterval(this.remotesRefreshInterval);
+                    this.remotesRefreshInterval = null;
+                }
+                this.stopSubcardRefresh();
+                if (this._messageHandler) {
+                    window.removeEventListener('message', this._messageHandler);
+                    this._messageHandler = null;
+                }
+                if (this.inputWs) {
+                    this.inputWs.close();
+                    this.inputWs = null;
+                }
+            }
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            new SystemPanel();
+            window.systemPanel = new SystemPanel();
         });
     </script>
 </body>

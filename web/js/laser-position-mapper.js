@@ -23,7 +23,10 @@ const LASER_MAPPING_CONFIG = (function() {
             MAX_ANGLE: c.laser.maxAngle,
             TOP_OVERLAY_START: c.overlays.topOverlayStart,
             BOTTOM_OVERLAY_START: c.overlays.bottomOverlayStart,
-            MENU_ITEMS: c.menuItems,
+            // Dynamic getter: returns runtime override if set, otherwise Constants
+            get MENU_ITEMS() {
+                return window._dynamicMenuItems || c.menuItems;
+            },
             MENU_ANGLE_STEP: c.arc.menuAngleStep
         };
     }
@@ -39,16 +42,26 @@ const LASER_MAPPING_CONFIG = (function() {
         TOP_OVERLAY_START: 160,
         BOTTOM_OVERLAY_START: 200,
         MENU_ITEMS: [
-            { title: 'SHOWING', path: 'menu/showing' },
-            { title: 'SYSTEM', path: 'menu/system' },
-            { title: 'SECURITY', path: 'menu/security' },
+            { title: 'PLAYING', path: 'menu/playing' },
+            { title: 'SPOTIFY', path: 'menu/spotify' },
             { title: 'SCENES', path: 'menu/scenes' },
-            { title: 'MUSIC', path: 'menu/music' },
-            { title: 'PLAYING', path: 'menu/playing' }
+            { title: 'SECURITY', path: 'menu/security' },
+            { title: 'SYSTEM', path: 'menu/system' },
+            { title: 'SHOWING', path: 'menu/showing' }
         ],
         MENU_ANGLE_STEP: 5
     };
 })();
+
+/**
+ * Update the menu items used for laser position mapping at runtime.
+ * @param {Array} items - Array of {title, path} menu item objects
+ */
+function updateMenuItems(items) {
+    if (typeof window !== 'undefined') {
+        window._dynamicMenuItems = items.map(i => ({ title: i.title, path: i.path }));
+    }
+}
 
 /**
  * Convert laser position to angle using the current calibration
@@ -98,170 +111,72 @@ function getMenuStartAngle() {
  * @returns {number} Angle for the menu item
  */
 function getMenuItemAngle(index) {
-    const { MENU_ANGLE_STEP } = LASER_MAPPING_CONFIG;
-    return getMenuStartAngle() + index * MENU_ANGLE_STEP;
+    const { MENU_ITEMS, MENU_ANGLE_STEP } = LASER_MAPPING_CONFIG;
+    return getMenuStartAngle() + (MENU_ITEMS.length - 1 - index) * MENU_ANGLE_STEP;
 }
 
 /**
- * Find the closest menu item to an angle
- * @param {number} angle - Angle to find closest menu item for
- * @param {boolean} requireExactMatch - If true, only return if within 2 degrees
- * @returns {object|null} Menu item object or null if none close enough
+ * Resolve which menu item (if any) the laser is pointing at.
+ * Each item owns itemAngle ± halfStep. One call, one result.
+ * @param {number} position - Laser position (3-123)
+ * @returns {object} { selectedIndex, path, angle, isOverlay }
  */
-function findClosestMenuItem(angle, requireExactMatch = false) {
-    const { MENU_ITEMS } = LASER_MAPPING_CONFIG;
-    let closestItem = null;
-    let closestDistance = Infinity;
-    
+function resolveMenuSelection(position) {
+    const { TOP_OVERLAY_START, BOTTOM_OVERLAY_START, MENU_ITEMS, MENU_ANGLE_STEP } = LASER_MAPPING_CONFIG;
+    const angle = laserPositionToAngle(position);
+
+    if (angle <= TOP_OVERLAY_START)  return { selectedIndex: -1, path: null, angle, isOverlay: true };
+    if (angle >= BOTTOM_OVERLAY_START) return { selectedIndex: -1, path: null, angle, isOverlay: true };
+
+    const halfStep = MENU_ANGLE_STEP / 2;
     for (let i = 0; i < MENU_ITEMS.length; i++) {
-        const itemAngle = getMenuItemAngle(i);
-        const distance = Math.abs(angle - itemAngle);
-        
-        if (distance < closestDistance) {
-            closestDistance = distance;
-            closestItem = {
-                ...MENU_ITEMS[i],
-                index: i,
-                angle: itemAngle,
-                distance: distance
-            };
-        }
+        if (Math.abs(angle - getMenuItemAngle(i)) <= halfStep)
+            return { selectedIndex: i, path: MENU_ITEMS[i].path, angle, isOverlay: false };
     }
-    
-    // If exact match required, only return if within 2 degrees
-    if (requireExactMatch && closestDistance > 2) {
-        return null;
-    }
-    
-    return closestItem;
+    return { selectedIndex: -1, path: null, angle, isOverlay: false }; // gap between items
 }
 
 /**
- * Main function: Convert laser position to UI view
- * @param {number} position - Laser position (3-123)
- * @returns {object} View information with path, reason, and metadata
+ * Convert angle back to laser position (inverse of laserPositionToAngle).
+ * Used by mouse/emulator input paths to set laserPosition from an angle.
+ * @param {number} angle - Angle in degrees (150-210)
+ * @returns {number} Laser position (3-123)
  */
-function getViewForLaserPosition(position) {
-    const { TOP_OVERLAY_START, BOTTOM_OVERLAY_START } = LASER_MAPPING_CONFIG;
-    
-    // Convert position to angle
-    const angle = laserPositionToAngle(position);
-    
-    // Check for overlay zones first
-    if (angle >= BOTTOM_OVERLAY_START) {
-        return {
-            path: 'menu/playing',
-            reason: 'bottom_overlay',
-            angle: angle,
-            position: position,
-            isOverlay: true
-        };
-    }
-    
-    if (angle <= TOP_OVERLAY_START) {
-        return {
-            path: 'menu/showing',
-            reason: 'top_overlay',
-            angle: angle,
-            position: position,
-            isOverlay: true
-        };
-    }
-    
-    // In menu area - find closest menu item
-    const exactMenuItem = findClosestMenuItem(angle, true); // Within 2 degrees
-    const closestMenuItem = findClosestMenuItem(angle, false); // Always find closest
-    
-    if (exactMenuItem) {
-        // Close enough to be considered "selected"
-        return {
-            path: exactMenuItem.path,
-            reason: 'menu_item_selected',
-            angle: angle,
-            position: position,
-            isOverlay: false,
-            menuItem: exactMenuItem
-        };
-    } else if (closestMenuItem) {
-        // Show closest menu item but not "selected"
-        return {
-            path: closestMenuItem.path,
-            reason: 'menu_item_closest',
-            angle: angle,
-            position: position,
-            isOverlay: false,
-            menuItem: closestMenuItem
-        };
-    }
-    
-    // Fallback (should never happen)
-    return {
-        path: 'menu/playing',
-        reason: 'fallback',
-        angle: angle,
-        position: position,
-        isOverlay: false
-    };
-}
+function angleToLaserPosition(angle) {
+    const { MIN_LASER_POS, MID_LASER_POS, MAX_LASER_POS, MIN_ANGLE, MID_ANGLE, MAX_ANGLE } = LASER_MAPPING_CONFIG;
 
-/**
- * Get detailed mapping information for debugging
- * @param {number} position - Laser position (3-123)
- * @returns {object} Detailed mapping information
- */
-function getDetailedMappingInfo(position) {
-    const { TOP_OVERLAY_START, BOTTOM_OVERLAY_START, MENU_ITEMS } = LASER_MAPPING_CONFIG;
-    const angle = laserPositionToAngle(position);
-    const view = getViewForLaserPosition(position);
-    
-    // Calculate all menu item angles for reference
-    const menuItemAngles = MENU_ITEMS.map((item, index) => ({
-        ...item,
-        index: index,
-        angle: getMenuItemAngle(index)
-    }));
-    
-    return {
-        input: {
-            position: position,
-            angle: angle
-        },
-        output: view,
-        thresholds: {
-            topOverlayStart: TOP_OVERLAY_START,
-            bottomOverlayStart: BOTTOM_OVERLAY_START,
-            menuStartAngle: getMenuStartAngle()
-        },
-        menuItems: menuItemAngles,
-        debug: {
-            isInTopOverlay: angle <= TOP_OVERLAY_START,
-            isInBottomOverlay: angle >= BOTTOM_OVERLAY_START,
-            isInMenuArea: angle > TOP_OVERLAY_START && angle < BOTTOM_OVERLAY_START
-        }
-    };
+    const clampedAngle = Math.max(MIN_ANGLE, Math.min(MAX_ANGLE, angle));
+
+    if (clampedAngle <= MID_ANGLE) {
+        const slope = (MID_LASER_POS - MIN_LASER_POS) / (MID_ANGLE - MIN_ANGLE);
+        return MIN_LASER_POS + slope * (clampedAngle - MIN_ANGLE);
+    } else {
+        const slope = (MAX_LASER_POS - MID_LASER_POS) / (MAX_ANGLE - MID_ANGLE);
+        return MID_LASER_POS + slope * (clampedAngle - MID_ANGLE);
+    }
 }
 
 // Export functions for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
     // Node.js environment
     module.exports = {
-        getViewForLaserPosition,
-        getDetailedMappingInfo,
+        resolveMenuSelection,
         laserPositionToAngle,
-        findClosestMenuItem,
+        angleToLaserPosition,
         getMenuItemAngle,
         getMenuStartAngle,
+        updateMenuItems,
         LASER_MAPPING_CONFIG
     };
 } else {
     // Browser environment
     window.LaserPositionMapper = {
-        getViewForLaserPosition,
-        getDetailedMappingInfo,
+        resolveMenuSelection,
         laserPositionToAngle,
-        findClosestMenuItem,
+        angleToLaserPosition,
         getMenuItemAngle,
         getMenuStartAngle,
+        updateMenuItems,
         LASER_MAPPING_CONFIG
     };
 }

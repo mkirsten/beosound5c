@@ -6,10 +6,10 @@ Requires=beo-http.service
 
 [Service]
 Type=simple
-User=pi
-Group=pi
-WorkingDirectory=/home/pi/beosound5c/services
-ExecStart=/home/pi/beosound5c/services/ui.sh
+User=kirsten
+Group=kirsten
+WorkingDirectory=/home/kirsten/beosound5c/services
+ExecStart=/home/kirsten/beosound5c/services/ui.sh
 Restart=always
 RestartSec=5
 StandardOutput=journal

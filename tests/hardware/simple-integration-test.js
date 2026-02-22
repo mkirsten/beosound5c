@@ -97,7 +97,7 @@ function runSimpleIntegrationTests() {
         const mapperPath = path.join(testConfig.webRoot, 'js/laser-position-mapper.js');
         const mapper = require(mapperPath);
         
-        assertEqual(typeof mapper.getViewForLaserPosition, 'function', 'getViewForLaserPosition should be a function');
+        assertEqual(typeof mapper.resolveMenuSelection, 'function', 'resolveMenuSelection should be a function');
         assertEqual(typeof mapper.laserPositionToAngle, 'function', 'laserPositionToAngle should be a function');
     });
     
@@ -119,28 +119,28 @@ function runSimpleIntegrationTests() {
         const mapper = require(mapperPath);
         
         // Test the reported bug position
-        const result120 = mapper.getViewForLaserPosition(120);
-        assertEqual(result120.path, 'menu/playing', 'Position 120 should map to menu/playing');
-        
+        const result120 = mapper.resolveMenuSelection(120);
+        assertEqual(result120.isOverlay, true, 'Position 120 should be overlay');
+
         // Test boundary positions
-        const result3 = mapper.getViewForLaserPosition(3);
-        assertEqual(result3.path, 'menu/showing', 'Position 3 should map to menu/showing');
-        
-        const result123 = mapper.getViewForLaserPosition(123);
-        assertEqual(result123.path, 'menu/playing', 'Position 123 should map to menu/playing');
+        const result3 = mapper.resolveMenuSelection(3);
+        assertEqual(result3.isOverlay, true, 'Position 3 should be overlay');
+
+        const result123 = mapper.resolveMenuSelection(123);
+        assertEqual(result123.isOverlay, true, 'Position 123 should be overlay');
     });
     
-    // Test 7: Test that ui.js has the new functions
-    test('ui.js has new mapping functions', () => {
-        const uiPath = path.join(testConfig.webRoot, 'js/ui.js');
+    // Test 7: Test that ui-store.js has the mapping integration
+    test('ui-store.js has mapping integration', () => {
+        const uiPath = path.join(testConfig.webRoot, 'js/ui-store.js');
         const uiContent = fs.readFileSync(uiPath, 'utf8');
-        
-        if (!uiContent.includes('handleWheelChangeWithMapper')) {
-            throw new Error('ui.js does not include handleWheelChangeWithMapper function');
+
+        if (!uiContent.includes('resolveMenuSelection')) {
+            throw new Error('ui-store.js does not reference resolveMenuSelection');
         }
-        
+
         if (!uiContent.includes('LaserPositionMapper')) {
-            throw new Error('ui.js does not reference LaserPositionMapper');
+            throw new Error('ui-store.js does not reference LaserPositionMapper');
         }
     });
     

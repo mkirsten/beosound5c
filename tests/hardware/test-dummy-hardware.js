@@ -2,7 +2,7 @@
 
 /**
  * Test Dummy Hardware Behavior
- * 
+ *
  * This test verifies that the dummy hardware behaves correctly:
  * - Starts at NOW PLAYING menu item (position ~90)
  * - Scroll up decreases position (toward Now Showing)
@@ -18,34 +18,24 @@ console.log('=' .repeat(50));
 // Test the expected scroll behavior
 console.log('\n📍 Expected Starting Position:');
 const startPosition = 90;
-const startView = mapper.getViewForLaserPosition(startPosition);
-console.log(`Position ${startPosition}: ${startView.path} (${startView.reason})`);
-console.log(`  Menu item: ${startView.menuItem ? startView.menuItem.title : 'none'}`);
+const startResult = mapper.resolveMenuSelection(startPosition);
+console.log(`Position ${startPosition}: ${startResult.path || 'overlay'} (idx ${startResult.selectedIndex})`);
 
 console.log('\n⬆️  Scroll Up Behavior (decreasing position):');
 const scrollUpPositions = [85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 3];
 scrollUpPositions.forEach(pos => {
-    const view = mapper.getViewForLaserPosition(pos);
-    const desc = view.menuItem ? `${view.menuItem.title} menu` : view.path;
+    const result = mapper.resolveMenuSelection(pos);
+    const desc = result.isOverlay ? 'OVERLAY' : (result.path || 'gap');
     console.log(`  Position ${pos.toString().padStart(3)}: ${desc}`);
 });
 
 console.log('\n⬇️  Scroll Down Behavior (increasing position):');
 const scrollDownPositions = [95, 100, 105, 110, 115, 120, 123];
 scrollDownPositions.forEach(pos => {
-    const view = mapper.getViewForLaserPosition(pos);
-    const desc = view.menuItem ? `${view.menuItem.title} menu` : view.path;
+    const result = mapper.resolveMenuSelection(pos);
+    const desc = result.isOverlay ? 'OVERLAY' : (result.path || 'gap');
     console.log(`  Position ${pos.toString().padStart(3)}: ${desc}`);
 });
-
-console.log('\n📊 Position Range Summary:');
-console.log('  3-25:   Now Showing (top overlay)');
-console.log('  26-35:  Settings menu item');
-console.log('  36-42:  Security menu item');
-console.log('  43-52:  Scenes menu item');
-console.log('  53-75:  Music menu item');
-console.log('  76-95:  Playing menu item');
-console.log('  96-123: Now Playing (bottom overlay)');
 
 console.log('\n✅ Dummy Hardware Test Summary:');
 console.log('• Starts at NOW PLAYING menu item: ✅');

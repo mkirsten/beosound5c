@@ -275,7 +275,7 @@ const CameraOverlayManager = {
     sendWebhook(button) {
         const webhookUrl = AppConfig.webhookUrl;
 
-        // Use same format as cursor-handler.js sendWebhook()
+        // Use same format as hardware-input.js sendWebhook()
         const payload = {
             device_type: 'Panel',
             panel_context: 'camera_overlay',

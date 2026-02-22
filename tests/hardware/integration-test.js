@@ -79,22 +79,22 @@ async function runIntegrationTests() {
     // Test 1: Check that LaserPositionMapper is available
     test('LaserPositionMapper available in browser', () => {
         assertEqual(typeof window.LaserPositionMapper, 'object', 'LaserPositionMapper should be available');
-        assertEqual(typeof window.LaserPositionMapper.getViewForLaserPosition, 'function', 'getViewForLaserPosition should be available');
+        assertEqual(typeof window.LaserPositionMapper.resolveMenuSelection, 'function', 'resolveMenuSelection should be available');
     });
     
     // Test 2: Test basic laser position mapping
     test('Basic laser position mapping works', () => {
-        const result = window.LaserPositionMapper.getViewForLaserPosition(93);
+        const result = window.LaserPositionMapper.resolveMenuSelection(93);
         assertEqual(typeof result, 'object', 'Should return an object');
-        assertEqual(typeof result.path, 'string', 'Should have a path string');
-        assertEqual(typeof result.reason, 'string', 'Should have a reason string');
+        assertEqual(typeof result.selectedIndex, 'number', 'Should have a selectedIndex number');
+        assertEqual(typeof result.isOverlay, 'boolean', 'Should have an isOverlay boolean');
     });
     
     // Test 3: Test position 120 (the reported bug)
     test('Position 120 maps to Now Playing (fast scroll fix)', () => {
-        const result = window.LaserPositionMapper.getViewForLaserPosition(120);
-        assertEqual(result.path, 'menu/playing', 'Position 120 should map to menu/playing');
-        assertEqual(result.reason, 'bottom_overlay', 'Position 120 should be bottom overlay');
+        const result = window.LaserPositionMapper.resolveMenuSelection(120);
+        assertEqual(result.isOverlay, true, 'Position 120 should be overlay');
+        assertEqual(result.selectedIndex, -1, 'Position 120 should have no menu item');
     });
     
     // Test 4: Check that UIStore is available

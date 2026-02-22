@@ -1,0 +1,4 @@
+# Auto-mount NTFS USB drives for Sonos music library
+# Triggered on USB block device add/remove
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_TYPE}=="ntfs", RUN+="/usr/local/bin/usb-music-mount.sh add %N"
+ACTION=="remove", SUBSYSTEM=="block", RUN+="/usr/local/bin/usb-music-mount.sh remove %N"

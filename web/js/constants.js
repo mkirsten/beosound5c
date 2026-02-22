@@ -70,21 +70,32 @@ const Constants = {
         logThrottle: 1000
     },
 
-    // Menu items (canonical source of truth)
+    // Menu items (static views only — dynamic sources like Spotify, CD are added by the router)
     menuItems: [
-        { title: 'SHOWING', path: 'menu/showing' },
-        { title: 'SYSTEM', path: 'menu/system' },
-        { title: 'SECURITY', path: 'menu/security' },
+        { title: 'PLAYING', path: 'menu/playing' },
         { title: 'SCENES', path: 'menu/scenes' },
-        { title: 'MUSIC', path: 'menu/music' },
-        { title: 'PLAYING', path: 'menu/playing' }
+        { title: 'SECURITY', path: 'menu/security' },
+        { title: 'SYSTEM', path: 'menu/system' },
+        { title: 'SHOWING', path: 'menu/showing' }
     ],
 
-    // Iframe mappings
+    // Iframe mappings (IDs match the preloaded iframe elements)
     iframes: {
-        'menu/music': 'music-iframe',
-        'menu/scenes': 'scenes-iframe',
+        'menu/spotify': 'preload-spotify',
+        'menu/scenes': 'preload-scenes',
         'menu/system': 'system-iframe'
+    },
+
+    // Softarc positioning (shared by ArcList, CD view, Spotify view, etc.)
+    softarc: {
+        scrollSpeed: 0.5,
+        scrollStep: 0.5,
+        snapDelay: 1000,
+        middleIndex: 4,
+        baseItemSize: 128,
+        maxRadius: 220,
+        horizontalMultiplier: 0.35,
+        baseXOffset: 100
     },
 
     // Placeholder artwork SVGs
@@ -107,6 +118,7 @@ Object.freeze(Constants.timeouts);
 Object.freeze(Constants.animations);
 Object.freeze(Constants.websocket);
 Object.freeze(Constants.iframes);
+Object.freeze(Constants.softarc);
 Object.freeze(Constants.placeholders);
 Constants.menuItems.forEach(item => Object.freeze(item));
 Object.freeze(Constants.menuItems);

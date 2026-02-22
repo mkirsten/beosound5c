@@ -16,11 +16,30 @@
     <meta name="theme-color" content="#000000">
     
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="assets/phosphor/phosphor.css">
 </head>
 <body>
     <!-- Splash screen overlay - matches Plymouth boot splash -->
     <div id="splash-overlay">
         <img src="assets/splashscreen-red.png" alt="" id="splash-image">
+    </div>
+
+    <!-- Volume overlay -->
+    <div id="volume-overlay">
+        <svg id="volume-arc-svg" width="1024" height="768" style="overflow: visible;">
+            <defs>
+                <linearGradient id="volArcGradient" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="0%" stop-color="rgba(102,153,255,0.2)"/>
+                    <stop offset="100%" stop-color="rgba(102,153,255,1)"/>
+                </linearGradient>
+            </defs>
+            <!-- Arc following wheel curvature: center (1024,384), radius 252, left semicircle -->
+            <path id="volume-arc-path"
+                  d="M 1146 658 A 274 274 0 0 1 1146 110"
+                  fill="none" stroke="url(#volArcGradient)"
+                  stroke-width="6" stroke-linecap="round"/>
+        </svg>
+        <span id="volume-device"></span>
     </div>
 
     <div id="app" class="container">
@@ -70,6 +89,7 @@
 
     <script src="js/config.js"></script>
     <script src="js/constants.js"></script>
+    <script src="js/arc-utils.js"></script>
     <script src="js/arcs.js"></script>
     <script src="js/laser-position-mapper.js"></script>
     <script src="js/artwork-manager.js"></script>
@@ -78,8 +98,10 @@
     <script src="js/emulator-bridge.js"></script>
     <script src="js/emulator-mock-data.js"></script>
     <script src="js/emulator-mode.js"></script>
-    <script src="js/ui.js"></script>
+    <script src="js/ui-store.js"></script>
+    <script src="js/immersive-mode.js"></script>
     <script src="js/camera-overlay.js"></script>
-    <script src="js/cursor-handler.js"></script>
+    <script src="js/hardware-input.js"></script>
+    <script src="js/ws-dispatcher.js"></script>
 </body>
 </html> 

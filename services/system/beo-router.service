@@ -1,0 +1,22 @@
+[Unit]
+Description=BeoSound5c Event Router service
+After=network.target
+OnFailure=beo-notify-failure@%n.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=notify
+User=kirsten
+WorkingDirectory=/home/kirsten/beosound5c/services
+EnvironmentFile=-/etc/beosound5c/secrets.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/router.py
+Restart=always
+RestartSec=5
+WatchdogSec=60
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

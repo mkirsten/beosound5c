@@ -2,18 +2,40 @@
  * Centralized iframe messaging for BeoSound 5c
  *
  * Handles all postMessage communication between the main UI
- * and embedded iframes (music, scenes, system pages).
+ * and embedded iframes (spotify, scenes, system pages).
  */
 
 const IframeMessenger = {
+    /** Dynamic iframe registrations (overrides static Constants.iframes) */
+    _dynamicIframes: {},
+
+    /**
+     * Register a dynamic iframe for a route
+     * @param {string} route - Route path (e.g. 'menu/usb')
+     * @param {string} iframeId - DOM element ID of the iframe
+     */
+    registerIframe(route, iframeId) {
+        this._dynamicIframes[route] = iframeId;
+    },
+
+    /**
+     * Unregister a dynamic iframe for a route
+     * @param {string} route - Route path to unregister
+     */
+    unregisterIframe(route) {
+        delete this._dynamicIframes[route];
+    },
+
     /**
      * Get the iframe ID for the current route
      * @param {string} route - Current route path
      * @returns {string|null} Iframe element ID or null
      */
     getIframeIdForRoute(route) {
+        // Dynamic registrations override static
+        if (this._dynamicIframes[route]) return this._dynamicIframes[route];
         const iframes = window.Constants?.iframes || {
-            'menu/music': 'music-iframe',
+            'menu/spotify': 'preload-spotify',
             'menu/scenes': 'scenes-iframe',
             'menu/system': 'system-iframe'
         };
@@ -114,11 +136,13 @@ const IframeMessenger = {
      * @returns {string[]} Array of route paths
      */
     getLocalHandledRoutes() {
-        return Object.keys(window.Constants?.iframes || {
-            'menu/music': 'music-iframe',
+        const staticRoutes = Object.keys(window.Constants?.iframes || {
+            'menu/spotify': 'preload-spotify',
             'menu/scenes': 'scenes-iframe',
             'menu/system': 'system-iframe'
         });
+        const dynamicRoutes = Object.keys(this._dynamicIframes);
+        return [...new Set([...staticRoutes, ...dynamicRoutes])];
     }
 };
 

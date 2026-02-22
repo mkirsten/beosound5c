@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News - Beosound 5c</title>
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/x-icon" href="../assets/favicons/favicon.ico">
+    <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicons/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicons/favicon-32x32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="../assets/favicons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="../assets/favicons/android-chrome-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="../assets/favicons/android-chrome-512x512.png">
+    <link rel="manifest" href="../assets/favicons/site.webmanifest">
+    <meta name="theme-color" content="#000000">
+
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../assets/phosphor/phosphor.css">
+</head>
+<body>
+    <div id="app">
+        <div class="counter">
+            <div id="counter-path"></div>
+            <span id="current-item">1</span> / <span id="total-items">0</span>
+        </div>
+        <div class="hierarchy-depth-1" id="hierarchy-background"></div>
+        <div class="arc-container" id="arc-container"></div>
+    </div>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/arc-utils.js"></script>
+    <script src="../js/emulator-bridge.js"></script>
+    <script src="script-v2.js"></script>
+    <script>
+        const NEWS_URL = (typeof AppConfig !== 'undefined' && AppConfig.newsServiceUrl)
+            ? AppConfig.newsServiceUrl
+            : 'http://localhost:8776';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const arcList = new ArcList({
+                rootLoader: async () => {
+                    const resp = await fetch(`${NEWS_URL}/articles`);
+                    if (!resp.ok) throw new Error(`Fetch failed: ${resp.status}`);
+                    return resp.json();
+                },
+                levels: [{
+                    // Level 0: Sections → articles
+                    childrenKey: 'articles',
+                    isContainer: (item) => item.articles?.length > 0,
+                }],
+                storagePrefix: 'news_arclist',
+                context: 'news',
+                webhookUrl: typeof AppConfig !== 'undefined' ? AppConfig.webhookUrl : null,
+                onGo: (item, depth) => {
+                    // Articles with pages are handled by ArcList V2 page view
+                    // No additional action needed
+                    console.log(`[NEWS] GO depth=${depth} item="${item.name}"`);
+                },
+            });
+            window.arcListInstance = arcList;
+        });
+    </script>
+</body>
+</html>
