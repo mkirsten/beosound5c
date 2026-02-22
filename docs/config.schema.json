@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beosound5c.com/config.schema.json",
+  "title": "BeoSound 5c Configuration",
+  "description": "Device configuration for a BeoSound 5c unit. Lives at /etc/beosound5c/config.json on the device.",
+  "type": "object",
+  "required": ["device"],
+  "properties": {
+    "device": {
+      "type": "string",
+      "description": "Display name of this device. Used in MQTT topics, webhook payloads, and UI labels.",
+      "examples": ["Living Room", "Kitchen", "Church"]
+    },
+
+    "menu": {
+      "type": "object",
+      "description": "Menu items shown on the main arc. Keys are display labels (uppercase), values are source IDs or source config objects. Order determines arc order.",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Simple source/view ID.",
+            "examples": ["playing", "spotify", "scenes", "system", "showing"]
+          },
+          {
+            "$ref": "#/$defs/menuItem"
+          }
+        ]
+      },
+      "examples": [{
+        "PLAYING": "playing",
+        "CD": { "id": "cd", "hidden": true },
+        "SPOTIFY": "spotify",
+        "SCENES": "scenes",
+        "SYSTEM": "system"
+      }]
+    },
+
+    "scenes": {
+      "type": "array",
+      "description": "Scene definitions shown when the SCENES menu item is selected. Scenes trigger Home Assistant actions via the webhook/MQTT transport.",
+      "items": { "$ref": "#/$defs/scene" }
+    },
+
+    "player": {
+      "type": "object",
+      "description": "External player service configuration. The player handles audio playback, monitoring, and artwork.",
+      "required": ["type", "ip"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["sonos", "bluesound"],
+          "description": "Player type. Determines which player service handles playback. Both beo-player-sonos and beo-player-bluesound are installed; the type guard ensures only the matching one runs."
+        },
+        "ip": {
+          "type": "string",
+          "format": "ipv4",
+          "description": "IP address of the player device (Sonos speaker or BluOS player)."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "bluetooth": {
+      "type": "object",
+      "description": "BeoRemote One Bluetooth configuration.",
+      "properties": {
+        "remote_mac": {
+          "type": "string",
+          "pattern": "^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$|^$",
+          "description": "MAC address of the paired BeoRemote One. Empty string to disable Bluetooth remote.",
+          "examples": ["48:D0:CF:BD:CE:35", ""]
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "home_assistant": {
+      "type": "object",
+      "description": "Home Assistant connection settings.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Home Assistant base URL. Used for embedding dashboards (Security page) and API calls.",
+          "default": "http://homeassistant.local:8123"
+        },
+        "webhook_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "HA webhook endpoint for button/event forwarding (used when transport.mode is 'webhook' or 'both').",
+          "default": "http://homeassistant.local:8123/api/webhook/beosound5c"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "transport": {
+      "type": "object",
+      "description": "Communication transport between BS5c and Home Assistant.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["webhook", "mqtt", "both"],
+          "description": "Transport mode. 'mqtt' is recommended for reliability and bidirectional communication.",
+          "default": "webhook"
+        },
+        "mqtt_broker": {
+          "type": "string",
+          "description": "MQTT broker hostname or IP. Only used when mode includes 'mqtt'.",
+          "default": "homeassistant.local"
+        },
+        "mqtt_port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "MQTT broker port.",
+          "default": 1883
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "volume": {
+      "type": "object",
+      "description": "Volume output adapter configuration. Each BS5c has one audio output controlled by a pluggable volume adapter.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["beolab5", "esphome", "sonos", "bluesound", "powerlink", "c4amp", "hdmi", "spdif", "rca"],
+          "description": "Volume adapter type. 'esphome' is an alias for 'beolab5'. If omitted, inferred from player.type for sonos/bluesound, otherwise defaults to 'beolab5'.",
+          "default": "beolab5"
+        },
+        "host": {
+          "type": "string",
+          "description": "Target host for volume control. Defaults vary by adapter type: 'beolab5-controller.local' for beolab5, player IP for sonos/bluesound, 'localhost' for powerlink."
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Maximum volume cap (0-100). Volume commands are clamped to this value.",
+          "default": 70
+        },
+        "step": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Volume increment per wheel click.",
+          "default": 3
+        },
+        "output_name": {
+          "type": "string",
+          "description": "Display name for the audio output shown in the UI.",
+          "default": "BeoLab 5"
+        },
+        "zone": {
+          "type": "string",
+          "description": "Zone identifier (c4amp only).",
+          "default": "01"
+        },
+        "input": {
+          "type": "string",
+          "description": "Source input identifier for power-on (c4amp only).",
+          "default": "01"
+        },
+        "mixer_port": {
+          "type": "integer",
+          "description": "HTTP port of masterlink.py mixer API (powerlink only).",
+          "default": 8768
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "cd": {
+      "type": "object",
+      "description": "CD player configuration.",
+      "properties": {
+        "device": {
+          "type": "string",
+          "description": "Linux device path for the CD/DVD drive.",
+          "default": "/dev/sr0"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "spotify": {
+      "type": "object",
+      "description": "Spotify integration settings. Requires a Spotify Developer app with PKCE redirect URI.",
+      "properties": {
+        "client_id": {
+          "type": "string",
+          "description": "Spotify app Client ID from https://developer.spotify.com/dashboard. Leave empty to disable Spotify."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "news": {
+      "type": "object",
+      "description": "Guardian News source settings. Required if NEWS is in the menu.",
+      "properties": {
+        "guardian_api_key": {
+          "type": "string",
+          "description": "API key from https://open-platform.theguardian.com/access/. The news service will refuse to start without this."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+
+  "$defs": {
+    "menuItem": {
+      "type": "object",
+      "description": "Extended menu item with source-specific configuration.",
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Source or view identifier.",
+          "examples": ["cd", "usb", "security"]
+        },
+        "hidden": {
+          "type": "boolean",
+          "description": "If true, the menu item starts hidden and is shown/hidden dynamically by the source service. Currently only used by CD (shown when disc inserted).",
+          "default": false
+        },
+        "paths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "File system paths to scan (USB source only).",
+          "examples": [["/mnt/usb-music"]]
+        },
+        "dashboard": {
+          "type": "string",
+          "description": "Home Assistant dashboard path to embed (security source only).",
+          "examples": ["dashboard-cameras/home"]
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "scene": {
+      "type": "object",
+      "description": "A scene that triggers a Home Assistant action when selected.",
+      "required": ["id", "name", "icon", "color"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique scene identifier. Sent to HA as the action payload."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name on the arc."
+        },
+        "icon": {
+          "type": "string",
+          "description": "Phosphor icon name (without 'ph-' prefix).",
+          "examples": ["fork-knife", "fire", "sun", "power", "television"]
+        },
+        "color": {
+          "type": "string",
+          "description": "CSS color for the icon and label.",
+          "examples": ["#fa0", "#c55", "#6c8", "#E50914"]
+        },
+        "scenes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/scene" },
+          "description": "Nested sub-scenes. Creates a drill-down menu."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

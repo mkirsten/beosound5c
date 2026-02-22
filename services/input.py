@@ -1,20 +1,34 @@
 #!/usr/bin/env python3
 import asyncio, threading, json, time, sys
 import hid, websockets
-import subprocess  # Add subprocess for xset commands
-import os  # For path operations
-import logging  # For media server communication logging
-from aiohttp import web, ClientSession  # For HTTP webhook server and forwarding
+import subprocess
+import os
+import logging
+import aiohttp
+from aiohttp import web, ClientSession
+from lib.transport import Transport
+from lib.config import cfg
+from lib.watchdog import watchdog_loop
+
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger('beo-input')
 
 VID, PID = 0x0cd4, 0x1112
 BTN_MAP = {0x20:'left', 0x10:'right', 0x40:'go', 0x80:'power'}
 clients = set()
 
+# Unified transport for HA communication (webhook, MQTT, or both)
+transport = Transport()
+
 # Base path for BeoSound 5c installation (from env or default)
-BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/pi/beosound5c')
+BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/kirsten/beosound5c')
 
 # Media server connection
-MEDIA_SERVER_URL = 'ws://localhost:8766'
+MEDIA_SERVER_URL = 'ws://localhost:8766/ws'
 media_server_ws = None
 
 # ——— track current "byte1" state (LED/backlight bits) ———
@@ -32,7 +46,7 @@ def bs5_send(data: bytes):
     try:
         dev.write(data)
     except Exception as e:
-        print("HID write failed:", e)
+        logger.error("HID write failed: %s", e)
 
 def bs5_send_cmd(byte1, byte2=0x00):
     """Build & send HID report."""
@@ -84,7 +98,7 @@ def toggle_backlight():
     """Toggle backlight state."""
     current = is_backlight_on()
     new_state = not current
-    print(f"[BACKLIGHT] Toggling from {current} to {new_state}")
+    logger.info("Toggling backlight from %s to %s", current, new_state)
     set_backlight(new_state)
 
 def get_service_logs(service: str, lines: int = 100) -> list:
@@ -111,7 +125,7 @@ def get_system_info() -> dict:
             with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
                 temp = int(f.read().strip()) / 1000
                 info['cpu_temp'] = f'{temp:.1f}C'
-        except:
+        except Exception:
             info['cpu_temp'] = '--'
 
         # Memory usage
@@ -128,14 +142,14 @@ def get_system_info() -> dict:
             result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=2)
             if result.stdout:
                 info['ip_address'] = result.stdout.strip().split()[0]
-        except:
+        except Exception:
             info['ip_address'] = '--'
 
         # Hostname
         try:
             result = subprocess.run(['hostname'], capture_output=True, text=True, timeout=2)
             info['hostname'] = result.stdout.strip() if result.stdout else '--'
-        except:
+        except Exception:
             info['hostname'] = '--'
 
         # Backlight status
@@ -149,41 +163,156 @@ def get_system_info() -> dict:
                 cwd=BS5C_BASE_PATH
             )
             info['git_tag'] = result.stdout.strip() if result.stdout else '--'
-        except:
+        except Exception:
             info['git_tag'] = '--'
 
-        # Service status
-        services = ['beo-http', 'beo-ui', 'beo-media', 'beo-input', 'beo-bluetooth', 'beo-masterlink', 'beo-spotify-fetch']
+        # Service status — discover all beo-* units dynamically
         info['services'] = {}
-        for svc in services:
-            # For timers, check the timer status
-            unit = svc + '.timer' if svc == 'beo-spotify-fetch' else svc
+        try:
             result = subprocess.run(
-                ['systemctl', 'is-active', unit],
-                capture_output=True, text=True, timeout=2
+                ['systemctl', 'list-units', 'beo-*', '--no-legend', '--no-pager', '--plain'],
+                capture_output=True, text=True, timeout=5
             )
-            status = result.stdout.strip()
-            info['services'][svc] = 'Running' if status == 'active' else status.capitalize()
+            for line in result.stdout.strip().splitlines():
+                parts = line.split()
+                if not parts:
+                    continue
+                unit = parts[0]  # e.g. "beo-input.service" or "beo-health.timer"
+                # Skip timers — they're background infra, not user-facing
+                if unit.endswith('.timer'):
+                    continue
+                svc = unit.removesuffix('.service')
+                active = parts[2] if len(parts) > 2 else 'unknown'  # "active" or "failed" etc.
+                info['services'][svc] = 'Running' if active == 'active' else active.capitalize()
+        except Exception:
+            pass
 
-        # Config from ENV file
-        config_file = '/etc/beosound5c/config.env'
+        # Config from JSON file
         info['config'] = {}
         try:
-            if os.path.exists(config_file):
-                with open(config_file, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#') and '=' in line:
-                            key, value = line.split('=', 1)
-                            # Remove quotes from value
-                            value = value.strip().strip('"').strip("'")
-                            info['config'][key] = value
+            import json as _json
+            for p in ['/etc/beosound5c/config.json', 'config.json']:
+                if os.path.exists(p):
+                    with open(p) as f:
+                        info['config'] = _json.load(f)
+                    break
         except Exception as e:
-            print(f'[CONFIG READ ERROR] {e}')
+            logger.error('Config read error: %s', e)
 
     except Exception as e:
-        print(f'[SYSTEM INFO ERROR] {e}')
+        logger.error('System info error: %s', e)
     return info
+
+def get_network_status() -> dict:
+    """Ping default gateway and internet (8.8.8.8) to check connectivity."""
+    net = {}
+    try:
+        # Get default gateway
+        result = subprocess.run(
+            ['ip', 'route', 'show', 'default'],
+            capture_output=True, text=True, timeout=2
+        )
+        if result.stdout:
+            parts = result.stdout.strip().split()
+            if 'via' in parts:
+                gw = parts[parts.index('via') + 1]
+                net['gateway'] = gw
+                result = subprocess.run(
+                    ['ping', '-c', '1', '-W', '1', gw],
+                    capture_output=True, text=True, timeout=3
+                )
+                if result.returncode == 0 and 'time=' in result.stdout:
+                    net['gateway_ping'] = result.stdout.split('time=')[1].split()[0]
+                else:
+                    net['gateway_ping'] = 'timeout'
+        # Ping internet
+        result = subprocess.run(
+            ['ping', '-c', '1', '-W', '1', '8.8.8.8'],
+            capture_output=True, text=True, timeout=3
+        )
+        if result.returncode == 0 and 'time=' in result.stdout:
+            net['internet_ping'] = result.stdout.split('time=')[1].split()[0]
+        else:
+            net['internet_ping'] = 'timeout'
+    except Exception as e:
+        logger.error('Network check error: %s', e)
+    return net
+
+def get_bt_remotes() -> list:
+    """Get paired Bluetooth devices with connection info."""
+    remotes = []
+    try:
+        # Get paired devices
+        result = subprocess.run(
+            ['bluetoothctl', 'paired-devices'],
+            capture_output=True, text=True, timeout=5
+        )
+        if not result.stdout:
+            return remotes
+
+        for line in result.stdout.strip().split('\n'):
+            # Format: "Device XX:XX:XX:XX:XX:XX Name"
+            parts = line.strip().split(' ', 2)
+            if len(parts) < 3 or parts[0] != 'Device':
+                continue
+            mac = parts[1]
+            name = parts[2]
+
+            remote = {'mac': mac, 'name': name, 'connected': False, 'rssi': None, 'battery': None, 'icon': 'input-gaming'}
+
+            # Get detailed info for each device
+            try:
+                info_result = subprocess.run(
+                    ['bluetoothctl', 'info', mac],
+                    capture_output=True, text=True, timeout=3
+                )
+                if info_result.stdout:
+                    for info_line in info_result.stdout.split('\n'):
+                        info_line = info_line.strip()
+                        if info_line.startswith('Connected:'):
+                            remote['connected'] = 'yes' in info_line.lower()
+                        elif info_line.startswith('RSSI:'):
+                            try:
+                                # Format: "RSSI: 0xffffffcc" or "RSSI: -52"
+                                val = info_line.split(':', 1)[1].strip()
+                                if val.startswith('0x'):
+                                    rssi = int(val, 16)
+                                    if rssi > 0x7FFFFFFF:
+                                        rssi -= 0x100000000
+                                    remote['rssi'] = rssi
+                                else:
+                                    remote['rssi'] = int(val)
+                            except (ValueError, IndexError):
+                                pass
+                        elif info_line.startswith('Battery Percentage:'):
+                            try:
+                                # Format: "Battery Percentage: 0x55 (85)"
+                                val = info_line.split('(')[1].rstrip(')')
+                                remote['battery'] = int(val)
+                            except (ValueError, IndexError):
+                                pass
+                        elif info_line.startswith('Icon:'):
+                            remote['icon'] = info_line.split(':', 1)[1].strip()
+            except Exception as e:
+                logger.error('BT info error for %s: %s', mac, e)
+
+            remotes.append(remote)
+    except Exception as e:
+        logger.error('BT remotes error: %s', e)
+    return remotes
+
+
+async def start_bt_pairing() -> dict:
+    """Start Bluetooth discoverable + scanning mode for pairing."""
+    try:
+        subprocess.run(['bluetoothctl', 'discoverable', 'on'], capture_output=True, timeout=3)
+        subprocess.run(['bluetoothctl', 'scan', 'on'], capture_output=True, timeout=3)
+        logger.info('BT pairing mode started')
+        return {'status': 'started', 'message': 'Scanning for remotes... Press pairing button on remote.'}
+    except Exception as e:
+        logger.error('BT pairing error: %s', e)
+        return {'status': 'error', 'message': str(e)}
+
 
 # Live log streaming
 log_stream_processes = {}
@@ -203,7 +332,7 @@ async def start_log_stream(ws, service: str):
             text=True
         )
         log_stream_processes[id(ws)] = process
-        print(f'[LOG STREAM] Started for {service}')
+        logger.info('Log stream started for %s', service)
 
         # Read and send log lines in background
         async def stream_logs():
@@ -219,15 +348,15 @@ async def start_log_stream(ws, service: str):
                                 'service': service,
                                 'line': line.rstrip()
                             }))
-                        except:
+                        except Exception:
                             break
                     await asyncio.sleep(0.01)
             except Exception as e:
-                print(f'[LOG STREAM ERROR] {e}')
+                logger.error('Log stream error: %s', e)
 
         asyncio.create_task(stream_logs())
     except Exception as e:
-        print(f'[LOG STREAM] Failed to start: {e}')
+        logger.error('Log stream failed to start: %s', e)
 
 async def stop_log_stream(ws):
     """Stop log streaming for a websocket."""
@@ -237,30 +366,34 @@ async def stop_log_stream(ws):
         process = log_stream_processes[ws_id]
         process.terminate()
         del log_stream_processes[ws_id]
-        print('[LOG STREAM] Stopped')
+        logger.info('Log stream stopped')
 
 def restart_service(action: str):
     """Restart a service or reboot the system."""
-    print(f'[RESTART] Executing action: {action}')
+    logger.info('Executing restart action: %s', action)
     try:
         if action == 'reboot':
             subprocess.Popen(['sudo', 'reboot'])
         elif action == 'restart-all':
-            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-http', 'beo-ui', 'beo-media', 'beo-input', 'beo-bluetooth', 'beo-masterlink'])
+            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-player-sonos', 'beo-source-cd', 'beo-input', 'beo-http', 'beo-ui'])
         elif action.startswith('restart-'):
             service = 'beo-' + action.replace('restart-', '')
+            # CD source: eject disc first, use correct service name
+            if service == 'beo-cd':
+                subprocess.run(['eject', '/dev/sr0'], timeout=5, capture_output=True)
+                service = 'beo-source-cd'
             subprocess.Popen(['sudo', 'systemctl', 'restart', service])
     except Exception as e:
-        print(f'[RESTART ERROR] {e}')
+        logger.error('Restart error: %s', e)
 
 async def refresh_spotify_playlists(ws):
     """Run the Spotify playlist fetch script."""
-    print('[SPOTIFY] Starting playlist refresh')
+    logger.info('Starting Spotify playlist refresh')
     try:
         # Run fetch_playlists.py in background
-        spotify_dir = os.path.join(BS5C_BASE_PATH, 'tools/spotify')
+        spotify_dir = os.path.join(BS5C_BASE_PATH, 'services/sources/spotify')
         process = subprocess.Popen(
-            ['python3', os.path.join(spotify_dir, 'fetch_playlists.py')],
+            ['python3', os.path.join(spotify_dir, 'fetch.py')],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -284,14 +417,14 @@ async def refresh_spotify_playlists(ws):
         )
 
         if returncode == 0:
-            print('[SPOTIFY] Playlist refresh completed successfully')
+            logger.info('Spotify playlist refresh completed')
             await ws.send(json.dumps({
                 'type': 'spotify_refresh',
                 'status': 'completed',
                 'message': 'Playlists updated successfully'
             }))
         else:
-            print(f'[SPOTIFY] Playlist refresh failed: {stderr}')
+            logger.error('Spotify playlist refresh failed: %s', stderr)
             await ws.send(json.dumps({
                 'type': 'spotify_refresh',
                 'status': 'error',
@@ -300,14 +433,14 @@ async def refresh_spotify_playlists(ws):
 
     except subprocess.TimeoutExpired:
         process.kill()
-        print('[SPOTIFY] Playlist refresh timed out')
+        logger.warning('Spotify playlist refresh timed out')
         await ws.send(json.dumps({
             'type': 'spotify_refresh',
             'status': 'error',
             'message': 'Refresh timed out after 2 minutes'
         }))
     except Exception as e:
-        print(f'[SPOTIFY ERROR] {e}')
+        logger.error('Spotify error: %s', e)
         await ws.send(json.dumps({
             'type': 'spotify_refresh',
             'status': 'error',
@@ -318,7 +451,7 @@ async def refresh_spotify_playlists(ws):
 
 async def handle_camera_stream(request):
     """Proxy camera stream from Home Assistant to avoid CORS issues."""
-    ha_url = os.getenv('HA_URL', 'http://homeassistant.local:8123')
+    ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
     ha_token = os.getenv('HA_TOKEN', '')
 
     # Get camera entity from query params, default to doorbell
@@ -330,7 +463,7 @@ async def handle_camera_stream(request):
 
             # Get camera stream URL from HA
             camera_url = f'{ha_url}/api/camera_proxy_stream/{entity}'
-            print(f'[CAMERA] Proxying stream from: {camera_url}')
+            logger.info('Proxying camera stream from: %s', camera_url)
 
             async with session.get(camera_url, headers=headers) as resp:
                 if resp.status == 200:
@@ -350,14 +483,14 @@ async def handle_camera_stream(request):
 
                     return response
                 else:
-                    print(f'[CAMERA] HA returned status: {resp.status}')
+                    logger.warning('Camera HA returned status: %s', resp.status)
                     return web.json_response(
                         {'error': f'Camera unavailable: HTTP {resp.status}'},
                         status=resp.status,
                         headers={'Access-Control-Allow-Origin': '*'}
                     )
     except Exception as e:
-        print(f'[CAMERA ERROR] {e}')
+        logger.error('Camera error: %s', e)
         return web.json_response(
             {'error': str(e)},
             status=500,
@@ -366,7 +499,7 @@ async def handle_camera_stream(request):
 
 async def handle_camera_snapshot(request):
     """Get a single snapshot from camera via Home Assistant."""
-    ha_url = os.getenv('HA_URL', 'http://homeassistant.local:8123')
+    ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
     ha_token = os.getenv('HA_TOKEN', '')
 
     # Get camera entity from query params, default to doorbell
@@ -378,7 +511,7 @@ async def handle_camera_snapshot(request):
 
             # Get camera snapshot from HA
             camera_url = f'{ha_url}/api/camera_proxy/{entity}'
-            print(f'[CAMERA] Getting snapshot from: {camera_url}')
+            logger.info('Getting camera snapshot from: %s', camera_url)
 
             async with session.get(camera_url, headers=headers) as resp:
                 if resp.status == 200:
@@ -389,140 +522,204 @@ async def handle_camera_snapshot(request):
                         headers={'Access-Control-Allow-Origin': '*'}
                     )
                 else:
-                    print(f'[CAMERA] HA returned status: {resp.status}')
+                    logger.warning('Camera HA returned status: %s', resp.status)
                     return web.json_response(
                         {'error': f'Camera unavailable: HTTP {resp.status}'},
                         status=resp.status,
                         headers={'Access-Control-Allow-Origin': '*'}
                     )
     except Exception as e:
-        print(f'[CAMERA ERROR] {e}')
+        logger.error('Camera error: %s', e)
         return web.json_response(
             {'error': str(e)},
             status=500,
             headers={'Access-Control-Allow-Origin': '*'}
         )
 
+async def process_command(data: dict) -> dict:
+    """Process an incoming command (from HTTP webhook or MQTT).
+
+    Returns a result dict with 'status' and other fields.
+    """
+    command = data.get('command', '')
+    params = data.get('params', {})
+
+    if command == 'screen_on':
+        logger.info('Turning screen ON')
+        set_backlight(True)
+        return {'status': 'ok', 'screen': 'on'}
+
+    elif command == 'screen_off':
+        logger.info('Turning screen OFF')
+        set_backlight(False)
+        # Also power off audio output (BeoLab 5 etc.)
+        try:
+            async with ClientSession() as s:
+                await s.post('http://localhost:8770/router/output/off', timeout=aiohttp.ClientTimeout(total=2))
+        except Exception:
+            pass
+        return {'status': 'ok', 'screen': 'off'}
+
+    elif command == 'screen_toggle':
+        logger.info('Toggling screen')
+        toggle_backlight()
+        return {'status': 'ok', 'screen': 'on' if is_backlight_on() else 'off'}
+
+    elif command == 'show_page':
+        page = params.get('page', 'now_playing')
+        logger.info('Showing page: %s', page)
+        await broadcast(json.dumps({
+            'type': 'navigate',
+            'data': {'page': page}
+        }))
+        return {'status': 'ok', 'page': page}
+
+    elif command == 'restart':
+        target = params.get('target', 'all')
+        logger.info('Restarting: %s', target)
+        if target == 'system':
+            restart_service('reboot')
+        else:
+            restart_service('restart-all')
+        return {'status': 'ok', 'restart': target}
+
+    elif command == 'wake':
+        page = params.get('page', 'now_playing')
+        logger.info('Waking up and showing: %s', page)
+        set_backlight(True)
+        await broadcast(json.dumps({
+            'type': 'navigate',
+            'data': {'page': page}
+        }))
+        return {'status': 'ok', 'screen': 'on', 'page': page}
+
+    elif command == 'status':
+        info = get_system_info()
+        info['screen'] = 'on' if is_backlight_on() else 'off'
+        return {'status': 'ok', **info}
+
+    elif command == 'next_screen':
+        logger.info('Next screen')
+        set_backlight(True)
+        await broadcast(json.dumps({
+            'type': 'navigate',
+            'data': {'page': 'next'}
+        }))
+        return {'status': 'ok', 'action': 'next_screen'}
+
+    elif command == 'prev_screen':
+        logger.info('Previous screen')
+        set_backlight(True)
+        await broadcast(json.dumps({
+            'type': 'navigate',
+            'data': {'page': 'previous'}
+        }))
+        return {'status': 'ok', 'action': 'prev_screen'}
+
+    elif command == 'show_camera':
+        title = params.get('title', 'Camera')
+        camera_entity = params.get('camera_entity', 'camera.doorbell_medium_resolution_channel')
+        camera_id = params.get('camera_id', 'doorbell')
+        actions = params.get('actions', {})
+
+        logger.info('Showing camera overlay: %s (%s)', title, camera_entity)
+        set_backlight(True)
+        await broadcast(json.dumps({
+            'type': 'camera_overlay',
+            'data': {
+                'action': 'show',
+                'title': title,
+                'camera_entity': camera_entity,
+                'camera_id': camera_id,
+                'actions': actions
+            }
+        }))
+        return {'status': 'ok', 'command': 'show_camera', 'title': title}
+
+    elif command == 'dismiss_camera':
+        logger.info('Dismissing camera overlay')
+        await broadcast(json.dumps({
+            'type': 'camera_overlay',
+            'data': {
+                'action': 'hide'
+            }
+        }))
+        return {'status': 'ok', 'command': 'dismiss_camera'}
+
+    elif command == 'add_menu_item':
+        preset = params.get('preset')
+        logger.info('Adding menu item (preset=%s)', preset)
+        msg = {'type': 'menu_item', 'data': {'action': 'add'}}
+        if preset:
+            msg['data']['preset'] = preset
+        else:
+            msg['data'].update({
+                'title': params.get('title', 'Item'),
+                'path': params.get('path', 'menu/item'),
+                'after': params.get('after', 'menu/playing')
+            })
+        await broadcast(json.dumps(msg))
+        return {'status': 'ok', 'command': 'add_menu_item'}
+
+    elif command == 'remove_menu_item':
+        path = params.get('path')
+        preset = params.get('preset')
+        logger.info('Removing menu item (path=%s, preset=%s)', path, preset)
+        msg = {'type': 'menu_item', 'data': {'action': 'remove'}}
+        if path:
+            msg['data']['path'] = path
+        if preset:
+            msg['data']['preset'] = preset
+        await broadcast(json.dumps(msg))
+        return {'status': 'ok', 'command': 'remove_menu_item'}
+
+    elif command in ('hide_menu_item', 'show_menu_item'):
+        path = params.get('path')
+        action = 'hide' if command == 'hide_menu_item' else 'show'
+        logger.info('%s menu item: %s', action.capitalize(), path)
+        await broadcast(json.dumps({
+            'type': 'menu_item',
+            'data': {'action': action, 'path': path}
+        }))
+        return {'status': 'ok', 'command': command}
+
+    elif command == 'broadcast':
+        # Forward an arbitrary event to all WebSocket clients (used by cd.py etc.)
+        evt_type = params.get('type', 'unknown')
+        evt_data = params.get('data', {})
+        logger.info('Broadcasting event: %s', evt_type)
+        await broadcast(json.dumps({'type': evt_type, 'data': evt_data}))
+        return {'status': 'ok', 'command': 'broadcast', 'event_type': evt_type}
+
+    else:
+        return {'status': 'error', 'message': f'Unknown command: {command}'}
+
+
 async def handle_webhook(request):
-    """Handle incoming webhook requests from Home Assistant."""
+    """Handle incoming webhook requests from Home Assistant (HTTP)."""
     try:
         data = await request.json()
-        print(f'[WEBHOOK] Received: {data}')
+        logger.info('Webhook received: %s', data)
 
-        command = data.get('command', '')
-        params = data.get('params', {})
+        result = await process_command(data)
 
-        if command == 'screen_on':
-            print('[WEBHOOK] Turning screen ON')
-            set_backlight(True)
-            return web.json_response({'status': 'ok', 'screen': 'on'})
-
-        elif command == 'screen_off':
-            print('[WEBHOOK] Turning screen OFF')
-            set_backlight(False)
-            return web.json_response({'status': 'ok', 'screen': 'off'})
-
-        elif command == 'screen_toggle':
-            print('[WEBHOOK] Toggling screen')
-            toggle_backlight()
-            return web.json_response({'status': 'ok', 'screen': 'on' if is_backlight_on() else 'off'})
-
-        elif command == 'show_page':
-            page = params.get('page', 'now_playing')
-            print(f'[WEBHOOK] Showing page: {page}')
-            # Broadcast to all WebSocket clients to navigate
-            await broadcast(json.dumps({
-                'type': 'navigate',
-                'data': {'page': page}
-            }))
-            return web.json_response({'status': 'ok', 'page': page})
-
-        elif command == 'restart':
-            target = params.get('target', 'all')
-            print(f'[WEBHOOK] Restarting: {target}')
-            if target == 'system':
-                restart_service('reboot')
-            else:
-                restart_service('restart-all')
-            return web.json_response({'status': 'ok', 'restart': target})
-
-        elif command == 'wake':
-            # Combined: turn on screen and show a page
-            page = params.get('page', 'now_playing')
-            print(f'[WEBHOOK] Waking up and showing: {page}')
-            set_backlight(True)
-            await broadcast(json.dumps({
-                'type': 'navigate',
-                'data': {'page': page}
-            }))
-            return web.json_response({'status': 'ok', 'screen': 'on', 'page': page})
-
-        elif command == 'status':
-            info = get_system_info()
-            info['screen'] = 'on' if is_backlight_on() else 'off'
-            return web.json_response({'status': 'ok', **info})
-
-        elif command == 'next_screen':
-            print('[WEBHOOK] Next screen')
-            set_backlight(True)
-            await broadcast(json.dumps({
-                'type': 'navigate',
-                'data': {'page': 'next'}
-            }))
-            return web.json_response({'status': 'ok', 'action': 'next_screen'})
-
-        elif command == 'prev_screen':
-            print('[WEBHOOK] Previous screen')
-            set_backlight(True)
-            await broadcast(json.dumps({
-                'type': 'navigate',
-                'data': {'page': 'previous'}
-            }))
-            return web.json_response({'status': 'ok', 'action': 'prev_screen'})
-
-        elif command == 'show_camera':
-            # Show camera overlay (e.g., doorbell camera)
-            title = params.get('title', 'Camera')
-            camera_entity = params.get('camera_entity', 'camera.doorbell_medium_resolution_channel')
-            camera_id = params.get('camera_id', 'doorbell')
-            actions = params.get('actions', {})  # Optional custom action labels
-
-            print(f'[WEBHOOK] Showing camera overlay: {title} ({camera_entity})')
-
-            # Turn on screen if off
-            set_backlight(True)
-
-            # Broadcast camera overlay command to all clients
-            await broadcast(json.dumps({
-                'type': 'camera_overlay',
-                'data': {
-                    'action': 'show',
-                    'title': title,
-                    'camera_entity': camera_entity,
-                    'camera_id': camera_id,
-                    'actions': actions
-                }
-            }))
-            return web.json_response({'status': 'ok', 'command': 'show_camera', 'title': title})
-
-        elif command == 'dismiss_camera':
-            print('[WEBHOOK] Dismissing camera overlay')
-            await broadcast(json.dumps({
-                'type': 'camera_overlay',
-                'data': {
-                    'action': 'hide'
-                }
-            }))
-            return web.json_response({'status': 'ok', 'command': 'dismiss_camera'})
-
-        else:
-            return web.json_response({'status': 'error', 'message': f'Unknown command: {command}'}, status=400)
+        status_code = 400 if result.get('status') == 'error' else 200
+        return web.json_response(result, status=status_code)
 
     except json.JSONDecodeError:
         return web.json_response({'status': 'error', 'message': 'Invalid JSON'}, status=400)
     except Exception as e:
-        print(f'[WEBHOOK ERROR] {e}')
+        logger.error('Webhook error: %s', e)
         return web.json_response({'status': 'error', 'message': str(e)}, status=500)
+
+
+async def handle_mqtt_command(data: dict):
+    """Handle incoming commands via MQTT (fire-and-forget, no response needed)."""
+    logger.info('MQTT command received: %s', data)
+    try:
+        await process_command(data)
+    except Exception as e:
+        logger.error('MQTT command error: %s', e)
 
 async def handle_health(request):
     """Health check endpoint."""
@@ -542,7 +739,7 @@ async def handle_led(request):
     return web.Response(text='ok')
 
 async def handle_forward(request):
-    """Forward webhook to Home Assistant."""
+    """Forward event to Home Assistant via configured transport (webhook/MQTT/both)."""
     # Handle CORS preflight
     if request.method == 'OPTIONS':
         return web.Response(headers={
@@ -553,23 +750,20 @@ async def handle_forward(request):
 
     try:
         data = await request.json()
-        print(f'[FORWARD] Received webhook to forward: {data}')
+        logger.info('Forwarding via transport (%s): %s', transport.mode, data)
 
-        ha_url = os.getenv('HA_WEBHOOK_URL', 'http://homeassistant.local:8123/api/webhook/beosound5c')
+        await transport.send_event(data)
 
-        async with ClientSession() as session:
-            async with session.post(ha_url, json=data) as resp:
-                print(f'[FORWARD] HA response status: {resp.status}')
-                response = web.json_response({'status': 'forwarded', 'ha_status': resp.status})
-                response.headers['Access-Control-Allow-Origin'] = '*'
-                return response
+        response = web.json_response({'status': 'forwarded', 'transport': transport.mode})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
 
     except json.JSONDecodeError:
         response = web.json_response({'status': 'error', 'message': 'Invalid JSON'}, status=400)
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
     except Exception as e:
-        print(f'[FORWARD ERROR] {e}')
+        logger.error('Forward error: %s', e)
         response = web.json_response({'status': 'error', 'message': str(e)}, status=500)
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
@@ -584,7 +778,7 @@ async def handle_appletv(request):
             'Access-Control-Allow-Headers': 'Content-Type',
         })
 
-    ha_url = os.getenv('HA_URL', 'http://homeassistant.local:8123')
+    ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
     ha_token = os.getenv('HA_TOKEN', '')
 
     try:
@@ -610,7 +804,7 @@ async def handle_appletv(request):
                 response.headers['Access-Control-Allow-Origin'] = '*'
                 return response
     except Exception as e:
-        print(f'[APPLETV ERROR] {e}')
+        logger.error('Apple TV error: %s', e)
         response = web.json_response({'error': str(e), 'title': '—', 'app_name': '—', 'friendly_name': '—', 'artwork': '', 'state': 'error'})
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
@@ -625,7 +819,7 @@ async def handle_people(request):
             'Access-Control-Allow-Headers': 'Content-Type',
         })
 
-    ha_url = os.getenv('HA_URL', 'http://homeassistant.local:8123')
+    ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
     ha_token = os.getenv('HA_TOKEN', '')
 
     try:
@@ -657,13 +851,36 @@ async def handle_people(request):
                 response.headers['Access-Control-Allow-Origin'] = '*'
                 return response
     except Exception as e:
-        print(f'[PEOPLE ERROR] {e}')
+        logger.error('People error: %s', e)
         response = web.json_response({'error': str(e)})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+
+async def handle_bt_remotes(request):
+    """Get paired Bluetooth remotes."""
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        return web.Response(headers={
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+        })
+
+    try:
+        remotes = await asyncio.get_event_loop().run_in_executor(None, get_bt_remotes)
+        response = web.json_response(remotes)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+    except Exception as e:
+        logger.error('BT remotes error: %s', e)
+        response = web.json_response({'error': str(e)}, status=500)
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
 
 async def handler(ws, path=None):
     clients.add(ws)
+    # Notify CD service so it can resync menu items / metadata for this new client
+    asyncio.create_task(_notify_cd_resync())
     recv_task = asyncio.create_task(receive_commands(ws))
     try:
         await ws.wait_closed()
@@ -671,6 +888,20 @@ async def handler(ws, path=None):
         recv_task.cancel()
         clients.remove(ws)
         await stop_log_stream(ws)  # Clean up any active log streams
+
+
+async def _notify_cd_resync():
+    """Ask beo-cd to re-send its menu item and metadata (if a disc is in)."""
+    try:
+        from aiohttp import ClientTimeout
+        async with ClientSession(timeout=ClientTimeout(total=3)) as session:
+            async with session.get('http://localhost:8769/resync') as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get('resynced'):
+                        logger.info('CD resync triggered for new client')
+    except Exception as e:
+        logger.debug('CD resync skipped (beo-cd not reachable): %s', e)
 
 async def broadcast(msg: str):
     if not clients:
@@ -684,7 +915,7 @@ async def receive_commands(ws):
     async for raw in ws:
         try:
             msg = json.loads(raw)
-            print('[WS RECEIVED]', msg)  # Log every received message
+            logger.debug('WS received: %s', msg)
 
             # Handle media requests by forwarding to media server
             if msg.get('type') == 'media_request':
@@ -713,16 +944,25 @@ async def receive_commands(ws):
             elif cmd == 'get_system_info':
                 info = get_system_info()
                 await ws.send(json.dumps({'type': 'system_info', **info}))
+            elif cmd == 'get_network_status':
+                net = await asyncio.get_event_loop().run_in_executor(None, get_network_status)
+                await ws.send(json.dumps({'type': 'network_status', **net}))
             elif cmd == 'restart_service':
                 restart_service(params.get('action', ''))
             elif cmd == 'refresh_playlists':
                 await refresh_spotify_playlists(ws)
+            elif cmd == 'get_bt_remotes':
+                remotes = await asyncio.get_event_loop().run_in_executor(None, get_bt_remotes)
+                await ws.send(json.dumps({'type': 'bt_remotes', 'remotes': remotes}))
+            elif cmd == 'start_bt_pairing':
+                result = await start_bt_pairing()
+                await ws.send(json.dumps({'type': 'bt_pairing', **result}))
         except Exception as e:
-            print(f'[WS ERROR] {e}')
+            logger.error('WebSocket error: %s', e)
 
 # ——— HID parse & broadcast loop ———
 
-def parse_report(rep: list):
+def parse_report(rep: list, loop=None):
     global last_power_press_time, power_button_state
     nav_evt = vol_evt = btn_evt = None
     laser_pos = rep[2]
@@ -753,70 +993,88 @@ def parse_report(rep: list):
         # Button is pressed
         if power_button_state == 0:  # Was released before
             power_button_state = 1  # Now pressed
-            print("[BUTTON] Power button pressed")
+            logger.info("Power button pressed")
     else:
         # Button is released
         if power_button_state == 1:  # Was pressed before
             power_button_state = 0  # Now released
-            print("[BUTTON] Power button released")
+            logger.info("Power button released")
             
             # Check debounce time
             current_time = time.time()
             if current_time - last_power_press_time > POWER_DEBOUNCE_TIME:
-                print("[BUTTON] Power button action triggered")
+                logger.info("Power button action triggered")
                 toggle_backlight()
                 do_click()
+                # Power off speakers when screen turns off (speakers power on via playback)
+                if not is_backlight_on():
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            _output_power('http://localhost:8770/router/output/off'), loop)
+                    except Exception:
+                        pass
                 last_power_press_time = current_time
                 # Create button event for power button release
                 btn_evt = {'button': 'power'}
             else:
-                print(f"[BUTTON] Power button debounced (pressed too soon)")
+                logger.debug("Power button debounced (pressed too soon)")
 
     return nav_evt, vol_evt, btn_evt, laser_pos
 
+async def _output_power(url):
+    """Fire-and-forget call to router output power endpoint."""
+    try:
+        async with ClientSession() as s:
+            await s.post(url, timeout=aiohttp.ClientTimeout(total=2))
+    except Exception:
+        pass
+
+_hid_alive = True   # cleared when scan_loop thread dies
+
 def scan_loop(loop):
-    global dev
+    global dev, _hid_alive
     devices = hid.enumerate(VID, PID)
     if not devices:
-        print("BS5 not found (no HID device)")
+        logger.warning("BS5 not found (no HID device)")
         sys.exit(1)
 
     dev = hid.device()
     dev.open(VID, PID)
     dev.set_nonblocking(True)
-    print(f"[HID] Opened BS5 @ VID:PID={VID:04x}:{PID:04x}")
+    logger.info("Opened BS5 @ VID:PID=%04x:%04x", VID, PID)
 
     last_laser = None
     first = True
 
-    while True:
-        rpt = dev.read(64, timeout_ms=50)
-        if rpt:
-            rep = list(rpt)
-            nav_evt, vol_evt, btn_evt, laser_pos = parse_report(rep)
+    try:
+        while True:
+            rpt = dev.read(64, timeout_ms=50)
+            if rpt:
+                rep = list(rpt)
+                nav_evt, vol_evt, btn_evt, laser_pos = parse_report(rep, loop)
 
-            for evt_type, evt in (
-                ('nav',    nav_evt),
-                ('volume', vol_evt),
-                ('button', btn_evt),
-            ):
-                if evt:
+                for evt_type, evt in (
+                    ('nav',    nav_evt),
+                    ('volume', vol_evt),
+                    ('button', btn_evt),
+                ):
+                    if evt:
+                        asyncio.run_coroutine_threadsafe(
+                            broadcast(json.dumps({'type':evt_type,'data':evt})),
+                            loop
+                        )
+
+                if first or laser_pos != last_laser:
                     asyncio.run_coroutine_threadsafe(
-                        broadcast(json.dumps({'type':evt_type,'data':evt})),
+                        broadcast(json.dumps({'type':'laser','data':{'position':laser_pos}})),
                         loop
                     )
+                    last_laser, first = laser_pos, False
 
-
-            if first or laser_pos != last_laser:
-                asyncio.run_coroutine_threadsafe(
-                    broadcast(json.dumps({'type':'laser','data':{'position':laser_pos}})),
-                    loop
-                )
-                last_laser, first = laser_pos, False
-
-        # Turn screen on when anything happens
-        # set_backlight(True)
-        time.sleep(0.001)
+            time.sleep(0.001)
+    except Exception as e:
+        logger.error("HID scan_loop crashed: %s", e)
+        _hid_alive = False
 
 # ——— Media server communication ———
 
@@ -826,31 +1084,31 @@ async def connect_to_media_server():
     
     while True:
         try:
-            print(f"[MEDIA] Connecting to media server at {MEDIA_SERVER_URL}")
+            logger.info("Connecting to media server at %s", MEDIA_SERVER_URL)
             media_server_ws = await websockets.connect(MEDIA_SERVER_URL)
-            print("[MEDIA] Connected to media server")
+            logger.info("Connected to media server")
             
             # Listen for messages from media server
             async for message in media_server_ws:
                 try:
                     data = json.loads(message)
-                    print(f"[MEDIA] Received from media server: {data.get('type', 'unknown')}")
+                    logger.debug("Received from media server: %s", data.get('type', 'unknown'))
                     
                     # Forward media updates to web clients
                     if data.get('type') == 'media_update':
                         await broadcast(message)
                         
                 except json.JSONDecodeError:
-                    print(f"[MEDIA] Invalid JSON from media server: {message}")
+                    logger.warning("Invalid JSON from media server: %s", message)
                 except Exception as e:
-                    print(f"[MEDIA] Error processing media server message: {e}")
+                    logger.error("Error processing media server message: %s", e)
                     
         except websockets.exceptions.ConnectionClosed:
-            print("[MEDIA] Media server connection closed, reconnecting in 5s...")
+            logger.warning("Media server connection closed, reconnecting in 5s...")
             media_server_ws = None
             await asyncio.sleep(5)
         except Exception as e:
-            print(f"[MEDIA] Error connecting to media server: {e}, retrying in 5s...")
+            logger.error("Error connecting to media server: %s, retrying in 5s...", e)
             media_server_ws = None
             await asyncio.sleep(5)
 
@@ -859,17 +1117,22 @@ async def forward_to_media_server(message):
     if media_server_ws and not media_server_ws.closed:
         try:
             await media_server_ws.send(message)
-            print(f"[MEDIA] Forwarded to media server: {json.loads(message).get('type', 'unknown')}")
+            logger.debug("Forwarded to media server: %s", json.loads(message).get('type', 'unknown'))
         except Exception as e:
-            print(f"[MEDIA] Error forwarding to media server: {e}")
+            logger.error("Error forwarding to media server: %s", e)
     else:
-        print("[MEDIA] Media server not connected, cannot forward message")
+        logger.warning("Media server not connected, cannot forward message")
 
 # ——— Main & server start ———
 
 async def main():
+    # Start transport (webhook/MQTT/both for HA communication)
+    transport.set_command_handler(handle_mqtt_command)
+    await transport.start()
+    logger.info("Transport started (mode: %s)", transport.mode)
+
     ws_srv = await websockets.serve(handler, '0.0.0.0', 8765)
-    print("WebSocket server listening on ws://0.0.0.0:8765")
+    logger.info("WebSocket server listening on ws://0.0.0.0:8765")
 
     # Start HTTP webhook server
     app = web.Application()
@@ -882,13 +1145,15 @@ async def main():
     app.router.add_options('/people', handle_people)  # CORS preflight
     app.router.add_get('/health', handle_health)
     app.router.add_get('/led', handle_led)
+    app.router.add_get('/bt/remotes', handle_bt_remotes)
+    app.router.add_options('/bt/remotes', handle_bt_remotes)  # CORS preflight
     app.router.add_get('/camera/stream', handle_camera_stream)
     app.router.add_get('/camera/snapshot', handle_camera_snapshot)
     runner = web.AppRunner(app)
     await runner.setup()
     http_site = web.TCPSite(runner, '0.0.0.0', 8767)
     await http_site.start()
-    print("HTTP webhook server listening on http://0.0.0.0:8767")
+    logger.info("HTTP webhook server listening on http://0.0.0.0:8767")
 
     # Start HID scanning thread
     threading.Thread(target=scan_loop, args=(asyncio.get_event_loop(),), daemon=True).start()
@@ -896,8 +1161,22 @@ async def main():
     # Start media server connection task
     media_task = asyncio.create_task(connect_to_media_server())
 
-    # Wait for server to close
-    await ws_srv.wait_closed()
+    # Start systemd watchdog heartbeat (stops if HID thread dies)
+    async def guarded_watchdog():
+        from lib.watchdog import sd_notify
+        sd_notify("READY=1")
+        logger.info("Watchdog started (guarded by HID thread)")
+        while _hid_alive:
+            sd_notify("WATCHDOG=1")
+            await asyncio.sleep(20)
+        logger.error("HID thread dead — stopping watchdog, systemd will restart us")
+    asyncio.create_task(guarded_watchdog())
+
+    try:
+        # Wait for server to close
+        await ws_srv.wait_closed()
+    finally:
+        await transport.stop()
 
 if __name__ == '__main__':
     asyncio.run(main())

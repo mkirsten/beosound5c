@@ -74,7 +74,8 @@ done
 
 INSTALL_DIR="/home/$INSTALL_USER/beosound5c"
 CONFIG_DIR="/etc/beosound5c"
-CONFIG_FILE="$CONFIG_DIR/config.env"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+SECRETS_FILE="$CONFIG_DIR/secrets.env"
 PLYMOUTH_THEME_DIR="/usr/share/plymouth/themes/beosound5c"
 
 # Show welcome banner
@@ -175,11 +176,16 @@ apt-get install -y \
     plymouth \
     plymouth-themes
 
+log_info "Installing audio/TTS packages..."
+apt-get install -y \
+    espeak-ng
+
 log_info "Installing utilities..."
 apt-get install -y \
     curl \
     git \
-    jq
+    jq \
+    mosquitto-clients
 
 log_success "System packages installed"
 
@@ -189,14 +195,7 @@ log_success "System packages installed"
 log_section "Installing Python Packages"
 
 log_info "Installing Python packages via pip..."
-pip3 install --break-system-packages \
-    'soco>=0.30.0' \
-    'pillow>=10.0.0' \
-    'requests>=2.31.0' \
-    'websockets>=12.0' \
-    'websocket-client>=1.6.0' \
-    'aiohttp>=3.9.0' \
-    'pyusb>=1.2.1'
+pip3 install --break-system-packages -r "$SCRIPT_DIR/requirements.txt"
 
 log_success "Python packages installed"
 
@@ -283,6 +282,178 @@ if ! grep -q "quiet splash" "$BOOT_CMDLINE" 2>/dev/null; then
 else
     log_info "Plymouth boot parameters already present in $BOOT_CMDLINE"
 fi
+
+# =============================================================================
+# SD Card Longevity Hardening
+# =============================================================================
+log_section "SD Card Longevity Hardening"
+
+# --- Disable swap (major source of SD card wear) ---
+log_info "Disabling swap..."
+if command -v dphys-swapfile &>/dev/null; then
+    dphys-swapfile swapoff 2>/dev/null
+    dphys-swapfile uninstall 2>/dev/null
+    systemctl disable dphys-swapfile 2>/dev/null
+    echo "CONF_SWAPSIZE=0" > /etc/dphys-swapfile
+    rm -f /var/swap
+    log_success "Swap disabled and swap file removed"
+else
+    log_info "dphys-swapfile not installed — no swap to disable"
+fi
+
+# --- Add commit=120 to root filesystem (reduce journal flush from 5s to 120s) ---
+log_info "Configuring filesystem mount options..."
+FSTAB="/etc/fstab"
+if grep -q "commit=" "$FSTAB"; then
+    log_info "commit= already set in fstab"
+else
+    sed -i '/[[:space:]]\/[[:space:]].*ext4/ s/defaults,noatime/defaults,noatime,commit=120/' "$FSTAB"
+    # If the above didn't match (no noatime yet), try plain defaults
+    if ! grep -q "commit=" "$FSTAB"; then
+        sed -i '/[[:space:]]\/[[:space:]].*ext4/ s/defaults/defaults,noatime,commit=120/' "$FSTAB"
+    fi
+    if grep -q "commit=120" "$FSTAB"; then
+        log_success "Added commit=120 to root filesystem (reduces write frequency)"
+    else
+        log_warn "Could not add commit=120 — check /etc/fstab manually"
+    fi
+fi
+
+# --- Mount /tmp as tmpfs ---
+if grep -q "tmpfs.*/tmp " "$FSTAB"; then
+    log_info "/tmp tmpfs already configured in fstab"
+else
+    echo "tmpfs /tmp tmpfs defaults,noatime,nosuid,nodev,size=200M,mode=1777 0 0" >> "$FSTAB"
+    log_success "Added /tmp as 200MB tmpfs"
+fi
+
+# --- Mount /var/log as tmpfs ---
+if grep -q "tmpfs.*/var/log" "$FSTAB"; then
+    log_info "/var/log tmpfs already configured in fstab"
+else
+    echo "tmpfs /var/log tmpfs defaults,noatime,nosuid,nodev,size=50M,mode=0755 0 0" >> "$FSTAB"
+    log_success "Added /var/log as 50MB tmpfs"
+fi
+
+# --- Configure journald to use volatile (RAM) storage ---
+log_info "Configuring journald for volatile storage..."
+JOURNALD_CONF="/etc/systemd/journald.conf"
+if grep -q "^Storage=volatile" "$JOURNALD_CONF" 2>/dev/null; then
+    log_info "journald already set to volatile"
+else
+    # Set Storage=volatile, uncommenting if needed
+    sed -i 's/^#\?Storage=.*/Storage=volatile/' "$JOURNALD_CONF"
+    if ! grep -q "^Storage=volatile" "$JOURNALD_CONF"; then
+        echo "Storage=volatile" >> "$JOURNALD_CONF"
+    fi
+    log_success "journald set to volatile (logs stay in RAM)"
+fi
+
+# --- Disable journald rate limiting (services log useful info) ---
+sed -i 's/^#\?RateLimitIntervalSec=.*/RateLimitIntervalSec=0/' "$JOURNALD_CONF"
+sed -i 's/^#\?RateLimitBurst=.*/RateLimitBurst=0/' "$JOURNALD_CONF"
+
+# --- Create tmpfiles.d config for /var/log subdirectories ---
+log_info "Creating tmpfiles.d config for /var/log..."
+cat > /etc/tmpfiles.d/var-log.conf << 'EOF'
+# Create /var/log subdirectories on tmpfs
+d /var/log 0755 root root -
+d /var/log/apt 0755 root root -
+d /var/log/cups 0755 root root -
+d /var/log/journal 2755 root systemd-journal -
+d /var/log/lightdm 0710 root root -
+d /var/log/nginx 0755 root adm -
+d /var/log/private 0700 root root -
+EOF
+log_success "tmpfiles.d config created"
+
+# --- Redirect Xorg logs to tmpfs ---
+XORG_LOG_DIR="/home/$INSTALL_USER/.local/share/xorg"
+if [ -L "$XORG_LOG_DIR" ]; then
+    log_info "Xorg log directory already symlinked"
+else
+    rm -rf "$XORG_LOG_DIR"
+    sudo -u "$INSTALL_USER" mkdir -p "/home/$INSTALL_USER/.local/share"
+    sudo -u "$INSTALL_USER" ln -s /tmp "$XORG_LOG_DIR"
+    log_success "Xorg logs redirected to tmpfs (/tmp)"
+fi
+
+# --- Mount ~/.cache as tmpfs (Chromium cache, Mesa shaders, dconf, etc.) ---
+USER_CACHE="/home/$INSTALL_USER/.cache"
+USER_UID=$(id -u "$INSTALL_USER")
+USER_GID=$(id -g "$INSTALL_USER")
+if grep -q "$USER_CACHE" "$FSTAB"; then
+    log_info "~/.cache tmpfs already configured in fstab"
+else
+    echo "tmpfs $USER_CACHE tmpfs defaults,noatime,nosuid,nodev,size=300M,uid=$USER_UID,gid=$USER_GID,mode=0700 0 0" >> "$FSTAB"
+    log_success "Added ~/.cache as 300MB tmpfs"
+fi
+
+# --- Redirect ~/.fehbg to tmpfs ---
+FEHBG="/home/$INSTALL_USER/.fehbg"
+if [ -L "$FEHBG" ]; then
+    log_info "~/.fehbg already symlinked"
+else
+    rm -f "$FEHBG"
+    sudo -u "$INSTALL_USER" ln -s /tmp/.fehbg "$FEHBG"
+    log_success "~/.fehbg redirected to tmpfs"
+fi
+
+# --- Redirect WirePlumber state to tmpfs ---
+WIREPLUMBER_DIR="/home/$INSTALL_USER/.local/state/wireplumber"
+if [ -L "$WIREPLUMBER_DIR" ]; then
+    log_info "WirePlumber state already symlinked"
+else
+    rm -rf "$WIREPLUMBER_DIR"
+    sudo -u "$INSTALL_USER" mkdir -p "/home/$INSTALL_USER/.local/state"
+    sudo -u "$INSTALL_USER" ln -s /tmp "$WIREPLUMBER_DIR"
+    log_success "WirePlumber state redirected to tmpfs"
+fi
+
+# --- Disable WirePlumber Bluetooth audio monitor ---
+# The BS5c only uses BLE HID (handled by kernel HOGP), not Bluetooth audio.
+# WirePlumber's bluez monitor continuously registers/unregisters A2DP endpoints
+# with BlueZ, causing bluetoothd to burn ~40% CPU and adding latency to HID events.
+WP_BT_OVERRIDE="/home/$INSTALL_USER/.config/wireplumber/bluetooth.lua.d"
+WP_BT_SYSTEM="/usr/share/wireplumber/bluetooth.lua.d"
+if [ -d "$WP_BT_SYSTEM" ]; then
+    if [ -f "$WP_BT_OVERRIDE/90-enable-all.lua" ] && grep -q "disabled" "$WP_BT_OVERRIDE/90-enable-all.lua" 2>/dev/null; then
+        log_info "WirePlumber Bluetooth monitor already disabled"
+    else
+        log_info "Disabling WirePlumber Bluetooth audio monitor..."
+        sudo -u "$INSTALL_USER" mkdir -p "$WP_BT_OVERRIDE"
+        cp "$WP_BT_SYSTEM/00-functions.lua" "$WP_BT_OVERRIDE/"
+        chown "$INSTALL_USER:$INSTALL_USER" "$WP_BT_OVERRIDE/00-functions.lua"
+        echo '-- Bluetooth audio monitor disabled (BS5c only uses BLE HID, not A2DP)' | sudo -u "$INSTALL_USER" tee "$WP_BT_OVERRIDE/90-enable-all.lua" > /dev/null
+        log_success "WirePlumber Bluetooth monitor disabled (saves ~40% CPU on bluetoothd)"
+    fi
+else
+    log_info "WirePlumber bluetooth.lua.d not found — skipping"
+fi
+
+# --- Symlink ~/.config/chromium to tmpfs (catches crashpad handler writes) ---
+CHROMIUM_CFG="/home/$INSTALL_USER/.config/chromium"
+if [ -L "$CHROMIUM_CFG" ]; then
+    log_info "~/.config/chromium already symlinked"
+else
+    rm -rf "$CHROMIUM_CFG"
+    sudo -u "$INSTALL_USER" mkdir -p "/home/$INSTALL_USER/.config"
+    sudo -u "$INSTALL_USER" ln -s /tmp/chromium-profile "$CHROMIUM_CFG"
+    log_success "~/.config/chromium redirected to tmpfs"
+fi
+
+# --- Disable unnecessary services (CUPS, apt-daily, logrotate, man-db) ---
+log_info "Disabling unnecessary services..."
+for svc in cups cups-browsed cups.socket cups.path; do
+    systemctl disable --now "$svc" 2>/dev/null
+    systemctl mask "$svc" 2>/dev/null
+done
+for timer in apt-daily.timer apt-daily-upgrade.timer man-db.timer logrotate.timer dpkg-db-backup.timer; do
+    systemctl disable --now "$timer" 2>/dev/null
+done
+log_success "Disabled CUPS, apt-daily, logrotate, man-db, dpkg-db-backup"
+
+log_success "SD card hardening complete"
 
 # =============================================================================
 # X11 Configuration
@@ -389,6 +560,62 @@ scan_sonos_devices() {
     # Return results
     if [ ${#sonos_devices[@]} -gt 0 ]; then
         printf '%s\n' "${sonos_devices[@]}"
+    fi
+}
+
+# Scan for Bluesound devices on the network
+scan_bluesound_devices() {
+    log_info "Scanning for Bluesound devices on the network..."
+    local bluesound_devices=()
+    local timeout=2
+
+    # Method 1: Try avahi/mDNS discovery (_musc._tcp is BluOS service type)
+    if command -v avahi-browse &>/dev/null; then
+        while IFS= read -r line; do
+            if [[ "$line" =~ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+                local ip="${BASH_REMATCH[1]}"
+                # Verify it's a BluOS device by checking port 11000
+                if timeout $timeout bash -c "echo >/dev/tcp/$ip/11000" 2>/dev/null; then
+                    # Get device name from BluOS SyncStatus API
+                    local name=$(curl -s --connect-timeout $timeout "http://$ip:11000/SyncStatus" 2>/dev/null | grep -oP '(?<=<name>)[^<]+' | head -1)
+                    if [ -z "$name" ]; then
+                        # Fallback: try Status endpoint
+                        name=$(curl -s --connect-timeout $timeout "http://$ip:11000/Status" 2>/dev/null | grep -oP '(?<=<name>)[^<]+' | head -1)
+                    fi
+                    if [ -n "$name" ]; then
+                        bluesound_devices+=("$ip|$name")
+                    else
+                        bluesound_devices+=("$ip|Bluesound Device")
+                    fi
+                fi
+            fi
+        done < <(avahi-browse -rtp _musc._tcp 2>/dev/null | grep "=" | head -10)
+    fi
+
+    # Method 2: Fallback - scan for port 11000 on local network
+    if [ ${#bluesound_devices[@]} -eq 0 ]; then
+        local network=$(ip route | grep -oP 'src \K[0-9.]+' | head -1 | sed 's/\.[0-9]*$/./')
+        if [ -n "$network" ]; then
+            log_info "Scanning network ${network}0/24 for Bluesound devices (port 11000)..."
+            for i in $(seq 1 254); do
+                local ip="${network}${i}"
+                if timeout $timeout bash -c "echo >/dev/tcp/$ip/11000" 2>/dev/null; then
+                    local name=$(curl -s --connect-timeout $timeout "http://$ip:11000/SyncStatus" 2>/dev/null | grep -oP '(?<=<name>)[^<]+' | head -1)
+                    if [ -n "$name" ]; then
+                        bluesound_devices+=("$ip|$name")
+                    fi
+                fi
+            done &
+            local scan_pid=$!
+            sleep 10
+            kill $scan_pid 2>/dev/null
+            wait $scan_pid 2>/dev/null
+        fi
+    fi
+
+    # Return results
+    if [ ${#bluesound_devices[@]} -gt 0 ]; then
+        printf '%s\n' "${bluesound_devices[@]}"
     fi
 }
 
@@ -503,40 +730,93 @@ if [ ! -f "$CONFIG_FILE" ]; then
     DEVICE_NAME="${DEVICE_NAME:-BeoSound5c}"
 
     # -------------------------------------------------------------------------
-    # Sonos IP - with network discovery
+    # Player Configuration
     # -------------------------------------------------------------------------
     echo ""
-    log_section "Sonos Configuration"
+    log_section "Player Configuration"
 
-    # Scan for Sonos devices
-    mapfile -t sonos_results < <(scan_sonos_devices)
+    echo "Select the network player type:"
+    echo ""
+    echo "  1) Sonos      - Sonos speaker (most common)"
+    echo "  2) BlueSound  - BlueSound player"
+    echo "  3) Local      - Local from the BeoSound 5c"
+    echo ""
 
-    if [ ${#sonos_results[@]} -gt 0 ]; then
-        # Format results for display
-        sonos_display=()
-        sonos_ips=()
-        for result in "${sonos_results[@]}"; do
-            ip=$(echo "$result" | cut -d'|' -f1)
-            name=$(echo "$result" | cut -d'|' -f2)
-            sonos_display+=("$name ($ip)")
-            sonos_ips+=("$ip")
-        done
+    PLAYER_TYPE="sonos"
+    PLAYER_IP=""
 
-        log_success "Found ${#sonos_results[@]} Sonos device(s)!"
+    while true; do
+        read -p "Select player type [1-3, default 1]: " PLAYER_CHOICE
+        PLAYER_CHOICE="${PLAYER_CHOICE:-1}"
+        case "$PLAYER_CHOICE" in
+            1) PLAYER_TYPE="sonos"; break ;;
+            2) PLAYER_TYPE="bluesound"; break ;;
+            3) PLAYER_TYPE="none"; break ;;
+            *) echo "Invalid selection. Please enter 1, 2, or 3." ;;
+        esac
+    done
 
-        if selection=$(select_from_list "Select Sonos speaker to control:" "${sonos_display[@]}"); then
-            # Extract IP from selection
-            SONOS_IP=$(echo "$selection" | grep -oP '\(([0-9.]+)\)' | tr -d '()')
+    if [[ "$PLAYER_TYPE" == "sonos" ]]; then
+        # Scan for Sonos devices
+        mapfile -t sonos_results < <(scan_sonos_devices)
+
+        if [ ${#sonos_results[@]} -gt 0 ]; then
+            # Format results for display
+            sonos_display=()
+            sonos_ips=()
+            for result in "${sonos_results[@]}"; do
+                ip=$(echo "$result" | cut -d'|' -f1)
+                name=$(echo "$result" | cut -d'|' -f2)
+                sonos_display+=("$name ($ip)")
+                sonos_ips+=("$ip")
+            done
+
+            log_success "Found ${#sonos_results[@]} Sonos device(s)!"
+
+            if selection=$(select_from_list "Select Sonos speaker to control:" "${sonos_display[@]}"); then
+                # Extract IP from selection
+                PLAYER_IP=$(echo "$selection" | grep -oP '\(([0-9.]+)\)' | tr -d '()')
+            else
+                read -p "Enter Sonos speaker IP address: " PLAYER_IP
+            fi
         else
-            read -p "Enter Sonos speaker IP address: " SONOS_IP
+            log_warn "No Sonos devices found on the network"
+            log_info "Make sure your Sonos speaker is powered on and connected to the same network"
+            read -p "Enter Sonos speaker IP address: " PLAYER_IP
         fi
-    else
-        log_warn "No Sonos devices found on the network"
-        log_info "Make sure your Sonos speaker is powered on and connected to the same network"
-        read -p "Enter Sonos speaker IP address: " SONOS_IP
+        PLAYER_IP="${PLAYER_IP:-192.168.1.100}"
+    elif [[ "$PLAYER_TYPE" == "bluesound" ]]; then
+        # Scan for Bluesound devices
+        mapfile -t bluesound_results < <(scan_bluesound_devices)
+
+        if [ ${#bluesound_results[@]} -gt 0 ]; then
+            # Format results for display
+            bluesound_display=()
+            bluesound_ips=()
+            for result in "${bluesound_results[@]}"; do
+                ip=$(echo "$result" | cut -d'|' -f1)
+                name=$(echo "$result" | cut -d'|' -f2)
+                bluesound_display+=("$name ($ip)")
+                bluesound_ips+=("$ip")
+            done
+
+            log_success "Found ${#bluesound_results[@]} Bluesound device(s)!"
+
+            if selection=$(select_from_list "Select Bluesound player to control:" "${bluesound_display[@]}"); then
+                # Extract IP from selection
+                PLAYER_IP=$(echo "$selection" | grep -oP '\(([0-9.]+)\)' | tr -d '()')
+            else
+                read -p "Enter Bluesound player IP address: " PLAYER_IP
+            fi
+        else
+            log_warn "No Bluesound devices found on the network"
+            log_info "Make sure your Bluesound player is powered on and connected to the same network"
+            read -p "Enter Bluesound player IP address: " PLAYER_IP
+        fi
+        PLAYER_IP="${PLAYER_IP:-192.168.1.100}"
     fi
-    SONOS_IP="${SONOS_IP:-192.168.1.100}"
-    log_success "Sonos IP: $SONOS_IP"
+
+    log_success "Player: $PLAYER_TYPE${PLAYER_IP:+ @ $PLAYER_IP}"
 
     # -------------------------------------------------------------------------
     # Home Assistant URL - with network discovery
@@ -607,7 +887,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
 
     if [ -z "$HA_TOKEN" ]; then
         log_warn "No token provided - some features will be unavailable"
-        log_info "You can add a token later by editing: $CONFIG_FILE"
+        log_info "You can add a token later by editing: $SECRETS_FILE"
     else
         log_success "Token configured"
     fi
@@ -863,117 +1143,313 @@ if [ ! -f "$CONFIG_FILE" ]; then
         read -p "Press Enter to start the setup wizard (or 's' to skip): " START_SPOTIFY_SETUP
 
         if [[ ! "$START_SPOTIFY_SETUP" =~ ^[Ss]$ ]]; then
-            # Run the Spotify setup wizard
-            SPOTIFY_SETUP_SCRIPT="$INSTALL_DIR/tools/spotify/setup_spotify.py"
-
-            if [ -f "$SPOTIFY_SETUP_SCRIPT" ]; then
-                # Run as the install user (not root) to get correct paths
-                echo ""
-                sudo -u "$INSTALL_USER" python3 "$SPOTIFY_SETUP_SCRIPT"
-                SETUP_EXIT_CODE=$?
-
-                if [ $SETUP_EXIT_CODE -eq 0 ]; then
-                    # Check if credentials were saved
-                    SPOTIFY_CONFIG="$INSTALL_DIR/services/config.env"
-                    if [ -f "$SPOTIFY_CONFIG" ] && grep -q "SPOTIFY_REFRESH_TOKEN" "$SPOTIFY_CONFIG"; then
-                        # Read the values
-                        SPOTIFY_CLIENT_ID=$(grep "^SPOTIFY_CLIENT_ID=" "$SPOTIFY_CONFIG" | cut -d'"' -f2)
-                        SPOTIFY_CLIENT_SECRET=$(grep "^SPOTIFY_CLIENT_SECRET=" "$SPOTIFY_CONFIG" | cut -d'"' -f2)
-                        SPOTIFY_REFRESH_TOKEN=$(grep "^SPOTIFY_REFRESH_TOKEN=" "$SPOTIFY_CONFIG" | cut -d'"' -f2)
-
-                        if [ -n "$SPOTIFY_REFRESH_TOKEN" ]; then
-                            log_success "Spotify configured successfully!"
-                            SPOTIFY_SETUP_SUCCESS=true
-                        fi
-                    fi
+            echo ""
+            log_info "Spotify setup is done via the web interface."
+            log_info "After installation, the beo-spotify service will start and serve"
+            log_info "a setup page at http://<device-ip>:8771/setup"
+            echo ""
+            # Check if tokens already exist from a previous setup
+            SPOTIFY_TOKENS="/etc/beosound5c/spotify_tokens.json"
+            if [ -f "$SPOTIFY_TOKENS" ]; then
+                SPOTIFY_CLIENT_ID=$(jq -r '.client_id // empty' "$SPOTIFY_TOKENS" 2>/dev/null)
+                SPOTIFY_REFRESH_TOKEN=$(jq -r '.refresh_token // empty' "$SPOTIFY_TOKENS" 2>/dev/null)
+                if [ -n "$SPOTIFY_REFRESH_TOKEN" ]; then
+                    log_success "Spotify tokens found from previous setup!"
+                    SPOTIFY_SETUP_SUCCESS=true
                 fi
-
-                if [ "$SPOTIFY_SETUP_SUCCESS" = false ]; then
-                    log_warn "Spotify setup was not completed"
-                    log_info "You can run the setup later with:"
-                    log_info "  python3 $SPOTIFY_SETUP_SCRIPT"
-                fi
-            else
-                log_error "Spotify setup script not found: $SPOTIFY_SETUP_SCRIPT"
+            fi
+            if [ "$SPOTIFY_SETUP_SUCCESS" = false ]; then
+                log_info "Open http://<device-ip>:8771/setup after starting services"
             fi
         else
             log_info "Skipping Spotify setup"
         fi
     else
         log_info "Skipping Spotify integration"
-        log_info "You can set it up later with: python3 $INSTALL_DIR/tools/spotify/setup_spotify.py"
+        log_info "You can set it up later at http://<device-ip>:8771/setup"
     fi
 
     # -------------------------------------------------------------------------
-    # Write configuration file
+    # Transport Configuration (webhook / MQTT / both)
+    # -------------------------------------------------------------------------
+    echo ""
+    log_section "Transport Configuration"
+    echo ""
+    echo "BeoSound 5c can communicate with Home Assistant via:"
+    echo ""
+    echo "  1) Webhook  - HTTP POST requests (default, works out of the box)"
+    echo "  2) MQTT     - Persistent connection via MQTT broker (lower latency, bidirectional)"
+    echo "  3) Both     - Send events via both webhook AND MQTT"
+    echo ""
+    echo "MQTT requires the Mosquitto add-on or another MQTT broker running on your network."
+    echo ""
+
+    TRANSPORT_MODE="webhook"
+    MQTT_BROKER=""
+    MQTT_PORT="1883"
+    MQTT_USER=""
+    MQTT_PASSWORD=""
+
+    while true; do
+        read -p "Select transport mode [1-3, default 1]: " TRANSPORT_CHOICE
+        TRANSPORT_CHOICE="${TRANSPORT_CHOICE:-1}"
+        case "$TRANSPORT_CHOICE" in
+            1) TRANSPORT_MODE="webhook"; break ;;
+            2) TRANSPORT_MODE="mqtt"; break ;;
+            3) TRANSPORT_MODE="both"; break ;;
+            *) echo "Invalid selection. Please enter 1, 2, or 3." ;;
+        esac
+    done
+    log_success "Transport mode: $TRANSPORT_MODE"
+
+    if [[ "$TRANSPORT_MODE" == "mqtt" || "$TRANSPORT_MODE" == "both" ]]; then
+        echo ""
+        log_info "MQTT Broker Configuration"
+        echo ""
+
+        DEFAULT_MQTT_BROKER="homeassistant.local"
+        read -p "MQTT broker hostname [$DEFAULT_MQTT_BROKER]: " MQTT_BROKER
+        MQTT_BROKER="${MQTT_BROKER:-$DEFAULT_MQTT_BROKER}"
+
+        read -p "MQTT broker port [1883]: " MQTT_PORT
+        MQTT_PORT="${MQTT_PORT:-1883}"
+
+        read -p "MQTT username (press Enter if none): " MQTT_USER
+        if [[ -n "$MQTT_USER" ]]; then
+            read -s -p "MQTT password: " MQTT_PASSWORD
+            echo ""
+        fi
+
+        log_success "MQTT broker: $MQTT_BROKER:$MQTT_PORT"
+
+        # Test MQTT connectivity
+        if command -v mosquitto_pub &>/dev/null; then
+            echo -n "  Testing MQTT connection "
+            mqtt_auth=()
+            if [[ -n "$MQTT_USER" ]]; then
+                mqtt_auth=(-u "$MQTT_USER")
+                if [[ -n "$MQTT_PASSWORD" ]]; then
+                    mqtt_auth+=(-P "$MQTT_PASSWORD")
+                fi
+            fi
+            if mosquitto_pub -h "$MQTT_BROKER" -p "$MQTT_PORT" "${mqtt_auth[@]}" \
+                -t "beosound5c/test" -m "install_test" 2>/dev/null; then
+                echo ""
+                log_success "MQTT connection successful!"
+            else
+                echo ""
+                log_warn "Could not connect to MQTT broker - check settings later"
+            fi
+        fi
+    fi
+
+    # -------------------------------------------------------------------------
+    # Audio Output Configuration
+    # -------------------------------------------------------------------------
+    echo ""
+    log_section "Audio Output Configuration"
+    echo ""
+    echo "Configure how BeoSound 5c controls volume on your speakers."
+    echo ""
+
+    DEFAULT_OUTPUT_NAME="BeoLab 5"
+    read -p "Audio output name (shown in UI) [$DEFAULT_OUTPUT_NAME]: " OUTPUT_NAME
+    OUTPUT_NAME="${OUTPUT_NAME:-$DEFAULT_OUTPUT_NAME}"
+
+    echo ""
+    echo "Volume control method:"
+    echo ""
+
+    VOLUME_TYPE="beolab5"
+    VOLUME_HOST=""
+    VOLUME_MAX="70"
+    VOLUME_ZONE=""
+    VOLUME_INPUT=""
+    VOLUME_MIXER_PORT=""
+
+    if [[ "$PLAYER_TYPE" == "sonos" ]]; then
+        echo "  1) Sonos       - Control volume directly on the Sonos speaker (Recommended)"
+        echo "  2) BeoLab 5    - BeoLab 5 via controller REST API"
+        echo "  3) PowerLink   - B&O speakers via MasterLink mixer"
+        echo "  4) C4 Amp      - Control4 amplifier via UDP"
+        echo "  5) HDMI        - HDMI audio output (ALSA software volume)"
+        echo "  6) S/PDIF      - S/PDIF HAT output (ALSA software volume)"
+        echo "  7) RCA         - RCA analog output (no volume control)"
+        echo ""
+        while true; do
+            read -p "Select volume control [1-7, default 1]: " VOLUME_CHOICE
+            VOLUME_CHOICE="${VOLUME_CHOICE:-1}"
+            case "$VOLUME_CHOICE" in
+                1) VOLUME_TYPE="sonos"; break ;;
+                2) VOLUME_TYPE="beolab5"; break ;;
+                3) VOLUME_TYPE="powerlink"; break ;;
+                4) VOLUME_TYPE="c4amp"; break ;;
+                5) VOLUME_TYPE="hdmi"; break ;;
+                6) VOLUME_TYPE="spdif"; break ;;
+                7) VOLUME_TYPE="rca"; break ;;
+                *) echo "Invalid selection. Please enter 1-7." ;;
+            esac
+        done
+    elif [[ "$PLAYER_TYPE" == "bluesound" ]]; then
+        echo "  1) BlueSound   - Control volume directly on the BlueSound player (Recommended)"
+        echo "  2) BeoLab 5    - BeoLab 5 via controller REST API"
+        echo "  3) PowerLink   - B&O speakers via MasterLink mixer"
+        echo "  4) C4 Amp      - Control4 amplifier via UDP"
+        echo "  5) HDMI        - HDMI audio output (ALSA software volume)"
+        echo "  6) S/PDIF      - S/PDIF HAT output (ALSA software volume)"
+        echo "  7) RCA         - RCA analog output (no volume control)"
+        echo ""
+        while true; do
+            read -p "Select volume control [1-7, default 1]: " VOLUME_CHOICE
+            VOLUME_CHOICE="${VOLUME_CHOICE:-1}"
+            case "$VOLUME_CHOICE" in
+                1) VOLUME_TYPE="bluesound"; break ;;
+                2) VOLUME_TYPE="beolab5"; break ;;
+                3) VOLUME_TYPE="powerlink"; break ;;
+                4) VOLUME_TYPE="c4amp"; break ;;
+                5) VOLUME_TYPE="hdmi"; break ;;
+                6) VOLUME_TYPE="spdif"; break ;;
+                7) VOLUME_TYPE="rca"; break ;;
+                *) echo "Invalid selection. Please enter 1-7." ;;
+            esac
+        done
+    else
+        echo "  1) PowerLink   - B&O speakers via MasterLink mixer (Recommended)"
+        echo "  2) BeoLab 5    - BeoLab 5 via controller REST API"
+        echo "  3) C4 Amp      - Control4 amplifier via UDP"
+        echo "  4) HDMI        - HDMI audio output (ALSA software volume)"
+        echo "  5) S/PDIF      - S/PDIF HAT output (ALSA software volume)"
+        echo "  6) RCA         - RCA analog output (no volume control)"
+        echo ""
+        while true; do
+            read -p "Select volume control [1-6, default 1]: " VOLUME_CHOICE
+            VOLUME_CHOICE="${VOLUME_CHOICE:-1}"
+            case "$VOLUME_CHOICE" in
+                1) VOLUME_TYPE="powerlink"; break ;;
+                2) VOLUME_TYPE="beolab5"; break ;;
+                3) VOLUME_TYPE="c4amp"; break ;;
+                4) VOLUME_TYPE="hdmi"; break ;;
+                5) VOLUME_TYPE="spdif"; break ;;
+                6) VOLUME_TYPE="rca"; break ;;
+                *) echo "Invalid selection. Please enter 1-6." ;;
+            esac
+        done
+    fi
+
+    # Per-type configuration
+    case "$VOLUME_TYPE" in
+        beolab5)
+            DEFAULT_VOLUME_HOST="beolab5-controller.local"
+            read -p "BeoLab 5 controller hostname [$DEFAULT_VOLUME_HOST]: " VOLUME_HOST
+            VOLUME_HOST="${VOLUME_HOST:-$DEFAULT_VOLUME_HOST}"
+            ;;
+        sonos|bluesound)
+            VOLUME_HOST="$PLAYER_IP"
+            log_info "Using player IP ($PLAYER_IP) for volume control"
+            ;;
+        powerlink)
+            DEFAULT_VOLUME_HOST="localhost"
+            read -p "MasterLink mixer host [$DEFAULT_VOLUME_HOST]: " VOLUME_HOST
+            VOLUME_HOST="${VOLUME_HOST:-$DEFAULT_VOLUME_HOST}"
+            read -p "Mixer HTTP port [8768]: " VOLUME_MIXER_PORT
+            VOLUME_MIXER_PORT="${VOLUME_MIXER_PORT:-8768}"
+            ;;
+        c4amp)
+            read -p "C4 amplifier IP address: " VOLUME_HOST
+            VOLUME_HOST="${VOLUME_HOST:-192.168.1.100}"
+            read -p "Output zone [01]: " VOLUME_ZONE
+            VOLUME_ZONE="${VOLUME_ZONE:-01}"
+            read -p "Source input [01]: " VOLUME_INPUT
+            VOLUME_INPUT="${VOLUME_INPUT:-01}"
+            ;;
+        hdmi|spdif|rca)
+            VOLUME_HOST=""
+            ;;
+    esac
+
+    read -p "Maximum volume percentage [70]: " VOLUME_MAX
+    VOLUME_MAX="${VOLUME_MAX:-70}"
+
+    # Build extra volume config fields
+    VOLUME_EXTRA=""
+    [[ -n "$VOLUME_ZONE" ]] && VOLUME_EXTRA="$VOLUME_EXTRA, \"zone\": \"$VOLUME_ZONE\""
+    [[ -n "$VOLUME_INPUT" ]] && VOLUME_EXTRA="$VOLUME_EXTRA, \"input\": \"$VOLUME_INPUT\""
+    [[ -n "$VOLUME_MIXER_PORT" ]] && VOLUME_EXTRA="$VOLUME_EXTRA, \"mixer_port\": $VOLUME_MIXER_PORT"
+
+    log_success "Output: $OUTPUT_NAME, volume: $VOLUME_TYPE @ ${VOLUME_HOST:-local} (max $VOLUME_MAX%%)"
+
+    # -------------------------------------------------------------------------
+    # Write config.json
     # -------------------------------------------------------------------------
     echo ""
     log_info "Writing configuration to $CONFIG_FILE..."
+
+    # Build menu — include SECURITY only if a dashboard was configured
+    MENU_JSON='"PLAYING": "playing", "CD": { "id": "cd", "hidden": true }, "USB": { "id": "usb", "paths": ["/mnt/usb-music"] }, "SPOTIFY": "spotify", "SCENES": "scenes"'
+    if [ -n "$HA_SECURITY_DASHBOARD" ]; then
+        MENU_JSON="$MENU_JSON, \"SECURITY\": { \"id\": \"security\", \"dashboard\": \"$HA_SECURITY_DASHBOARD\" }"
+    fi
+    MENU_JSON="$MENU_JSON, \"SYSTEM\": \"system\", \"SHOWING\": \"showing\""
+
+    # Build transport section
+    TRANSPORT_JSON="\"mode\": \"$TRANSPORT_MODE\""
+    if [[ "$TRANSPORT_MODE" == "mqtt" || "$TRANSPORT_MODE" == "both" ]]; then
+        TRANSPORT_JSON="$TRANSPORT_JSON, \"mqtt_broker\": \"$MQTT_BROKER\", \"mqtt_port\": $MQTT_PORT"
+    fi
+
     cat > "$CONFIG_FILE" << EOF
-# BeoSound 5c Configuration
-# Generated by install.sh on $(date)
+{
+  "device": "$DEVICE_NAME",
 
-# =============================================================================
-# Device Configuration
-# =============================================================================
+  "menu": { $MENU_JSON },
 
-# Location identifier (sent to Home Assistant webhooks)
-DEVICE_NAME="$DEVICE_NAME"
+  "scenes": [],
 
-# Base path for BeoSound 5c installation
-BS5C_BASE_PATH="$INSTALL_DIR"
-
-# =============================================================================
-# Sonos Configuration
-# =============================================================================
-
-# Sonos speaker IP address
-SONOS_IP="$SONOS_IP"
-
-# =============================================================================
-# Home Assistant Configuration
-# =============================================================================
-
-# Home Assistant base URL
-HA_URL="$HA_URL"
-
-# Home Assistant webhook URL for BeoSound 5c events
-HA_WEBHOOK_URL="$HA_WEBHOOK_URL"
-
-# Home Assistant dashboard for SECURITY page (without leading slash)
-HA_SECURITY_DASHBOARD="$HA_SECURITY_DASHBOARD"
-
-# Home Assistant Long-Lived Access Token (for API access)
-HA_TOKEN="$HA_TOKEN"
-
-# =============================================================================
-# Bluetooth Configuration
-# =============================================================================
-
-# Bluetooth device name (how this device appears to others)
-BT_DEVICE_NAME="$BT_DEVICE_NAME"
-
-# BeoRemote One Bluetooth MAC address
-BEOREMOTE_MAC="$BEOREMOTE_MAC"
-
-# =============================================================================
-# Spotify Configuration
-# =============================================================================
-
-# Spotify API credentials (set up via tools/spotify/setup_spotify.py)
-SPOTIFY_CLIENT_ID="$SPOTIFY_CLIENT_ID"
-SPOTIFY_CLIENT_SECRET="$SPOTIFY_CLIENT_SECRET"
-SPOTIFY_REFRESH_TOKEN="$SPOTIFY_REFRESH_TOKEN"
+  "player": { "type": "$PLAYER_TYPE", "ip": "$PLAYER_IP" },
+  "bluetooth": { "remote_mac": "$BEOREMOTE_MAC" },
+  "home_assistant": {
+    "url": "$HA_URL",
+    "webhook_url": "$HA_WEBHOOK_URL"
+  },
+  "transport": { $TRANSPORT_JSON },
+  "volume": {
+    "type": "$VOLUME_TYPE",
+    "host": "$VOLUME_HOST",
+    "max": $VOLUME_MAX,
+    "step": 3,
+    "output_name": "$OUTPUT_NAME"$VOLUME_EXTRA
+  },
+  "cd": { "device": "/dev/sr0" },
+  "spotify": { "client_id": "$SPOTIFY_CLIENT_ID" }
+}
 EOF
 
     chmod 644 "$CONFIG_FILE"
     log_success "Configuration saved to $CONFIG_FILE"
-fi
 
-# Update config.env.example with dynamic username in BS5C_BASE_PATH
-EXAMPLE_CONFIG="$INSTALL_DIR/services/config.env.example"
-if [ -f "$EXAMPLE_CONFIG" ]; then
-    sed -i "s|BS5C_BASE_PATH=\"/home/[^\"]*\"|BS5C_BASE_PATH=\"$INSTALL_DIR\"|g" "$EXAMPLE_CONFIG"
+    # -------------------------------------------------------------------------
+    # Write secrets.env
+    # -------------------------------------------------------------------------
+    log_info "Writing secrets to $SECRETS_FILE..."
+    cat > "$SECRETS_FILE" << EOF
+# BeoSound 5c Secrets
+# Generated by install.sh on $(date)
+
+# Home Assistant Long-Lived Access Token
+HA_TOKEN="$HA_TOKEN"
+
+# MQTT credentials (only needed if transport.mode includes "mqtt")
+MQTT_USER="$MQTT_USER"
+MQTT_PASSWORD="$MQTT_PASSWORD"
+EOF
+
+    chmod 600 "$SECRETS_FILE"
+    log_success "Secrets saved to $SECRETS_FILE"
+
+    # Symlink web/json/config.json → /etc/beosound5c/config.json so the UI can load it via HTTP
+    mkdir -p "$INSTALL_DIR/web/json"
+    ln -sf "$CONFIG_FILE" "$INSTALL_DIR/web/json/config.json"
+    log_success "Config symlinked to web/json/config.json for UI"
 fi
 
 # =============================================================================
@@ -1067,7 +1543,7 @@ fi
 
 # Check services (if they're supposed to be running)
 log_info "Checking service status..."
-SERVICES="beo-http beo-media beo-input beo-ui"
+SERVICES="beo-http beo-player-sonos beo-input beo-ui"
 for svc in $SERVICES; do
     if systemctl is-active --quiet "$svc" 2>/dev/null; then
         log_success "Service running: $svc"
@@ -1089,8 +1565,24 @@ fi
 # =============================================================================
 
 # Load configuration to display summary
-if [ -f "$CONFIG_FILE" ]; then
-    source "$CONFIG_FILE"
+# Variables are already set from the interactive prompts above.
+# For the reconfigure=no path, read them back from the JSON file.
+if [ -f "$CONFIG_FILE" ] && [ -z "$DEVICE_NAME" ]; then
+    DEVICE_NAME=$(jq -r '.device // empty' "$CONFIG_FILE" 2>/dev/null)
+    PLAYER_TYPE=$(jq -r '.player.type // empty' "$CONFIG_FILE" 2>/dev/null)
+    PLAYER_IP=$(jq -r '.player.ip // empty' "$CONFIG_FILE" 2>/dev/null)
+    HA_URL=$(jq -r '.home_assistant.url // empty' "$CONFIG_FILE" 2>/dev/null)
+    TRANSPORT_MODE=$(jq -r '.transport.mode // empty' "$CONFIG_FILE" 2>/dev/null)
+    MQTT_BROKER=$(jq -r '.transport.mqtt_broker // empty' "$CONFIG_FILE" 2>/dev/null)
+    MQTT_PORT=$(jq -r '.transport.mqtt_port // empty' "$CONFIG_FILE" 2>/dev/null)
+    OUTPUT_NAME=$(jq -r '.volume.output_name // empty' "$CONFIG_FILE" 2>/dev/null)
+    VOLUME_TYPE=$(jq -r '.volume.type // empty' "$CONFIG_FILE" 2>/dev/null)
+    VOLUME_HOST=$(jq -r '.volume.host // empty' "$CONFIG_FILE" 2>/dev/null)
+    VOLUME_MAX=$(jq -r '.volume.max // empty' "$CONFIG_FILE" 2>/dev/null)
+    BEOREMOTE_MAC=$(jq -r '.bluetooth.remote_mac // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -f "$SECRETS_FILE" ] && [ -z "$HA_TOKEN" ]; then
+    HA_TOKEN=$(grep '^HA_TOKEN=' "$SECRETS_FILE" 2>/dev/null | cut -d'"' -f2)
 fi
 
 echo ""
@@ -1104,13 +1596,26 @@ echo -e "${CYAN}║${NC}                                                        
 echo -e "${CYAN}║${NC}  ${YELLOW}Configuration Summary${NC}                                    ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  Device Name:      ${GREEN}${DEVICE_NAME:-Not set}${NC}"
-echo -e "${CYAN}║${NC}  Sonos IP:         ${GREEN}${SONOS_IP:-Not set}${NC}"
+echo -e "${CYAN}║${NC}  Player:           ${GREEN}${PLAYER_TYPE:-Not set}${PLAYER_IP:+ @ $PLAYER_IP}${NC}"
 echo -e "${CYAN}║${NC}  Home Assistant:   ${GREEN}${HA_URL:-Not set}${NC}"
 if [ -n "$HA_TOKEN" ] && [ "$HA_TOKEN" != "" ]; then
 echo -e "${CYAN}║${NC}  HA Token:         ${GREEN}Configured${NC}"
 else
 echo -e "${CYAN}║${NC}  HA Token:         ${YELLOW}Not configured${NC}"
 fi
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${YELLOW}Transport${NC}                                                  ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  Mode:             ${GREEN}${TRANSPORT_MODE:-webhook}${NC}"
+if [ -n "$MQTT_BROKER" ] && [[ "$TRANSPORT_MODE" == "mqtt" || "$TRANSPORT_MODE" == "both" ]]; then
+echo -e "${CYAN}║${NC}  MQTT Broker:      ${GREEN}${MQTT_BROKER}:${MQTT_PORT}${NC}"
+fi
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${YELLOW}Audio Output${NC}                                                ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  Output:           ${GREEN}${OUTPUT_NAME:-BeoLab 5}${NC}"
+echo -e "${CYAN}║${NC}  Volume Control:   ${GREEN}${VOLUME_TYPE:-beolab5} @ ${VOLUME_HOST:-beolab5-controller.local}${NC}"
+echo -e "${CYAN}║${NC}  Max Volume:       ${GREEN}${VOLUME_MAX:-70}%%${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  ${YELLOW}Bluetooth Remote${NC}                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
@@ -1135,6 +1640,7 @@ echo -e "${CYAN}║${NC}                                                        
 echo -e "${CYAN}║${NC}  ${YELLOW}File Locations${NC}                                            ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  Config:  ${GREEN}${CONFIG_FILE}${NC}"
+echo -e "${CYAN}║${NC}  Secrets: ${GREEN}${SECRETS_FILE}${NC}"
 echo -e "${CYAN}║${NC}  Install: ${GREEN}${INSTALL_DIR}${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}╠══════════════════════════════════════════════════════════╣${NC}"
@@ -1161,7 +1667,8 @@ echo -e "${CYAN}║${NC}                                                        
 echo -e "${CYAN}╠══════════════════════════════════════════════════════════╣${NC}"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  ${YELLOW}To modify settings later:${NC}                                ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     ${GREEN}sudo nano ${CONFIG_FILE}${NC}"
+echo -e "${CYAN}║${NC}     ${GREEN}sudo nano ${CONFIG_FILE}${NC}  (settings)"
+echo -e "${CYAN}║${NC}     ${GREEN}sudo nano ${SECRETS_FILE}${NC}  (credentials)"
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  ${YELLOW}Useful commands:${NC}                                          ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}     ${GREEN}sudo systemctl restart beo-*${NC}      Restart services     ${CYAN}║${NC}"
@@ -1170,7 +1677,7 @@ if [ "$BEOREMOTE_MAC" = "00:00:00:00:00:00" ] || [ -z "$BEOREMOTE_MAC" ]; then
 echo -e "${CYAN}║${NC}     ${GREEN}sudo ./tools/bt/pair-remote.sh${NC}    Pair BT remote       ${CYAN}║${NC}"
 fi
 if [ -z "$SPOTIFY_REFRESH_TOKEN" ]; then
-echo -e "${CYAN}║${NC}     ${GREEN}python3 ./tools/spotify/setup_spotify.py${NC}  Setup Spotify${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     ${GREEN}http://<device-ip>:8771/setup${NC}            Spotify${CYAN}║${NC}"
 fi
 echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"

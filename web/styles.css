@@ -127,35 +127,150 @@ html, body {
   color: rgba(102,153,255,1);
 }
 
-/* Now Playing View Styles */
-#now-playing {
-  background: black;
+/* ── Shared media view (PLAYING + CD) ── */
+.media-view {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  text-align: center;
   overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-  transition: opacity 0.3s ease-in-out;
 }
 
-#artwork-container {
-  transition: all 0.3s ease-in-out;
+.media-view-artwork {
+  width: 60%;
+  aspect-ratio: 1;
+  margin: 20px;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
   border-radius: 10px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+  transition: all 0.3s ease-in-out;
 }
 
-#artwork-container:hover {
-  transform: scale(1.02);
-  box-shadow: 0 15px 30px rgba(0,0,0,0.5);
-}
-
-#now-playing-artwork {
+.media-view-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   border-radius: 8px;
   transition: opacity 0.6s ease-in-out;
 }
 
-#media-info {
+.media-view-info {
+  width: 80%;
+  padding: 15px;
   background: rgba(0,0,0,0.2);
   border-radius: 8px;
-  padding: 15px;
-  margin-top: 20px;
   transition: all 0.3s ease-in-out;
+}
+
+.media-view-title,
+.media-view-artist,
+.media-view-album {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.2s ease;
+}
+
+.media-view-title {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.media-view-artist {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+.media-view-album {
+  font-size: 16px;
+  opacity: 0.8;
+}
+
+/* ── Immersive PLAYING mode ──
+   Pure CSS transform on artwork — no layout changes, GPU-accelerated.
+   JS drives all visual state via inline styles (laser tracking = no transition,
+   idle/exit = CSS transition enabled via .immersive-transitioning class).
+
+   Artwork normal center: content-area (410, 300) = screen (590, 320)
+   Immersive center:      content-area (167, 350) = screen (347, 370)
+   → translate(-243px, 50px) scale(1.21)
+   Result: 595×595 artwork, left edge ≈ screen x50, right ≈ x645. Within 870 cutoff.
+   Overlay info at content-area left 480 = screen 660. Width 200 → ends at 860. OK.
+   Overlay bottom-aligned with artwork bottom at content-area y ≈ 648 → bottom: 52px.
+*/
+
+/* Allow artwork to overflow container when transforming left */
+#now-playing.immersive-active {
+  overflow: visible;
+}
+
+/* Override base "transition: all" while immersive — prevents unwanted
+   transitions on transform/opacity during media updates (song changes).
+   Tracking/transitioning rules below override this when active. */
+#now-playing.immersive-active .media-view-artwork {
+  transition: none;
+}
+#now-playing.immersive-active .media-view-info {
+  transition: none;
+}
+
+/* Short transition during laser tracking — smooths discrete hardware steps */
+#now-playing.immersive-tracking .media-view-artwork {
+  transition: transform 100ms ease-out;
+}
+#now-playing.immersive-tracking .media-view-info {
+  transition: opacity 100ms ease-out;
+}
+
+/* Longer transitions when entering/exiting via idle timer */
+#now-playing.immersive-transitioning .media-view-artwork {
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#now-playing.immersive-transitioning .media-view-info {
+  transition: opacity 0.3s ease;
+}
+
+/* Immersive info overlay (created by immersive-mode.js) */
+.immersive-info {
+  position: absolute;
+  left: 495px;
+  bottom: 60px;
+  width: 280px;
+  text-align: left;
+  color: white;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.immersive-info-title  { font-size: 26px; font-weight: bold; margin-bottom: 12px; }
+.immersive-info-artist { font-size: 18px; margin-bottom: 8px; }
+.immersive-info-album  { font-size: 15px; opacity: 0.8; }
+
+.immersive-info-title,
+.immersive-info-artist,
+.immersive-info-album {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.25s ease;
+}
+
+/* PLAYING + CD view backgrounds */
+#now-playing,
+#cd-view {
+  background: black;
 }
 
 .slide-up-enter {
@@ -401,4 +516,382 @@ html, body {
   font-size: 13px;
   min-width: 28px;
   text-align: center;
+}
+
+/* ── CD View ── */
+
+/* Loading state */
+.cd-loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  transition: opacity 0.6s ease;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.cd-hidden {
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  visibility: hidden;
+}
+
+/* Spinning disc — pure CSS */
+.cd-disc {
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, #111 18%, transparent 19%),
+    repeating-radial-gradient(circle at center, transparent 0px, transparent 3px, rgba(60,60,60,0.25) 3.5px, transparent 4px),
+    radial-gradient(circle at center, #1a1a1a 20%, #222 40%, #1a1a1a 60%, #222 80%, #1a1a1a 100%);
+  box-shadow: 0 0 30px rgba(0,0,0,0.6), inset 0 0 20px rgba(0,0,0,0.4);
+  animation: cd-spin 3s linear infinite;
+  position: relative;
+}
+
+.cd-disc::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #444 40%, #222 100%);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 4px rgba(0,0,0,0.8);
+}
+
+@keyframes cd-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Loading text with animated dots */
+.cd-loading-text {
+  margin-top: 24px;
+  font-size: 18px;
+  color: #888;
+  letter-spacing: 1px;
+}
+
+.cd-dots span {
+  animation: cd-dot-blink 1.4s infinite;
+  opacity: 0;
+}
+
+.cd-dots span:nth-child(1) { animation-delay: 0s; }
+.cd-dots span:nth-child(2) { animation-delay: 0.2s; }
+.cd-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes cd-dot-blink {
+  0%, 20%  { opacity: 0; }
+  40%      { opacity: 1; }
+  100%     { opacity: 0; }
+}
+
+/* ── Playing View Flip (generic, used by any source's PLAYING preset) ── */
+
+.playing-artwork-slot {
+  perspective: 800px;
+  overflow: visible;
+}
+
+.playing-flipper {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+}
+
+.playing-flipper-snap {
+  transition: transform 150ms ease-out;
+}
+
+.playing-flipper.flipped {
+  transform: rotateY(180deg);
+}
+
+.playing-face {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  backface-visibility: hidden;
+}
+
+.playing-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.playing-back {
+  transform: rotateY(180deg);
+}
+
+/* ── CD Arc Track Browser (matches softarc layout exactly) ── */
+
+.cd-arc-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Matches .arc-item: same width, gap, layout */
+.cd-arc-item {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  pointer-events: none;
+  width: 280px;
+  justify-content: space-between;
+  will-change: transform;
+}
+
+/* Text wrapper for name + duration/sublabel */
+.cd-arc-item-text {
+  text-align: right;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Name: allow 2-line wrapping */
+.cd-arc-item-name {
+  font-size: 0.875rem;
+  color: white;
+  font-weight: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-line;
+  line-height: 1.2;
+}
+
+.cd-arc-item-name.selected {
+  font-size: 1.125rem;
+  font-weight: bold;
+}
+
+.cd-arc-item-playing .cd-arc-item-name {
+  color: rgba(102, 153, 255, 1);
+}
+
+/* Duration line under track name */
+.cd-arc-item-duration {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 2px;
+}
+
+/* Sublabel (artist on artwork items) */
+.cd-arc-item-sublabel {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Matches .item-image: 128px square, same border-radius */
+.cd-arc-item-badge {
+  width: 8rem;
+  height: 8rem;
+  flex-shrink: 0;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.5);
+  overflow: hidden;
+}
+
+.cd-arc-item-selected .cd-arc-item-badge {
+  background: rgba(255, 255, 255, 0.10);
+  color: #fff;
+  font-weight: 400;
+}
+
+.cd-arc-item-playing .cd-arc-item-badge {
+  background: rgba(102, 153, 255, 0.15);
+  color: rgba(102, 153, 255, 1);
+}
+
+.cd-arc-item-eject .cd-arc-item-badge {
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 2.5rem;
+}
+
+/* Badge image (for artwork submenu item) */
+.cd-arc-item-badge-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 0.5rem;
+}
+
+/* Toggle active state */
+.cd-arc-item-toggle-on .cd-arc-item-badge {
+  background: rgba(102, 153, 255, 0.15);
+  color: rgba(102, 153, 255, 1);
+}
+
+/* Back item */
+.cd-arc-item-back .cd-arc-item-badge {
+  font-size: 1.5rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+
+/* Volume Overlay */
+#volume-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1024px;
+  height: 768px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99990;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+}
+
+#volume-overlay.visible {
+  opacity: 1;
+}
+
+#volume-arc-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+#volume-device {
+  position: absolute;
+  bottom: 80px;
+  right: 60px;
+  font-size: 13px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.6);
+  letter-spacing: 1px;
+}
+
+/* ── Spotify Source ── */
+
+.spotify-arc-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.spotify-arc-item {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 96px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform-origin: left center;
+  transition: none;
+  will-change: transform, opacity;
+}
+
+.spotify-arc-image {
+  width: 80px;
+  height: 80px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.spotify-arc-placeholder {
+  width: 80px;
+  height: 80px;
+  border-radius: 4px;
+  background: #222;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: #666;
+  flex-shrink: 0;
+}
+
+.spotify-arc-icon {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  color: #999;
+  background: #1a1a1a;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.spotify-arc-label {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 16px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 500px;
+  line-height: 1.3;
+}
+
+.spotify-arc-sublabel {
+  display: block;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 300;
+}
+
+.spotify-arc-selected .spotify-arc-label {
+  color: #fff;
+  font-weight: 400;
+}
+
+.spotify-arc-selected .spotify-arc-image {
+  box-shadow: 0 0 20px rgba(30, 215, 96, 0.3);
+}
+
+.spotify-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: #666;
+  font-size: 16px;
+  font-weight: 300;
+  line-height: 2;
 }

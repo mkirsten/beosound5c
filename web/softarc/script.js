@@ -29,17 +29,18 @@ class ArcList {
             
             // UI configuration
             title: config.title || 'Arc List',
-            context: config.context || 'music',
+            context: config.context || 'scenes',
             
             // Default values
             ...config
         };
         
-        // ===== ANIMATION PARAMETERS =====
-        this.SCROLL_SPEED = 0.5; // How fast scrolling animation happens (0.1 = slow, 0.3 = fast)
-        this.SCROLL_STEP = 0.5; // How much to scroll per key press (changed from 0.2 to 1 for better navigation)
-        this.SNAP_DELAY = 1000; // Milliseconds to wait before snapping to closest item (reduced from 1000)
-        this.MIDDLE_INDEX = 4; // How many items to show on each side of center (4 = 9 total items visible)
+        // ===== ANIMATION PARAMETERS (from centralized Constants.softarc) =====
+        const _sa = (window.parent?.Constants || window.Constants)?.softarc || {};
+        this.SCROLL_SPEED = _sa.scrollSpeed ?? 0.5;
+        this.SCROLL_STEP = _sa.scrollStep ?? 0.5;
+        this.SNAP_DELAY = _sa.snapDelay ?? 1000;
+        this.MIDDLE_INDEX = _sa.middleIndex ?? 4;
         
         // ===== STATE VARIABLES =====
         this.items = []; // Current items to display
@@ -122,8 +123,14 @@ class ArcList {
      */
     async loadData() {
         try {
-            const response = await fetch(this.config.dataSource);
-            this.parentData = await response.json();
+            // Support inline data (no fetch needed)
+            if (this.config.inlineData) {
+                this.parentData = this.config.inlineData;
+            } else {
+                const cacheBust = `${this.config.dataSource}${this.config.dataSource.includes('?') ? '&' : '?'}_=${Date.now()}`;
+                const response = await fetch(cacheBust);
+                this.parentData = await response.json();
+            }
             
             // Convert data to our items format based on configuration
             if (this.config.itemMapper) {
@@ -131,17 +138,6 @@ class ArcList {
                 this.items = this.config.itemMapper(this.parentData);
             } else if (this.config.dataType === 'parent_child') {
                 // Default parent/child format - preserve child data for hierarchical navigation
-                // Filter out empty playlists (those with no tracks)
-                const nonEmptyParents = this.parentData.filter(parent => {
-                    const children = parent[this.config.parentKey];
-                    return children && Array.isArray(children) && children.length > 0;
-                });
-                
-                console.log(`Filtered out ${this.parentData.length - nonEmptyParents.length} empty playlists`);
-                
-                // Update parentData to only include non-empty playlists
-                this.parentData = nonEmptyParents;
-                
                 this.items = this.parentData.map((parent, index) => ({
                     id: parent.id,
                     name: parent[this.config.parentNameKey] || `Item ${index + 1}`,
@@ -169,7 +165,46 @@ class ArcList {
             ];
         }
     }
-    
+
+    /**
+     * Reload data from source if at the parent/playlist level.
+     * Called when the main UI navigates to PLAYING, so playlist changes
+     * (additions/removals) are picked up without a full page reload.
+     */
+    async reloadData() {
+        // Only reload when viewing the parent list — don't yank data while browsing tracks
+        if (this.viewMode !== 'parent') {
+            console.log('[RELOAD] Skipped — currently in child view');
+            return;
+        }
+
+        const prevCount = this.items.length;
+        const prevIndex = Math.round(this.currentIndex);
+        const prevId = this.items[prevIndex]?.id;
+
+        await this.loadData();
+
+        // Try to keep the user's position on the same playlist
+        if (prevId) {
+            const newIndex = this.items.findIndex(item => item.id === prevId);
+            if (newIndex >= 0) {
+                this.currentIndex = newIndex;
+                this.targetIndex = newIndex;
+            }
+        }
+
+        // Clamp if the list shrank
+        if (this.currentIndex >= this.items.length) {
+            this.currentIndex = Math.max(0, this.items.length - 1);
+            this.targetIndex = this.currentIndex;
+        }
+
+        this.totalItemsDisplay.textContent = this.items.length;
+        this.updateCounter();
+        this.render();
+        console.log(`[RELOAD] Playlists refreshed: ${prevCount} → ${this.items.length}`);
+    }
+
     /**
      * Save current state to localStorage
      */
@@ -308,11 +343,8 @@ class ArcList {
         const imgContainer = document.createElement('div');
         imgContainer.className = 'item-image-container';
         
-        const imgEl = document.createElement('img');
-        imgEl.className = 'item-image';
-        imgEl.src = this.selectedParent.image;
-        imgEl.loading = 'lazy';
-        
+        const imgEl = this.createImageElement(this.selectedParent);
+
         imgContainer.appendChild(imgEl);
         breadcrumb.appendChild(nameEl);
         breadcrumb.appendChild(imgContainer);
@@ -337,19 +369,22 @@ class ArcList {
         this.connectWebSocket();
         
         // Save state periodically and on page unload
-        setInterval(() => this.saveState(), 1000); // Save every second
+        this._saveInterval = setInterval(() => this.saveState(), 1000);
         window.addEventListener('beforeunload', () => this.saveState());
-        
+
         // Listen for events from parent window (when in iframe)
-        window.addEventListener('message', (event) => {
+        this._messageHandler = (event) => {
             if (event.data && event.data.type === 'button') {
                 this.handleButtonFromParent(event.data.button);
             } else if (event.data && event.data.type === 'nav') {
                 this.handleNavFromParent(event.data.data);
             } else if (event.data && event.data.type === 'keyboard') {
                 this.handleKeyboardFromParent(event.data);
+            } else if (event.data && event.data.type === 'reload-data') {
+                this.reloadData();
             }
-        });
+        };
+        window.addEventListener('message', this._messageHandler);
     }
     
     /**
@@ -496,7 +531,23 @@ class ArcList {
             }
         }, this.SNAP_DELAY);
     }
-    
+
+    /**
+     * Immediately snap to the nearest whole item index.
+     * Called on button press so the action targets a concrete item
+     * and the list stops coasting.
+     */
+    snapToNearest() {
+        const nearest = Math.round(this.currentIndex);
+        const clamped = Math.max(0, Math.min(this.items.length - 1, nearest));
+        this.currentIndex = clamped;
+        this.targetIndex = clamped;
+        if (this.snapTimer) {
+            clearTimeout(this.snapTimer);
+            this.snapTimer = null;
+        }
+    }
+
     /**
      * Start the main animation loop
      * This runs continuously and smoothly moves items to their target positions
@@ -552,60 +603,13 @@ class ArcList {
      * Returns array of items with their visual properties (position, scale, opacity, etc.)
      */
     getVisibleItems() {
-        const visibleItems = [];
-        
-        // Calculate the range of items to show (centered around currentIndex)
-        const centerIndex = Math.round(this.currentIndex);
-        
-        // Show items from -MIDDLE_INDEX to +MIDDLE_INDEX relative to center
-        for (let relativePos = -this.MIDDLE_INDEX; relativePos <= this.MIDDLE_INDEX; relativePos++) {
-            const itemIndex = centerIndex + relativePos;
-            
-            // Skip if item doesn't exist in our data
-            if (itemIndex < 0 || itemIndex >= this.items.length) {
-                continue;
-            }
-            
-            // Calculate the actual relative position considering smooth scrolling
-            const actualRelativePos = relativePos - (this.currentIndex - centerIndex);
-            const absPosition = Math.abs(actualRelativePos);
-            
-            // ===== VISUAL EFFECTS =====
-            const scale = Math.max(0.4, 1.0 - (absPosition * 0.15)); // Calculate scale first
-            const opacity = 1; // Always full opacity for all items
-            const blur = 0; // No blur for now
-            
-            // ===== ARC POSITIONING CALCULATIONS =====
-            // 🎯 ARC SHAPE CONTROL - Adjust these values to change the arc appearance:
-            const maxRadius = 220; // Horizontal offset for spacing (higher = more spread out)
-            const horizontalMultiplier = 0.35; // How much items curve to the right (0.1 = straight, 0.5 = very curved)
-            const baseXOffset = 100; // 🎯 BASE X POSITION - Move entire arc left/right (higher = more to the right)
-            const x = baseXOffset + (Math.abs(actualRelativePos) * maxRadius * horizontalMultiplier); // Horizontal spacing multiplier
-            
-            // 🎯 VERTICAL SPACING CONTROL - Adjust these values to change vertical spacing:
-            const baseItemSize = 128; // Base size in pixels
-            const scaledItemSize = baseItemSize * scale; // Actual size after scaling
-            const minSpacing = scaledItemSize + 20; // Add 20px padding between items
-            const y = actualRelativePos * minSpacing; // Dynamic spacing based on scale
-            
-            // Add item to visible list with all its properties
-            visibleItems.push({
-                ...this.items[itemIndex], // Include original item data (id, name, image)
-                index: itemIndex, // Original index in the items array
-                relativePosition: actualRelativePos, // Position relative to center
-                x, // Horizontal position
-                y, // Vertical position
-                scale, // Size multiplier
-                opacity, // Transparency
-                blur, // Blur amount
-                isSelected: Math.abs(actualRelativePos) < 0.5 // Is this the center/selected item?
-            });
-        }
-        
-        // Sort by relative position to ensure consistent order
-        visibleItems.sort((a, b) => a.relativePosition - b.relativePosition);
-        
-        return visibleItems;
+        return ArcMath.getVisibleItems(this.currentIndex, this.items, {
+            middleIndex: this.MIDDLE_INDEX,
+        }).map(item => ({
+            ...item,
+            opacity: 1,
+            blur: 0,
+        }));
     }
     
     /**
@@ -613,46 +617,35 @@ class ArcList {
      * Handles loading states and fallbacks properly
      */
     createImageElement(item) {
+        // Phosphor icon mode: item has `icon` (and optional `color`)
+        if (item.icon) {
+            const iconDiv = document.createElement('div');
+            iconDiv.className = 'item-image item-icon';
+            const i = document.createElement('i');
+            i.className = `ph ph-${item.icon}`;
+            if (item.color) i.style.color = item.color;
+            iconDiv.appendChild(i);
+            iconDiv.dataset.itemId = item.id;
+            return iconDiv;
+        }
+
+        // Image mode (legacy base64 or URL)
         const img = document.createElement('img');
         img.className = 'item-image';
         img.alt = item.name;
         img.loading = 'lazy';
-        
-        // Add unique data attribute to prevent caching issues
         img.dataset.itemId = item.id;
-        
-        console.log('Creating image for item:', item.name, 'with src:', item.image);
-        
-        // Handle image loading
-        img.onload = () => {
-            img.removeAttribute('data-loading');
-        };
-        
+
+        img.onload = () => { img.removeAttribute('data-loading'); };
         img.onerror = () => {
-            console.error('❌ Image failed to load for:', item.name, 'src:', item.image);
-            
-            // Try to create a better fallback based on the item name
             const fallbackColor = "4A90E2";
             const fallbackText = item.name.substring(0, 2).toUpperCase();
-            
-            // Create a more interesting fallback with the item's name
-            const fallbackSvg = `data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='%23${fallbackColor}'/%3E%3Ctext x='64' y='64' text-anchor='middle' dy='.3em' fill='white' font-size='20' font-family='Arial, sans-serif'%3E${fallbackText}%3C/text%3E%3C/svg%3E`;
-            
-            console.log('🔄 Using fallback image for:', item.name, 'with color:', fallbackColor, 'text:', fallbackText);
-            console.log('🔄 Fallback SVG URL:', fallbackSvg.substring(0, 100) + '...');
-            
-            // Test with a simple known-working image first
-            if (item.name.includes('test')) {
-                img.src = 'data:image/svg+xml,%3Csvg width="128" height="128" xmlns="http://www.w3.org/2000/svg"%3E%3Crect width="128" height="128" fill="%23ff0000"/%3E%3Ctext x="64" y="64" text-anchor="middle" dy=".3em" fill="white" font-size="20"%3ETEST%3C/text%3E%3C/svg%3E';
-            } else {
-                img.src = fallbackSvg;
-            }
+            img.src = `data:image/svg+xml,%3Csvg width='128' height='128' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='128' height='128' fill='%23${fallbackColor}'/%3E%3Ctext x='64' y='64' text-anchor='middle' dy='.3em' fill='white' font-size='20' font-family='Arial, sans-serif'%3E${fallbackText}%3C/text%3E%3C/svg%3E`;
         };
-        
+
         img.setAttribute('data-loading', 'true');
-        console.log('🔄 Setting image src to:', item.image);
         img.src = item.image;
-        
+
         return img;
     }
     
@@ -768,57 +761,59 @@ class ArcList {
                 return;
             }
             
-            // Create main container for this item - EXACTLY like music.html
+            // Create main container for this item
             const itemElement = document.createElement('div');
             itemElement.className = 'arc-item';
             itemElement.dataset.itemId = item.id; // Add unique identifier
             
             // Add selected class if this is the center item
-            if (Math.abs(item.index - this.currentIndex) < 0.5) {
+            const isSelected = Math.abs(item.index - this.currentIndex) < 0.5;
+            if (isSelected) {
                 itemElement.classList.add('selected');
             }
-            
-            // Create and configure the image - EXACTLY like music.html
+
+            // Leaf detection: item has no children (not a drillable folder)
+            const isLeaf = this.viewMode !== 'parent'
+                || !item[this.config.parentKey]
+                || item[this.config.parentKey].length === 0;
+            if (isLeaf) itemElement.classList.add('leaf');
+
+            // Create and configure the image
             const imageContainer = document.createElement('div');
             imageContainer.className = 'item-image-container';
-            if (itemElement.classList.contains('selected')) {
+            if (isSelected) {
                 imageContainer.classList.add('selected');
             }
-            
-            // Create image EXACTLY like music.html
+
+            // Create image element
             const nameEl = document.createElement('div');
             nameEl.className = 'item-name';
-            if (!itemElement.classList.contains('selected')) {
+            if (!isSelected) {
                 nameEl.classList.add('unselected');
             } else {
                 nameEl.classList.add('selected');
             }
             nameEl.textContent = item.name;
             
-            const imgEl = document.createElement('img');
-            imgEl.className = 'item-image';
-            imgEl.src = item.image;
-            imgEl.loading = 'lazy';
-            
+            const imgEl = this.createImageElement(item);
+
             // Apply positioning and visual effects ONLY to non-breadcrumb items
             if (!itemElement.classList.contains('breadcrumb')) {
                 itemElement.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
-                itemElement.style.setProperty('opacity', '1', 'important'); // Ensure playlist items have full opacity (non-faded appearance)
-                itemElement.style.setProperty('filter', 'none', 'important'); // Remove blur for playlist items to keep them bright
-                
-                // Let CSS handle all styling - just set the classes
+                itemElement.style.setProperty('opacity', '1', 'important');
+                itemElement.style.setProperty('filter', 'none', 'important');
+
                 if (itemElement.classList.contains('selected')) {
                     nameEl.classList.add('selected');
                 } else {
                     nameEl.classList.add('unselected');
                 }
-                
-                // Override image styling to ensure it's fully bright (like playlist list)
-                imgEl.style.setProperty('opacity', '1', 'important'); // Full opacity for playlist artwork - force override
-                imgEl.style.setProperty('filter', 'none', 'important'); // Remove any filters that might cause fading - force override
+
+                imgEl.style.setProperty('opacity', '1', 'important');
+                imgEl.style.setProperty('filter', 'none', 'important');
             }
             
-            // Add elements to the item container - EXACTLY like music.html
+            // Add elements to the item container
             itemElement.appendChild(nameEl);
             itemElement.appendChild(imgEl);
             
@@ -859,32 +854,32 @@ class ArcList {
             itemElement.dataset.childItem = 'true'; // Mark as child item for easy removal
             
             // Add selected class if this is the center item
-            if (Math.abs(item.index - this.currentIndex) < 0.5) {
+            const isSelected = Math.abs(item.index - this.currentIndex) < 0.5;
+            if (isSelected) {
                 itemElement.classList.add('selected');
             }
-            
+            // Child items are always leaf (actionable, not folders)
+            itemElement.classList.add('leaf');
+
             // Create and configure the image
             const imageContainer = document.createElement('div');
             imageContainer.className = 'item-image-container';
-            if (itemElement.classList.contains('selected')) {
+            if (isSelected) {
                 imageContainer.classList.add('selected');
             }
-            
+
             // Create name element with proper classes from the start
             const nameEl = document.createElement('div');
             nameEl.className = 'item-name';
-            if (!itemElement.classList.contains('selected')) {
+            if (!isSelected) {
                 nameEl.classList.add('unselected');
             } else {
                 nameEl.classList.add('selected');
             }
             nameEl.textContent = item.name;
-            
-            const imgEl = document.createElement('img');
-            imgEl.className = 'item-image';
-            imgEl.src = item.image;
-            imgEl.loading = 'lazy';
-            
+
+            const imgEl = this.createImageElement(item);
+
             // Apply positioning and visual effects ONLY to non-breadcrumb child items
             if (!itemElement.classList.contains('breadcrumb')) {
                 itemElement.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
@@ -935,10 +930,22 @@ class ArcList {
      */
     destroy() {
         if (this.animationFrame) {
-            cancelAnimationFrame(this.animationFrame); // Stop animation loop
+            cancelAnimationFrame(this.animationFrame);
         }
         if (this.snapTimer) {
-            clearTimeout(this.snapTimer); // Clear auto-snap timer
+            clearTimeout(this.snapTimer);
+        }
+        if (this._saveInterval) {
+            clearInterval(this._saveInterval);
+            this._saveInterval = null;
+        }
+        if (this._messageHandler) {
+            window.removeEventListener('message', this._messageHandler);
+            this._messageHandler = null;
+        }
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
         }
     }
     
@@ -946,10 +953,14 @@ class ArcList {
      * WebSocket connection for navigation wheel events
      */
     connectWebSocket() {
+        // When embedded in an iframe, the parent handles event routing via postMessage.
+        // Connecting here would cause duplicate events (every iframe fires independently).
+        if (window.parent !== window) return;
+
         try {
             // WebSocket logging control - only log successful connections
             const ENABLE_WEBSOCKET_LOGGING = true;
-            
+
             this.ws = new WebSocket(this.config.webSocketUrl);
             
             const timeout = setTimeout(() => {
@@ -1072,28 +1083,19 @@ class ArcList {
      * Send click command back to server (rate limited)
      */
     sendClickCommand() {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-        
         try {
             const now = Date.now();
-            const CLICK_THROTTLE_MS = 50; // 50ms throttle
-            
-            // Rate limiting: only send if at least 50ms have passed since last send
-            if (now - (this.lastClickTime || 0) < CLICK_THROTTLE_MS) {
-                return;
-            }
-            
+            const CLICK_THROTTLE_MS = 50;
+            if (now - (this.lastClickTime || 0) < CLICK_THROTTLE_MS) return;
             this.lastClickTime = now;
-            
-            const message = {
-                type: 'command',
-                command: 'click',
-                params: {}
-            };
-            
-            this.ws.send(JSON.stringify(message));
+
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({ type: 'command', command: 'click', params: {} }));
+            } else if (window.parent !== window) {
+                window.parent.postMessage({ type: 'click' }, '*');
+            }
         } catch (error) {
-            // Silently fail if sending fails
+            // Silently fail
         }
     }
     
@@ -1328,8 +1330,9 @@ class ArcList {
      * Enter child view - show children from the selected parent
      */
     async enterChildView() {
+        this.snapToNearest();
         console.log('enterChildView called, selectedParent:', this.selectedParent);
-        
+
         // Check if we have a selected parent item
         if (!this.selectedParent) {
             console.log('No selected parent - finding current selection');
@@ -1590,11 +1593,11 @@ class ArcList {
         nameEl.className = 'item-name';
         nameEl.textContent = this.selectedParent ? this.selectedParent.name : 'Selected Playlist';
         
-        const imgEl = document.createElement('img');
-        imgEl.className = 'item-image';
-        imgEl.src = this.selectedParent ? this.selectedParent.image : '';
-        imgEl.loading = 'lazy';
-        
+        const imgEl = this.selectedParent
+            ? this.createImageElement(this.selectedParent)
+            : document.createElement('div');
+        if (!this.selectedParent) imgEl.className = 'item-image';
+
         breadcrumb.appendChild(nameEl);
         breadcrumb.appendChild(imgEl);
         
@@ -1666,7 +1669,9 @@ class ArcList {
             console.log('Not in child view - ignoring exitChildView call');
             return;
         }
-        
+
+        this.snapToNearest();
+
         // Prevent multiple simultaneous calls
         if (this.isAnimating) {
             console.log('Already animating - ignoring exitChildView call');
@@ -2085,7 +2090,9 @@ class ArcList {
             console.log(`🔴 [IFRAME-WEBHOOK] No items available - aborting webhook`);
             return;
         }
-        
+
+        this.snapToNearest();
+
         let id;
         let itemName;
         let webhookData;
@@ -2093,7 +2100,8 @@ class ArcList {
         // Get appropriate ID based on current mode
         if (this.viewMode === 'parent' || this.viewMode === 'single') {
             // Send parent item ID
-            const currentItem = this.parentData[this.currentIndex] || this.items[this.currentIndex];
+            const idx = Math.round(this.currentIndex);
+            const currentItem = this.parentData[idx] || this.items[idx];
             if (!currentItem) {
                 console.log(`🔴 [IFRAME-WEBHOOK] No current item found at index ${this.currentIndex}`);
                 return;
@@ -2102,8 +2110,8 @@ class ArcList {
             id = currentItem.id;
             itemName = currentItem.name || currentItem[this.config.parentNameKey];
             
-            // For music context, prepend Spotify URI prefix for playlists
-            if (this.config.context === 'music') {
+            // For spotify context, prepend Spotify URI prefix for playlists
+            if (this.config.context === 'spotify') {
                 id = `spotify:playlist:${id}`;
                 console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for playlist: ${itemName}, Spotify ID: ${id}`);
             } else {
@@ -2120,7 +2128,8 @@ class ArcList {
             };
         } else if (this.viewMode === 'child') {
             // Send child item ID
-            const currentChild = this.selectedParent[this.config.parentKey][this.currentIndex];
+            const idx = Math.round(this.currentIndex);
+            const currentChild = this.selectedParent[this.config.parentKey][idx];
             if (!currentChild) {
                 console.log(`🔴 [IFRAME-WEBHOOK] No current child item found at index ${this.currentIndex}`);
                 return;
@@ -2129,13 +2138,13 @@ class ArcList {
             id = currentChild.id;
             itemName = currentChild.name || currentChild.title;
             
-            // For music context, prepend Spotify URI prefix for tracks and include parent playlist ID
-            if (this.config.context === 'music') {
+            // For spotify context, prepend Spotify URI prefix for tracks and include parent playlist ID
+            if (this.config.context === 'spotify') {
                 id = `spotify:track:${id}`;
                 const parentPlaylistId = `spotify:playlist:${this.selectedParent.id}`;
                 console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for track: ${itemName}, Spotify ID: ${id}, Parent Playlist: ${parentPlaylistId}`);
                 
-                // Include parent_id for music tracks
+                // Include parent_id for spotify tracks
                 webhookData = {
                     device_type: "Panel",
                     device_name: this.getDeviceName(),
@@ -2147,7 +2156,7 @@ class ArcList {
             } else {
                 console.log(`🟡 [IFRAME-WEBHOOK] Preparing webhook for child item: ${itemName}, ID: ${id}`);
                 
-                // Use standardized format for non-music child items
+                // Use standardized format for non-spotify child items
                 webhookData = {
                     device_type: "Panel",
                     device_name: this.getDeviceName(),
@@ -2161,23 +2170,58 @@ class ArcList {
             return;
         }
         
-        console.log(`🟢 [IFRAME-WEBHOOK] Sending webhook to: ${this.config.webhookUrl}`);
+        // Direct source command (e.g. Spotify → SoCo playback via source service)
+        if (this.config.sourceCommandUrl && this.config.context === 'spotify') {
+            let cmdPayload;
+            if (this.viewMode === 'parent' || this.viewMode === 'single') {
+                const rawId = (this.parentData[Math.round(this.currentIndex)] || this.items[Math.round(this.currentIndex)]).id;
+                cmdPayload = { command: 'play_playlist', playlist_id: rawId };
+            } else if (this.viewMode === 'child') {
+                const trackIdx = Math.round(this.currentIndex);
+                cmdPayload = { command: 'play_playlist', playlist_id: this.selectedParent.id, track_index: trackIdx };
+            }
+
+            if (cmdPayload) {
+                console.log(`🟢 [IFRAME-SOURCE] Sending command to: ${this.config.sourceCommandUrl}`, cmdPayload);
+                const startTime = Date.now();
+                try {
+                    const response = await fetch(this.config.sourceCommandUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(cmdPayload)
+                    });
+                    const duration = Date.now() - startTime;
+                    if (response.ok) {
+                        console.log(`✅ [IFRAME-SOURCE] Command sent (${duration}ms):`, cmdPayload);
+                    } else {
+                        console.log(`❌ [IFRAME-SOURCE] Failed: ${response.status} (${duration}ms)`);
+                    }
+                } catch (error) {
+                    console.log(`🔴 [IFRAME-SOURCE] ERROR: ${error.message}`);
+                }
+                this.notifyEmulatorOfSelection(id, itemName);
+                return;
+            }
+        }
+
+        const targetUrl = this.config.webhookUrl;
+        console.log(`🟢 [IFRAME-WEBHOOK] Sending webhook to: ${targetUrl}`);
         console.log(`🟢 [IFRAME-WEBHOOK] Payload:`, JSON.stringify(webhookData, null, 2));
-        
+
         const startTime = Date.now();
-        
+
         // Send webhook to Home Assistant
         try {
-            const response = await fetch(this.config.webhookUrl, {
+            const response = await fetch(targetUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(webhookData)
             });
-            
+
             const duration = Date.now() - startTime;
-            
+
             if (response.ok) {
                 console.log(`✅ [IFRAME-WEBHOOK] SUCCESS: Webhook sent successfully (${duration}ms):`, webhookData);
             } else {
@@ -2202,7 +2246,7 @@ class ArcList {
 
         if (this.config.context === 'scenes') {
             window.EmulatorBridge.notifySceneActivated(id, itemName);
-        } else if (this.config.context === 'music') {
+        } else if (this.config.context === 'spotify') {
             if (this.viewMode === 'parent' || this.viewMode === 'single') {
                 window.EmulatorBridge.notifyPlaylistSelected(
                     this.parentData[this.currentIndex]?.id,

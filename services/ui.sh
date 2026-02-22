@@ -17,24 +17,10 @@ if [ -f "$SPLASH_IMAGE" ] && command -v fbi &>/dev/null && ! pidof plymouthd &>/
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] Splash screen displayed (fbi fallback)"
 fi
 
-# Clear Chromium cache before starting (prevents stale state)
-rm -rf ~/.cache/chromium/Default/Cache/*
-rm -rf ~/.cache/chromium/Default/Code\ Cache/*
-rm -rf ~/.cache/chromium/Default/Service\ Worker/*
-rm -rf ~/.config/chromium/Singleton*
-
-# Also clear any crash recovery state that might show dialogs
-rm -rf ~/.config/chromium/Default/Preferences.bak
-rm -rf ~/.config/chromium/Default/Session*
-rm -rf ~/.config/chromium/Default/Current*
-rm -rf ~/.config/chromium/Crash\ Reports/pending/*
-
-# Patch Chromium preferences to disable crash restore
-PREFS_FILE="$HOME/.config/chromium/Default/Preferences"
-if [ -f "$PREFS_FILE" ]; then
-  # Set exit_type to Normal and exited_cleanly to true
-  sed -i 's/"exit_type":"[^"]*"/"exit_type":"Normal"/g; s/"exited_cleanly":false/"exited_cleanly":true/g' "$PREFS_FILE" 2>/dev/null || true
-fi
+# Chromium profile on persistent storage so cookies/logins survive reboots.
+CHROMIUM_DATA_DIR="$HOME/.config/chromium"
+export CHROMIUM_DATA_DIR  # Export for xinit subshell
+mkdir -p "$CHROMIUM_DATA_DIR"
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -62,6 +48,17 @@ xinit /bin/bash -c '
 
   # Hide cursor
   unclutter -idle 0.1 -root &
+
+  # Disable BeoRemote pointer devices - they generate unwanted mouse events
+  # that make the cursor flash visible. Keyboard devices are separate and
+  # remain active. The xorg rule (20-beorc-no-pointer.conf) handles this
+  # permanently, but this catches cases where the rule is missing.
+  (
+    sleep 3  # Wait for X input devices to register
+    for id in $(xinput list 2>/dev/null | grep -i "BEORC" | grep "slave  pointer" | grep -oP "id=\K\d+"); do
+      xinput float "$id" 2>/dev/null && echo "Floated BEORC pointer device id=$id"
+    done
+  ) &
 
   # Disable screen blanking within X session
   xset s off
@@ -128,6 +125,7 @@ xinit /bin/bash -c '
     ) &
 
     /usr/bin/chromium-browser \
+      --user-data-dir="$CHROMIUM_DATA_DIR" \
       --force-dark-mode \
       --enable-features=WebUIDarkMode \
       --disable-application-cache \
@@ -164,7 +162,8 @@ xinit /bin/bash -c '
       --disable-prompt-on-repost \
       --hide-crash-restore-bubble \
       --disable-breakpad \
-      --disable-crash-reporter
+      --disable-crash-reporter \
+      --remote-debugging-port=9222
 
     EXIT_CODE=$?
     END_TIME=$(date +%s)
@@ -191,16 +190,9 @@ xinit /bin/bash -c '
       sleep 2
     fi
 
-    # Clear any crash state before restarting
-    rm -rf ~/.config/chromium/Default/Session* 2>/dev/null
-    rm -rf ~/.config/chromium/Singleton* 2>/dev/null
-    rm -rf ~/.config/chromium/Crash\ Reports/pending/* 2>/dev/null
-
-    # Patch preferences to prevent crash restore dialog
-    PREFS="$HOME/.config/chromium/Default/Preferences"
-    if [ -f "$PREFS" ]; then
-      sed -i "s/\"exit_type\":\"[^\"]*\"/\"exit_type\":\"Normal\"/g; s/\"exited_cleanly\":false/\"exited_cleanly\":true/g" "$PREFS" 2>/dev/null || true
-    fi
+    # Clear lock/crash files but preserve cookies and login state
+    rm -f "$CHROMIUM_DATA_DIR/SingletonLock" "$CHROMIUM_DATA_DIR/SingletonSocket" "$CHROMIUM_DATA_DIR/SingletonCookie"
+    rm -rf "$CHROMIUM_DATA_DIR/Crashpad"
 
     log "Restarting Chromium..."
   done

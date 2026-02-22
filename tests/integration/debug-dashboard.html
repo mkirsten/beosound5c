@@ -716,7 +716,7 @@
 
         function loadSpotifyInfo() {
             // Load playlists info
-            fetch('/json/playlists_with_tracks.json')
+            fetch('/json/spotify_playlists.json')
                 .then(response => response.json())
                 .then(data => {
                     document.getElementById('spotify-playlists').textContent = data.length;
@@ -739,7 +739,7 @@
                 });
 
             // Check last fetch time from log (approximate based on file modification)
-            fetch('/json/playlists_with_tracks.json', { method: 'HEAD' })
+            fetch('/json/spotify_playlists.json', { method: 'HEAD' })
                 .then(response => {
                     const lastModified = response.headers.get('Last-Modified');
                     if (lastModified) {

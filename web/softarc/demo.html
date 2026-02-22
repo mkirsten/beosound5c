@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo - ArcList V2 Test</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../assets/phosphor/phosphor.css">
+</head>
+<body>
+    <div id="app">
+        <div class="counter">
+            <div id="counter-path"></div>
+            <span id="current-item">1</span> / <span id="total-items">0</span>
+        </div>
+        <div class="hierarchy-depth-1" id="hierarchy-background"></div>
+        <div class="arc-container" id="arc-container"></div>
+    </div>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/arc-utils.js"></script>
+    <script src="../js/emulator-bridge.js"></script>
+    <script src="script-v2.js"></script>
+    <script>
+        // ── 4-level music data: Categories > Genres > Albums > Tracks ──
+
+        const MUSIC_DATA = {
+            id: 'cat-music', name: 'Music', icon: 'music-notes', color: '#1DB954',
+            subcategories: [
+                {
+                    id: 'sub-jazz', name: 'Jazz', icon: 'microphone-stage', color: '#E8A838',
+                    albums: [
+                        {
+                            id: 'alb-blue-train', name: 'Blue Train', image: 'https://picsum.photos/seed/bluetrain/128',
+                            tracks: [
+                                { id: 'trk-1', name: 'Blue Train', image: 'https://picsum.photos/seed/bt1/128' },
+                                { id: 'trk-2', name: 'Moment\'s Notice', image: 'https://picsum.photos/seed/bt2/128' },
+                                { id: 'trk-3', name: 'Locomotion', image: 'https://picsum.photos/seed/bt3/128' },
+                                { id: 'trk-4', name: 'I\'m Old Fashioned', image: 'https://picsum.photos/seed/bt4/128' },
+                                { id: 'trk-5', name: 'Lazy Bird', image: 'https://picsum.photos/seed/bt5/128' },
+                            ]
+                        },
+                        {
+                            id: 'alb-kind-of-blue', name: 'Kind of Blue', image: 'https://picsum.photos/seed/kindofblue/128',
+                            tracks: [
+                                { id: 'trk-6', name: 'So What', image: 'https://picsum.photos/seed/kob1/128' },
+                                { id: 'trk-7', name: 'Freddie Freeloader', image: 'https://picsum.photos/seed/kob2/128' },
+                                { id: 'trk-8', name: 'Blue in Green', image: 'https://picsum.photos/seed/kob3/128' },
+                                { id: 'trk-9', name: 'All Blues', image: 'https://picsum.photos/seed/kob4/128' },
+                                { id: 'trk-10', name: 'Flamenco Sketches', image: 'https://picsum.photos/seed/kob5/128' },
+                            ]
+                        },
+                        {
+                            id: 'alb-head-hunters', name: 'Head Hunters', image: 'https://picsum.photos/seed/headhunters/128',
+                            tracks: [
+                                { id: 'trk-11', name: 'Chameleon', image: 'https://picsum.photos/seed/hh1/128' },
+                                { id: 'trk-12', name: 'Watermelon Man', image: 'https://picsum.photos/seed/hh2/128' },
+                                { id: 'trk-13', name: 'Sly', image: 'https://picsum.photos/seed/hh3/128' },
+                                { id: 'trk-14', name: 'Vein Melter', image: 'https://picsum.photos/seed/hh4/128' },
+                            ]
+                        },
+                        {
+                            id: 'alb-time-out', name: 'Time Out', image: 'https://picsum.photos/seed/timeout/128',
+                            tracks: [
+                                { id: 'trk-15', name: 'Blue Rondo a la Turk', image: 'https://picsum.photos/seed/to1/128' },
+                                { id: 'trk-16', name: 'Strange Meadow Lark', image: 'https://picsum.photos/seed/to2/128' },
+                                { id: 'trk-17', name: 'Take Five', image: 'https://picsum.photos/seed/to3/128' },
+                                { id: 'trk-18', name: 'Three to Get Ready', image: 'https://picsum.photos/seed/to4/128' },
+                                { id: 'trk-19', name: 'Pick Up Sticks', image: 'https://picsum.photos/seed/to5/128' },
+                            ]
+                        },
+                    ]
+                },
+                {
+                    id: 'sub-rock', name: 'Rock', icon: 'guitar', color: '#E74C3C',
+                    albums: [
+                        {
+                            id: 'alb-dark-side', name: 'Dark Side of the Moon', image: 'https://picsum.photos/seed/darkside/128',
+                            tracks: [
+                                { id: 'trk-20', name: 'Speak to Me / Breathe', image: 'https://picsum.photos/seed/ds1/128' },
+                                { id: 'trk-21', name: 'Time', image: 'https://picsum.photos/seed/ds2/128' },
+                                { id: 'trk-22', name: 'Money', image: 'https://picsum.photos/seed/ds3/128' },
+                                { id: 'trk-23', name: 'Us and Them', image: 'https://picsum.photos/seed/ds4/128' },
+                                { id: 'trk-24', name: 'Brain Damage', image: 'https://picsum.photos/seed/ds5/128' },
+                                { id: 'trk-25', name: 'Eclipse', image: 'https://picsum.photos/seed/ds6/128' },
+                            ]
+                        },
+                        {
+                            id: 'alb-abbey-road', name: 'Abbey Road', image: 'https://picsum.photos/seed/abbeyroad/128',
+                            tracks: [
+                                { id: 'trk-30', name: 'Come Together', image: 'https://picsum.photos/seed/ar1/128' },
+                                { id: 'trk-31', name: 'Something', image: 'https://picsum.photos/seed/ar2/128' },
+                                { id: 'trk-32', name: 'Here Comes the Sun', image: 'https://picsum.photos/seed/ar3/128' },
+                                { id: 'trk-33', name: 'Octopus\'s Garden', image: 'https://picsum.photos/seed/ar4/128' },
+                                { id: 'trk-34', name: 'I Want You', image: 'https://picsum.photos/seed/ar5/128' },
+                            ]
+                        },
+                        {
+                            id: 'alb-led-zep-iv', name: 'Led Zeppelin IV', image: 'https://picsum.photos/seed/ledzep/128',
+                            tracks: [
+                                { id: 'trk-35', name: 'Black Dog', image: 'https://picsum.photos/seed/lz1/128' },
+                                { id: 'trk-36', name: 'Rock and Roll', image: 'https://picsum.photos/seed/lz2/128' },
+                                { id: 'trk-37', name: 'Stairway to Heaven', image: 'https://picsum.photos/seed/lz3/128' },
+                                { id: 'trk-38', name: 'When the Levee Breaks', image: 'https://picsum.photos/seed/lz4/128' },
+                            ]
+                        },
+                    ]
+                },
+                {
+                    id: 'sub-classical', name: 'Classical', icon: 'music-notes-simple', color: '#9B59B6',
+                    albums: [
+                        {
+                            id: 'alb-four-seasons', name: 'Four Seasons', image: 'https://picsum.photos/seed/fourseasons/128',
+                            tracks: [
+                                { id: 'trk-40', name: 'Spring\n(Allegro)', image: 'https://picsum.photos/seed/fs1/128' },
+                                { id: 'trk-41', name: 'Summer\n(Allegro non molto)', image: 'https://picsum.photos/seed/fs2/128' },
+                                { id: 'trk-42', name: 'Autumn\n(Allegro)', image: 'https://picsum.photos/seed/fs3/128' },
+                                { id: 'trk-43', name: 'Winter\n(Allegro non molto)', image: 'https://picsum.photos/seed/fs4/128' },
+                            ]
+                        },
+                        {
+                            id: 'alb-moonlight', name: 'Moonlight Sonata', image: 'https://picsum.photos/seed/moonlight/128',
+                            tracks: [
+                                { id: 'trk-44', name: 'I. Adagio sostenuto', image: 'https://picsum.photos/seed/ms1/128' },
+                                { id: 'trk-45', name: 'II. Allegretto', image: 'https://picsum.photos/seed/ms2/128' },
+                                { id: 'trk-46', name: 'III. Presto agitato', image: 'https://picsum.photos/seed/ms3/128' },
+                            ]
+                        },
+                    ]
+                },
+                {
+                    id: 'sub-electronic', name: 'Electronic', icon: 'waveform', color: '#00D4FF',
+                    albums: [
+                        {
+                            id: 'alb-discovery', name: 'Discovery', image: 'https://picsum.photos/seed/discovery/128',
+                            tracks: [
+                                { id: 'trk-50', name: 'One More Time', image: 'https://picsum.photos/seed/disc1/128' },
+                                { id: 'trk-51', name: 'Aerodynamic', image: 'https://picsum.photos/seed/disc2/128' },
+                                { id: 'trk-52', name: 'Digital Love', image: 'https://picsum.photos/seed/disc3/128' },
+                                { id: 'trk-53', name: 'Harder Better\nFaster Stronger', image: 'https://picsum.photos/seed/disc4/128' },
+                                { id: 'trk-54', name: 'Something About Us', image: 'https://picsum.photos/seed/disc5/128' },
+                                { id: 'trk-55', name: 'Voyager', image: 'https://picsum.photos/seed/disc6/128' },
+                                { id: 'trk-56', name: 'Veridis Quo', image: 'https://picsum.photos/seed/disc7/128' },
+                                { id: 'trk-57', name: 'Face to Face', image: 'https://picsum.photos/seed/disc8/128' },
+                            ]
+                        },
+                        {
+                            id: 'alb-random-access', name: 'Random Access\nMemories', image: 'https://picsum.photos/seed/ram/128',
+                            tracks: [
+                                { id: 'trk-58', name: 'Give Life Back to Music', image: 'https://picsum.photos/seed/ram1/128' },
+                                { id: 'trk-59', name: 'Giorgio by Moroder', image: 'https://picsum.photos/seed/ram2/128' },
+                                { id: 'trk-60', name: 'Instant Crush', image: 'https://picsum.photos/seed/ram3/128' },
+                                { id: 'trk-61', name: 'Lose Yourself to Dance', image: 'https://picsum.photos/seed/ram4/128' },
+                                { id: 'trk-62', name: 'Get Lucky', image: 'https://picsum.photos/seed/ram5/128' },
+                            ]
+                        },
+                    ]
+                },
+                {
+                    id: 'sub-hiphop', name: 'Hip-Hop', icon: 'vinyl-record', color: '#FF9500',
+                    albums: [
+                        {
+                            id: 'alb-illmatic', name: 'Illmatic', image: 'https://picsum.photos/seed/illmatic/128',
+                            tracks: [
+                                { id: 'trk-70', name: 'N.Y. State of Mind', image: 'https://picsum.photos/seed/ill1/128' },
+                                { id: 'trk-71', name: 'Life\'s a Bitch', image: 'https://picsum.photos/seed/ill2/128' },
+                                { id: 'trk-72', name: 'The World Is Yours', image: 'https://picsum.photos/seed/ill3/128' },
+                                { id: 'trk-73', name: 'One Love', image: 'https://picsum.photos/seed/ill4/128' },
+                                { id: 'trk-74', name: 'Represent', image: 'https://picsum.photos/seed/ill5/128' },
+                            ]
+                        },
+                    ]
+                },
+                {
+                    id: 'sub-ambient', name: 'Ambient', icon: 'cloud', color: '#74B9FF',
+                    albums: [
+                        {
+                            id: 'alb-music-airports', name: 'Music for Airports', image: 'https://picsum.photos/seed/airports/128',
+                            tracks: [
+                                { id: 'trk-80', name: '1/1', image: 'https://picsum.photos/seed/mfa1/128' },
+                                { id: 'trk-81', name: '2/1', image: 'https://picsum.photos/seed/mfa2/128' },
+                                { id: 'trk-82', name: '1/2', image: 'https://picsum.photos/seed/mfa3/128' },
+                                { id: 'trk-83', name: '2/2', image: 'https://picsum.photos/seed/mfa4/128' },
+                            ]
+                        },
+                    ]
+                },
+            ]
+        };
+
+        // ── 7-level deep filesystem: uses recursive "children" key ──
+
+        const FILES_DATA = {
+            id: 'cat-files', name: 'Files', icon: 'folder-open', color: '#F39C12',
+            subcategories: [
+                {
+                    id: 'fs-home', name: 'Home', icon: 'house', color: '#3498DB',
+                    // This item uses "children" recursively — the levels config
+                    // reuses the last level descriptor for all deeper levels
+                    albums: [
+                        {
+                            id: 'fs-documents', name: 'Documents', icon: 'file-text', color: '#2ECC71',
+                            tracks: [],
+                            children: [
+                                {
+                                    id: 'fs-work', name: 'Work', icon: 'briefcase', color: '#E67E22',
+                                    children: [
+                                        {
+                                            id: 'fs-projects', name: 'Projects', icon: 'folder', color: '#9B59B6',
+                                            children: [
+                                                {
+                                                    id: 'fs-beosound', name: 'BeoSound 5c', icon: 'speaker-high', color: '#1ABC9C',
+                                                    children: [
+                                                        {
+                                                            id: 'fs-services', name: 'services/', icon: 'folder', color: '#95A5A6',
+                                                            children: [
+                                                                { id: 'fs-router', name: 'router.py', icon: 'file-py', color: '#3498DB' },
+                                                                { id: 'fs-bluetooth', name: 'bluetooth.py', icon: 'file-py', color: '#3498DB' },
+                                                                { id: 'fs-input', name: 'input.py', icon: 'file-py', color: '#3498DB' },
+                                                                { id: 'fs-masterlink', name: 'masterlink.py', icon: 'file-py', color: '#3498DB' },
+                                                            ]
+                                                        },
+                                                        {
+                                                            id: 'fs-web', name: 'web/', icon: 'folder', color: '#95A5A6',
+                                                            children: [
+                                                                { id: 'fs-indexhtml', name: 'index.html', icon: 'file-html', color: '#E74C3C' },
+                                                                { id: 'fs-stylescss', name: 'styles.css', icon: 'file-css', color: '#3498DB' },
+                                                                { id: 'fs-scriptjs', name: 'script.js', icon: 'file-js', color: '#F1C40F' },
+                                                            ]
+                                                        },
+                                                        { id: 'fs-readme', name: 'README.md', icon: 'file', color: '#95A5A6' },
+                                                    ]
+                                                },
+                                                {
+                                                    id: 'fs-haconfig', name: 'Home Assistant', icon: 'house-line', color: '#00BCD4',
+                                                    children: [
+                                                        { id: 'fs-automations', name: 'automations.yaml', icon: 'file', color: '#95A5A6' },
+                                                        { id: 'fs-scripts', name: 'scripts.yaml', icon: 'file', color: '#95A5A6' },
+                                                        { id: 'fs-config', name: 'configuration.yaml', icon: 'file', color: '#95A5A6' },
+                                                    ]
+                                                },
+                                                { id: 'fs-website', name: 'beosound5c.com', icon: 'globe', color: '#FF6B6B' },
+                                            ]
+                                        },
+                                        {
+                                            id: 'fs-reports', name: 'Reports', icon: 'chart-bar', color: '#E74C3C',
+                                            children: [
+                                                { id: 'fs-q1', name: 'Q1 Report.pdf', icon: 'file-pdf', color: '#E74C3C' },
+                                                { id: 'fs-q2', name: 'Q2 Report.pdf', icon: 'file-pdf', color: '#E74C3C' },
+                                                { id: 'fs-q3', name: 'Q3 Report.pdf', icon: 'file-pdf', color: '#E74C3C' },
+                                                { id: 'fs-q4', name: 'Q4 Report.pdf', icon: 'file-pdf', color: '#E74C3C' },
+                                            ]
+                                        },
+                                    ]
+                                },
+                                {
+                                    id: 'fs-personal', name: 'Personal', icon: 'user', color: '#1ABC9C',
+                                    children: [
+                                        { id: 'fs-taxes', name: 'Taxes 2025.pdf', icon: 'file-pdf', color: '#E74C3C' },
+                                        { id: 'fs-cv', name: 'CV.pdf', icon: 'file-pdf', color: '#E74C3C' },
+                                        { id: 'fs-notes', name: 'Notes.txt', icon: 'file-text', color: '#95A5A6' },
+                                    ]
+                                },
+                            ]
+                        },
+                        {
+                            id: 'fs-photos', name: 'Photos', icon: 'images', color: '#E74C3C',
+                            tracks: [],
+                            children: [
+                                {
+                                    id: 'fs-2025', name: '2025', icon: 'calendar', color: '#3498DB',
+                                    children: [
+                                        { id: 'fs-jan', name: 'January', icon: 'image', color: '#1ABC9C' },
+                                        { id: 'fs-feb', name: 'February', icon: 'image', color: '#1ABC9C' },
+                                        { id: 'fs-mar', name: 'March', icon: 'image', color: '#1ABC9C' },
+                                    ]
+                                },
+                                {
+                                    id: 'fs-2024', name: '2024', icon: 'calendar', color: '#9B59B6',
+                                    children: [
+                                        { id: 'fs-summer', name: 'Summer Trip', icon: 'image', color: '#F39C12' },
+                                        { id: 'fs-xmas', name: 'Christmas', icon: 'image', color: '#E74C3C' },
+                                    ]
+                                },
+                            ]
+                        },
+                        {
+                            id: 'fs-music-files', name: 'Music', icon: 'music-notes', color: '#1DB954',
+                            tracks: [],
+                            children: [
+                                { id: 'fs-flac1', name: 'album-rip.flac', icon: 'file-audio', color: '#1DB954' },
+                                { id: 'fs-flac2', name: 'live-recording.flac', icon: 'file-audio', color: '#1DB954' },
+                                { id: 'fs-mp3', name: 'podcast-ep42.mp3', icon: 'file-audio', color: '#1DB954' },
+                            ]
+                        },
+                    ]
+                },
+            ]
+        };
+
+        // ── News articles with page content ──
+
+        const NEWS_DATA = {
+            id: 'cat-news', name: 'News', icon: 'newspaper', color: '#FF6348',
+            subcategories: [
+                {
+                    id: 'news-tech', name: 'Technology', icon: 'cpu', color: '#4ECDC4',
+                    albums: [
+                        {
+                            id: 'article-1', name: 'The Future of\nQuantum Computing', icon: 'atom', color: '#9B59B6',
+                            page: {
+                                title: 'The Future of Quantum Computing',
+                                body: '<p>Quantum computing stands at a pivotal moment. After decades of theoretical research and laboratory experiments, the technology is finally approaching practical utility.</p><p>Recent breakthroughs in error correction have brought us closer to fault-tolerant quantum computers. Google\'s Willow chip demonstrated that increasing the number of qubits can actually <em>reduce</em> errors — a milestone that was once thought to be years away.</p><blockquote>We are entering the era where quantum computers will solve problems that no classical computer could ever tackle.</blockquote><p>The implications span across industries: drug discovery, materials science, cryptography, and financial modeling could all be transformed. IBM\'s roadmap projects systems with over 100,000 qubits by 2033, while startups like IonQ and Rigetti are pursuing alternative architectures.</p><p>However, significant challenges remain. Quantum decoherence, the need for extreme cooling, and the difficulty of programming quantum algorithms mean we\'re still in the early innings. The race isn\'t just about building bigger machines — it\'s about making them useful.</p>'
+                            }
+                        },
+                        {
+                            id: 'article-2', name: 'Open Source AI\nChanges Everything', icon: 'code', color: '#2ECC71',
+                            page: {
+                                title: 'Open Source AI Changes Everything',
+                                body: '<p>The open-source AI movement has fundamentally altered the competitive landscape. What was once the exclusive domain of well-funded labs is now accessible to individual developers and small teams worldwide.</p><p>Meta\'s release of Llama models set off a chain reaction. Within months, fine-tuned variants appeared that rivalled proprietary offerings on specific tasks. The community rallied around projects like Hugging Face, creating an ecosystem of shared models, datasets, and training techniques.</p><p>This democratization has real consequences:</p><p><strong>For businesses:</strong> Companies can now deploy AI without vendor lock-in, customizing models for their specific needs while keeping data on-premises.</p><p><strong>For researchers:</strong> Reproducibility — long a challenge in AI — improves when models and training code are publicly available.</p><p><strong>For society:</strong> Transparency in how models work helps build trust and enables independent auditing of potential biases.</p><p>The debate continues about whether open-sourcing powerful AI models creates safety risks, but the momentum is clear. The future of AI will be shaped as much by open communities as by closed labs.</p>'
+                            }
+                        },
+                        {
+                            id: 'article-3', name: 'The Chip Wars\nHeat Up', icon: 'lightning', color: '#E74C3C',
+                            page: {
+                                title: 'The Chip Wars Heat Up',
+                                body: '<p>The global semiconductor industry has become a geopolitical battleground. Export controls, massive subsidies, and supply chain reshoring are reshaping an industry that underpins modern civilisation.</p><p>TSMC remains the world\'s most critical manufacturer, producing the most advanced chips for Apple, Nvidia, and AMD. Its new Arizona fabs represent a historic shift — advanced chip manufacturing returning to American soil for the first time in decades.</p><p>Meanwhile, the AI boom has created insatiable demand for high-performance GPUs. Nvidia\'s market capitalisation surpassed $3 trillion, making it one of the most valuable companies in history. But competition is intensifying: AMD, Intel, and a wave of AI chip startups are all vying for a share of the market.</p><blockquote>Whoever controls chip manufacturing controls the future of technology.</blockquote><p>The stakes extend beyond economics. Advanced chips power everything from military systems to scientific research. Nations increasingly view semiconductor capability as a matter of national security.</p>'
+                            }
+                        },
+                    ]
+                },
+                {
+                    id: 'news-science', name: 'Science', icon: 'flask', color: '#3498DB',
+                    albums: [
+                        {
+                            id: 'article-4', name: 'Mars Sample Return\nMission Update', icon: 'planet', color: '#E67E22',
+                            page: {
+                                title: 'Mars Sample Return Mission Update',
+                                body: '<p>NASA\'s most ambitious robotic mission is taking shape. The Mars Sample Return campaign aims to bring Martian soil and rock samples — carefully collected by the Perseverance rover — back to Earth for detailed laboratory analysis.</p><p>The samples, sealed in titanium tubes and cached at designated locations in Jezero Crater, represent the most scientifically valuable material ever collected from another planet. They could contain evidence of ancient microbial life.</p><p>The return architecture involves multiple spacecraft: an orbiter, a lander with a small rocket (the Mars Ascent Vehicle), and autonomous helicopters derived from the Ingenuity design to retrieve sample tubes.</p><p>If successful, scientists on Earth could study Martian geology with instruments far more powerful than anything that could be sent to Mars. The mission is expected to return samples by the early 2030s.</p>'
+                            }
+                        },
+                    ]
+                },
+            ]
+        };
+
+        // ── Assemble top-level demo data ──
+
+        const DEMO_DATA = [
+            MUSIC_DATA,
+            {
+                id: 'cat-movies', name: 'Movies', icon: 'film-slate', color: '#E74C3C',
+                subcategories: [
+                    {
+                        id: 'sub-action', name: 'Action', icon: 'lightning', color: '#F39C12',
+                        albums: [
+                            { id: 'mov-1', name: 'The Matrix', image: 'https://picsum.photos/seed/matrix/128', tracks: [] },
+                            { id: 'mov-2', name: 'Mad Max: Fury Road', image: 'https://picsum.photos/seed/madmax/128', tracks: [] },
+                            { id: 'mov-3', name: 'John Wick', image: 'https://picsum.photos/seed/johnwick/128', tracks: [] },
+                            { id: 'mov-4', name: 'Die Hard', image: 'https://picsum.photos/seed/diehard/128', tracks: [] },
+                        ]
+                    },
+                    {
+                        id: 'sub-drama', name: 'Drama', icon: 'masks-theater', color: '#3498DB',
+                        albums: [
+                            { id: 'mov-5', name: 'The Shawshank\nRedemption', image: 'https://picsum.photos/seed/shawshank/128', tracks: [] },
+                            { id: 'mov-6', name: 'The Godfather', image: 'https://picsum.photos/seed/godfather/128', tracks: [] },
+                            { id: 'mov-7', name: 'Schindler\'s List', image: 'https://picsum.photos/seed/schindler/128', tracks: [] },
+                        ]
+                    },
+                    {
+                        id: 'sub-scifi', name: 'Sci-Fi', icon: 'rocket', color: '#8E44AD',
+                        albums: [
+                            { id: 'mov-8', name: 'Blade Runner 2049', image: 'https://picsum.photos/seed/bladerunner/128', tracks: [] },
+                            { id: 'mov-9', name: 'Interstellar', image: 'https://picsum.photos/seed/interstellar/128', tracks: [] },
+                            { id: 'mov-10', name: 'Arrival', image: 'https://picsum.photos/seed/arrival/128', tracks: [] },
+                            { id: 'mov-11', name: '2001: A Space Odyssey', image: 'https://picsum.photos/seed/2001/128', tracks: [] },
+                            { id: 'mov-12', name: 'Dune', image: 'https://picsum.photos/seed/dunemovie/128', tracks: [] },
+                        ]
+                    },
+                ]
+            },
+            {
+                id: 'cat-podcasts', name: 'Podcasts', icon: 'microphone', color: '#FF6B6B',
+                subcategories: [
+                    {
+                        id: 'sub-tech', name: 'Technology', icon: 'cpu', color: '#4ECDC4',
+                        albums: [
+                            {
+                                id: 'pod-lex', name: 'Lex Fridman\nPodcast', image: 'https://picsum.photos/seed/lex/128',
+                                tracks: [
+                                    { id: 'ep-1', name: 'Ep 401: Sam Altman', image: 'https://picsum.photos/seed/ep1/128' },
+                                    { id: 'ep-2', name: 'Ep 402: Elon Musk', image: 'https://picsum.photos/seed/ep2/128' },
+                                    { id: 'ep-3', name: 'Ep 403: Andrej Karpathy', image: 'https://picsum.photos/seed/ep3/128' },
+                                    { id: 'ep-4', name: 'Ep 404: Dario Amodei', image: 'https://picsum.photos/seed/ep4/128' },
+                                ]
+                            },
+                            {
+                                id: 'pod-atp', name: 'Accidental Tech\nPodcast', image: 'https://picsum.photos/seed/atp/128',
+                                tracks: [
+                                    { id: 'atp-1', name: 'Ep 620: The New MacBook', image: 'https://picsum.photos/seed/atp1/128' },
+                                    { id: 'atp-2', name: 'Ep 621: Vision Pro Review', image: 'https://picsum.photos/seed/atp2/128' },
+                                ]
+                            },
+                        ]
+                    },
+                    {
+                        id: 'sub-comedy', name: 'Comedy', icon: 'smiley', color: '#FDCB6E',
+                        albums: [
+                            {
+                                id: 'pod-comedy1', name: 'Conan O\'Brien\nNeeds a Friend', image: 'https://picsum.photos/seed/conan/128',
+                                tracks: [
+                                    { id: 'con-1', name: 'Will Ferrell', image: 'https://picsum.photos/seed/con1/128' },
+                                    { id: 'con-2', name: 'Jack Black', image: 'https://picsum.photos/seed/con2/128' },
+                                    { id: 'con-3', name: 'Tina Fey', image: 'https://picsum.photos/seed/con3/128' },
+                                ]
+                            },
+                        ]
+                    },
+                ]
+            },
+            FILES_DATA,
+            NEWS_DATA,
+            {
+                id: 'cat-games', name: 'Games', icon: 'game-controller', color: '#2ECC71',
+                subcategories: [
+                    {
+                        id: 'sub-rpg', name: 'RPG', icon: 'sword', color: '#8E44AD',
+                        albums: [
+                            { id: 'game-1', name: 'Final Fantasy VII', image: 'https://picsum.photos/seed/ff7/128', tracks: [] },
+                            { id: 'game-2', name: 'The Witcher 3', image: 'https://picsum.photos/seed/witcher/128', tracks: [] },
+                            { id: 'game-3', name: 'Elden Ring', image: 'https://picsum.photos/seed/eldenring/128', tracks: [] },
+                            { id: 'game-4', name: 'Baldur\'s Gate 3', image: 'https://picsum.photos/seed/bg3/128', tracks: [] },
+                            { id: 'game-5', name: 'Divinity: Original Sin 2', image: 'https://picsum.photos/seed/dos2/128', tracks: [] },
+                        ]
+                    },
+                    {
+                        id: 'sub-fps', name: 'FPS', icon: 'crosshair', color: '#E74C3C',
+                        albums: [
+                            { id: 'game-6', name: 'Doom Eternal', image: 'https://picsum.photos/seed/doom/128', tracks: [] },
+                            { id: 'game-7', name: 'Half-Life: Alyx', image: 'https://picsum.photos/seed/alyx/128', tracks: [] },
+                        ]
+                    },
+                    {
+                        id: 'sub-strategy', name: 'Strategy', icon: 'strategy', color: '#3498DB',
+                        albums: [
+                            { id: 'game-8', name: 'Civilization VI', image: 'https://picsum.photos/seed/civ6/128', tracks: [] },
+                            { id: 'game-9', name: 'Factorio', image: 'https://picsum.photos/seed/factorio/128', tracks: [] },
+                            { id: 'game-10', name: 'Stellaris', image: 'https://picsum.photos/seed/stellaris/128', tracks: [] },
+                        ]
+                    },
+                ]
+            },
+            {
+                id: 'cat-radio', name: 'Radio', icon: 'radio', color: '#A29BFE',
+                subcategories: [
+                    {
+                        id: 'sub-fm', name: 'FM Stations', icon: 'broadcast', color: '#FF7675',
+                        albums: [
+                            { id: 'radio-1', name: 'NPR', icon: 'radio', color: '#3498DB', tracks: [] },
+                            { id: 'radio-2', name: 'BBC Radio 3', icon: 'radio', color: '#E74C3C', tracks: [] },
+                            { id: 'radio-3', name: 'KEXP 90.3', icon: 'radio', color: '#2ECC71', tracks: [] },
+                            { id: 'radio-4', name: 'P3 (DR)', icon: 'radio', color: '#9B59B6', tracks: [] },
+                            { id: 'radio-5', name: 'FIP', icon: 'radio', color: '#F39C12', tracks: [] },
+                            { id: 'radio-6', name: 'NTS Radio', icon: 'radio', color: '#1ABC9C', tracks: [] },
+                        ]
+                    },
+                ]
+            },
+            {
+                id: 'cat-scenes', name: 'Scenes', icon: 'sun', color: '#FDCB6E',
+                subcategories: [
+                    {
+                        id: 'sc-frame', name: 'Samsung Frame', icon: 'television', color: '#636E72', actionable: true,
+                        albums: [
+                            { id: 'sc-frame-art', name: 'Art Mode', icon: 'paint-brush', color: '#FDCB6E', actionable: true },
+                            { id: 'sc-frame-netflix', name: 'Netflix', icon: 'play-circle', color: '#E50914', actionable: true },
+                            { id: 'sc-frame-off', name: 'Turn Off', icon: 'power', color: '#D63031', actionable: true },
+                        ]
+                    },
+                    {
+                        id: 'sc-lighting', name: 'Lighting', icon: 'lamp', color: '#F9CA24',
+                        albums: [
+                            { id: 'sc-light-cozy', name: 'Cozy', icon: 'sun-dim', color: '#F9CA24', actionable: true },
+                            { id: 'sc-light-bright', name: 'Bright', icon: 'sun', color: '#FFF', actionable: true },
+                            { id: 'sc-light-off', name: 'Lights Off', icon: 'moon', color: '#636E72', actionable: true },
+                        ]
+                    },
+                    { id: 'sc-goodnight', name: 'Goodnight', icon: 'moon-stars', color: '#636E72', actionable: true },
+                    { id: 'sc-movie', name: 'Movie Time', icon: 'filmstrip', color: '#D63031', actionable: true },
+                ]
+            },
+            {
+                id: 'cat-settings', name: 'Settings', icon: 'gear', color: '#95A5A6',
+                subcategories: []
+            },
+        ];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const demoConfig = {
+                inlineData: DEMO_DATA,
+                levels: [
+                    {
+                        // Level 0: Categories
+                        childrenKey: 'subcategories',
+                        isContainer: (item) => item.subcategories?.length > 0,
+                    },
+                    {
+                        // Level 1: Subcategories / top-level folders
+                        childrenKey: 'albums',
+                        isContainer: (item) => item.albums?.length > 0,
+                    },
+                    {
+                        // Level 2: Albums / folders
+                        // Dynamic key: prefer children (deep nesting) over tracks
+                        childrenKey: (item) => item.children?.length > 0 ? 'children' : 'tracks',
+                        isContainer: (item) => (item.tracks?.length > 0) || (item.children?.length > 0),
+                    },
+                    {
+                        // Level 3+: Recursive children (reused for all deeper levels)
+                        childrenKey: 'children',
+                        isContainer: (item) => item.children?.length > 0,
+                    }
+                ],
+                storagePrefix: 'demo_arclist',
+                context: 'demo',
+                webhookUrl: typeof AppConfig !== 'undefined' ? AppConfig.webhookUrl : 'http://localhost:8767/forward',
+                onGo: (item, depth, pathContext, index) => {
+                    const pathStr = pathContext.map(p => p.name).join(' > ');
+                    console.log(`[DEMO GO] depth=${depth} path="${pathStr}" item="${item.name}" index=${index}`);
+                },
+            };
+
+            const arcList = new ArcList(demoConfig);
+            window.arcListInstance = arcList;
+        });
+    </script>
+</body>
+</html>

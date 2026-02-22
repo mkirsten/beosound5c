@@ -1,0 +1,28 @@
+# BeoSound 5c Python dependencies
+# Install: pip install -r requirements.txt
+# On Raspberry Pi: pip3 install --break-system-packages -r requirements.txt
+
+# Sonos player integration
+soco>=0.30.0
+
+# Artwork processing
+pillow>=10.0.0
+
+# HTTP client
+requests>=2.31.0
+
+# WebSocket communication (input + media services)
+websockets>=12.0
+websocket-client>=1.6.0
+
+# Async HTTP server/client (all services)
+aiohttp>=3.9.0
+
+# USB HID communication (input.py, masterlink.py)
+pyusb>=1.2.1
+
+# MQTT transport (optional, for HA communication)
+aiomqtt>=2.0.0
+
+# Text-to-speech (news source)
+edge-tts>=6.1.0

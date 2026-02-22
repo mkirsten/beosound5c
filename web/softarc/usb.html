@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USB - Beosound 5c</title>
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/x-icon" href="../assets/favicons/favicon.ico">
+    <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicons/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicons/favicon-32x32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="../assets/favicons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="../assets/favicons/android-chrome-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="../assets/favicons/android-chrome-512x512.png">
+    <link rel="manifest" href="../assets/favicons/site.webmanifest">
+    <meta name="theme-color" content="#000000">
+
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../assets/phosphor/phosphor.css">
+</head>
+<body>
+    <div id="app">
+        <div class="counter">
+            <div id="counter-path"></div>
+            <span id="current-item">1</span> / <span id="total-items">0</span>
+        </div>
+        <div class="hierarchy-depth-1" id="hierarchy-background"></div>
+        <div class="arc-container" id="arc-container"></div>
+    </div>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/arc-utils.js"></script>
+    <script src="../js/emulator-bridge.js"></script>
+    <script src="script-v2.js"></script>
+    <script>
+        const USB_URL = (typeof AppConfig !== 'undefined' && AppConfig.usbServiceUrl)
+            ? AppConfig.usbServiceUrl
+            : 'http://localhost:8773';
+
+        async function fetchBrowse(path) {
+            const resp = await fetch(`${USB_URL}/browse?path=${encodeURIComponent(path)}`);
+            if (!resp.ok) throw new Error(`Browse failed: ${resp.status}`);
+            return resp.json();
+        }
+
+        function mapUSBItem(item) {
+            const mapped = {
+                id: item.path || item.name,
+                name: item.name,
+                _usbPath: item.path,
+                _usbType: item.type,
+                _usbIndex: item.index,
+            };
+
+            if (item.type === 'folder') {
+                // Folder with artwork → show artwork image
+                if (item.artwork) {
+                    mapped.image = `${USB_URL}/artwork?path=${encodeURIComponent(item.path)}`;
+                } else {
+                    mapped.icon = 'folder';
+                    mapped.color = '#F9CA24';
+                }
+            } else {
+                mapped.icon = 'music-notes';
+                mapped.color = '#74B9FF';
+            }
+            return mapped;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const arcList = new ArcList({
+                rootLoader: async () => {
+                    const data = await fetchBrowse('');
+                    return data.items.map(mapUSBItem);
+                },
+                childrenLoader: async (item) => {
+                    if (item._usbType !== 'folder') return null;
+                    const data = await fetchBrowse(item._usbPath);
+                    return data.items.map(mapUSBItem);
+                },
+                levels: [{
+                    isContainer: (item) => item._usbType === 'folder',
+                }],
+                storagePrefix: 'usb_arclist',
+                context: 'usb',
+                webhookUrl: typeof AppConfig !== 'undefined' ? AppConfig.webhookUrl : null,
+                onGo: async (item) => {
+                    if (item._usbType === 'file') {
+                        try {
+                            await fetch(`${USB_URL}/command`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    command: 'play_file',
+                                    path: item._usbPath,
+                                    index: item._usbIndex || 0,
+                                }),
+                            });
+                        } catch (e) {
+                            console.error('[USB] play_file failed:', e.message);
+                        }
+                    }
+                },
+            });
+            window.arcListInstance = arcList;
+        });
+    </script>
+</body>
+</html>

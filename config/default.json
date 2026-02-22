@@ -1,0 +1,51 @@
+{
+  "device": "Development",
+
+  "menu": {
+    "PLAYING": "playing",
+    "CD": { "id": "cd", "hidden": true },
+    "USB": { "id": "usb", "paths": ["/mnt/usb-music"] },
+    "SPOTIFY": "spotify",
+    "NEWS": "news",
+    "SCENES": "scenes",
+    "SECURITY": { "id": "security", "dashboard": "dashboard-cameras/home" },
+    "SYSTEM": "system",
+    "SHOWING": "showing"
+  },
+
+  "scenes": [
+    { "id": "dinner", "name": "Dinner", "icon": "fork-knife", "color": "#fa0" },
+    { "id": "cozy", "name": "Cozy", "icon": "fire", "color": "#fa0" },
+    { "id": "beoframe", "name": "BeoVision Frame", "icon": "television", "color": "#ddd", "scenes": [
+      { "id": "frame_on", "name": "On", "icon": "power", "color": "#6c8" },
+      { "id": "frame_art", "name": "Art Mode", "icon": "image", "color": "#68c" },
+      { "id": "frame_netflix", "name": "Netflix", "icon": "play-circle", "color": "#E50914" },
+      { "id": "frame_svtplay", "name": "SVT Play", "icon": "play-circle", "color": "#1B7A2B" },
+      { "id": "frame_spotify", "name": "Spotify", "icon": "spotify-logo", "color": "#1ED760" },
+      { "id": "frame_youtube", "name": "YouTube", "icon": "youtube-logo", "color": "#FF0000" },
+      { "id": "frame_disneyplus", "name": "Disney+", "icon": "play-circle", "color": "#113CCF" },
+      { "id": "frame_appletv", "name": "Apple TV", "icon": "apple-logo", "color": "#ddd" },
+      { "id": "frame_off", "name": "Turn off", "icon": "power", "color": "#c66" }
+    ]},
+    { "id": "all_on", "name": "All on", "icon": "sun", "color": "#fa0" },
+    { "id": "church_off", "name": "All off", "icon": "power", "color": "#c55" }
+  ],
+
+  "player": { "type": "sonos", "ip": "192.168.0.190" },
+  "bluetooth": { "remote_mac": "" },
+  "home_assistant": {
+    "url": "http://homeassistant.local:8123",
+    "webhook_url": "http://homeassistant.local:8123/api/webhook/beosound5c"
+  },
+  "transport": { "mode": "mqtt", "mqtt_broker": "homeassistant.local" },
+  "volume": {
+    "type": "sonos",
+    "host": "192.168.0.190",
+    "max": 70,
+    "step": 3,
+    "output_name": "Sonos"
+  },
+  "cd": { "device": "/dev/sr0" },
+  "spotify": { "client_id": "" },
+  "news": { "guardian_api_key": "test" }
+}
