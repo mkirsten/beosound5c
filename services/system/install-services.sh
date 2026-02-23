@@ -23,7 +23,7 @@ SERVICES=(
     "beo-masterlink.service"
     "beo-bluetooth.service"
     "beo-source-cd.service"
-    "beo-spotify.service"
+    "beo-source-spotify.service"
     "beo-source-usb.service"
     "beo-source-news.service"
     "beo-ui.service"
@@ -36,8 +36,13 @@ SERVICES=(
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_DIR="/etc/systemd/system"
 
+# Determine the install user (from env, SUDO_USER, or logname)
+INSTALL_USER="${INSTALL_USER:-${SUDO_USER:-$(logname 2>/dev/null || whoami)}}"
+INSTALL_HOME=$(eval echo "~$INSTALL_USER")
+
 echo "📁 Script directory: $SCRIPT_DIR"
 echo "📁 Target directory: $SERVICE_DIR"
+echo "👤 Install user: $INSTALL_USER ($INSTALL_HOME)"
 echo ""
 
 # Create configuration directory and copy example if needed
@@ -59,7 +64,7 @@ if [ ! -f "$SECRETS_FILE" ]; then
         echo ""
         echo "  ⚠️  IMPORTANT: Edit $SECRETS_FILE with credentials for this device!"
         echo "     - HA_TOKEN: Home Assistant long-lived access token"
-        echo "     For Spotify: open the /setup page on port 8771 after starting beo-spotify"
+        echo "     For Spotify: open the /setup page on port 8771 after starting beo-source-spotify"
         echo ""
     else
         echo "  ⚠️  Warning: secrets.env.example not found at $SECRETS_EXAMPLE"
@@ -83,10 +88,11 @@ if [ ! -f "$SSL_DIR/cert.pem" ]; then
         -keyout "$SSL_DIR/key.pem" -out "$SSL_DIR/cert.pem" \
         -days 3650 -nodes \
         -subj "/CN=$HOSTNAME" \
-        -addext "subjectAltName=IP:$LOCAL_IP,DNS:$HOSTNAME.local,DNS:$HOSTNAME.kirstenhome" \
+        -addext "subjectAltName=IP:$LOCAL_IP,DNS:$HOSTNAME.local" \
         2>/dev/null
-    # Service runs as kirsten, needs to read the key
-    chown kirsten:kirsten "$SSL_DIR/key.pem" "$SSL_DIR/cert.pem"
+    # Service user needs to read the key
+    CERT_OWNER="$INSTALL_USER"
+    chown "$CERT_OWNER:$CERT_OWNER" "$SSL_DIR/key.pem" "$SSL_DIR/cert.pem"
     chmod 600 "$SSL_DIR/key.pem"
     chmod 644 "$SSL_DIR/cert.pem"
     echo "  ✅ SSL cert created (CN=$HOSTNAME, IP=$LOCAL_IP)"
@@ -105,6 +111,8 @@ STALE_SERVICES=(
     "beo-cd-source.service"      # renamed to beo-source-cd
     "beo-usb-source.service"     # renamed to beo-source-usb
     "beo-media.service"          # removed
+    "beo-sonos.service"          # renamed to beo-player-sonos
+    "beo-spotify.service"        # renamed to beo-source-spotify
     "beo-spotify-fetch.service"  # removed
     "beo-spotify-fetch.timer"    # removed
 )
@@ -118,12 +126,13 @@ for svc in "${STALE_SERVICES[@]}"; do
     fi
 done
 
-# Copy service files to systemd directory
+# Copy service files to systemd directory, replacing user/home placeholders
 echo "📋 Copying service files..."
 for service in "${SERVICES[@]}"; do
     if [ -f "$SCRIPT_DIR/$service" ]; then
         echo "  ✅ Copying $service"
-        cp "$SCRIPT_DIR/$service" "$SERVICE_DIR/"
+        sed -e "s|__USER__|$INSTALL_USER|g" -e "s|__HOME__|$INSTALL_HOME|g" \
+            "$SCRIPT_DIR/$service" > "$SERVICE_DIR/$service"
         chmod 644 "$SERVICE_DIR/$service"
     else
         echo "  ❌ Warning: $service not found in $SCRIPT_DIR"
@@ -135,84 +144,6 @@ echo "📋 Setting up health check and failure notification scripts..."
 chmod +x "$SCRIPT_DIR/notify-failure.sh"
 chmod +x "$SCRIPT_DIR/beo-health.sh"
 echo "  ✅ Scripts made executable"
-
-echo ""
-
-# Enable Debian backports (for latest PipeWire)
-BACKPORTS_LIST="/etc/apt/sources.list.d/backports.list"
-if [ ! -f "$BACKPORTS_LIST" ]; then
-    echo "📋 Enabling Debian backports..."
-    echo "deb http://deb.debian.org/debian bookworm-backports main" > "$BACKPORTS_LIST"
-    apt update -qq 2>/dev/null
-    echo "  ✅ Backports enabled"
-fi
-
-# Upgrade PipeWire from backports
-echo "📋 Upgrading PipeWire from backports..."
-apt install -y -qq -t bookworm-backports pipewire pipewire-pulse pipewire-alsa libspa-0.2-bluetooth 2>/dev/null
-echo "  ✅ PipeWire upgraded"
-
-# Install PipeWire RAOP config (AirPlay speaker discovery)
-PIPEWIRE_CONF_DIR="/etc/pipewire/pipewire.conf.d"
-RAOP_CONF="$PIPEWIRE_CONF_DIR/raop-discover.conf"
-if [ ! -f "$RAOP_CONF" ]; then
-    echo "📋 Installing PipeWire RAOP discovery config..."
-    mkdir -p "$PIPEWIRE_CONF_DIR"
-    cat > "$RAOP_CONF" << 'RAOP_EOF'
-# Enable AirPlay (RAOP) speaker discovery
-# Discovered speakers appear as PipeWire sinks
-context.modules = [
-    { name = libpipewire-module-raop-discover }
-]
-RAOP_EOF
-    chmod 644 "$RAOP_CONF"
-    echo "  ✅ Installed $RAOP_CONF"
-else
-    echo "  ℹ️  RAOP config already exists at $RAOP_CONF"
-fi
-
-# Install CD service dependencies
-echo "📋 Installing CD service dependencies..."
-apt install -y -qq mpv cdparanoia libdiscid-dev 2>/dev/null
-pip3 install --break-system-packages -q discid musicbrainzngs 2>/dev/null
-echo "  ✅ CD dependencies installed"
-
-echo ""
-
-# Install USB music auto-mount (NTFS drives exposed via Samba for Sonos)
-echo "📋 Setting up USB music auto-mount..."
-if [ -f "$SCRIPT_DIR/usb-music-mount.sh" ] && [ -f "$SCRIPT_DIR/99-usb-music.rules" ]; then
-    mkdir -p /mnt/usb-music
-    cp "$SCRIPT_DIR/usb-music-mount.sh" /usr/local/bin/usb-music-mount.sh
-    chmod +x /usr/local/bin/usb-music-mount.sh
-    cp "$SCRIPT_DIR/99-usb-music.rules" /etc/udev/rules.d/99-usb-music.rules
-    chmod 644 /etc/udev/rules.d/99-usb-music.rules
-    udevadm control --reload-rules
-    echo "  ✅ Udev rule and mount script installed"
-else
-    echo "  ⚠️  USB music files not found in $SCRIPT_DIR, skipping"
-fi
-
-# Install Samba config for USB music shares
-if ! grep -q "USB-Music" /etc/samba/smb.conf 2>/dev/null; then
-    echo "📋 Adding USB-Music Samba share..."
-    apt install -y -qq samba 2>/dev/null
-    cat >> /etc/samba/smb.conf << 'SAMBA_EOF'
-
-[USB-Music]
-    comment = Auto-mounted USB music drives
-    path = /mnt/usb-music
-    read only = yes
-    guest ok = yes
-    browseable = yes
-    follow symlinks = yes
-    wide links = yes
-SAMBA_EOF
-    systemctl restart smbd 2>/dev/null
-    echo "  ✅ Samba share configured"
-else
-    echo "  ℹ️  USB-Music Samba share already configured"
-fi
 
 echo ""
 
@@ -234,13 +165,43 @@ systemctl daemon-reload
 
 echo ""
 
+# Helper: enable and start a service (skips if unit file wasn't installed)
+start_service() {
+    local svc="$1"
+    if [ ! -f "$SERVICE_DIR/$svc" ]; then
+        echo "  ⏭️  Skipping $svc (not installed)"
+        return 0
+    fi
+    systemctl enable "$svc"
+    systemctl start "$svc"
+}
+
+# Helper: disable and stop a service
+disable_service() {
+    local svc="$1"
+    systemctl disable "$svc" 2>/dev/null || true
+    systemctl stop "$svc" 2>/dev/null || true
+}
+
+# Helper: check if a menu item is enabled in config.json
+menu_has() {
+    python3 -c "
+import json, sys
+try:
+    cfg = json.load(open('$CONFIG_DIR/config.json'))
+    menu = cfg.get('menu', {})
+    sys.exit(0 if '$1' in menu else 1)
+except:
+    sys.exit(1)
+" 2>/dev/null
+}
+
 # Enable and start services in dependency order
 echo "🚀 Enabling and starting services..."
 
 # Start base services first
 echo "  🌐 Starting HTTP server..."
-systemctl enable beo-http.service
-systemctl start beo-http.service
+start_service beo-http.service
 
 # Determine configured player type from config.json
 PLAYER_TYPE=$(python3 -c "import json; print(json.load(open('$CONFIG_DIR/config.json')).get('player',{}).get('type','sonos'))" 2>/dev/null || echo "sonos")
@@ -248,67 +209,81 @@ echo "  ℹ️  Configured player type: $PLAYER_TYPE"
 
 if [ "$PLAYER_TYPE" = "sonos" ]; then
     echo "  📡 Starting Sonos player..."
-    systemctl enable beo-player-sonos.service
-    systemctl start beo-player-sonos.service
+    start_service beo-player-sonos.service
     echo "  📡 Disabling BlueSound player (not configured)..."
     systemctl disable beo-player-bluesound.service 2>/dev/null || true
     systemctl stop beo-player-bluesound.service 2>/dev/null || true
 elif [ "$PLAYER_TYPE" = "bluesound" ]; then
     echo "  📡 Starting BlueSound player..."
-    systemctl enable beo-player-bluesound.service
-    systemctl start beo-player-bluesound.service
+    start_service beo-player-bluesound.service
     echo "  📡 Disabling Sonos player (not configured)..."
     systemctl disable beo-player-sonos.service 2>/dev/null || true
     systemctl stop beo-player-sonos.service 2>/dev/null || true
+elif [ "$PLAYER_TYPE" = "none" ]; then
+    echo "  ℹ️  No network player configured — skipping player services"
+    disable_service beo-player-sonos.service
+    disable_service beo-player-bluesound.service
 else
     echo "  ⚠️  Unknown player type '$PLAYER_TYPE', starting both..."
-    systemctl enable beo-player-sonos.service
-    systemctl start beo-player-sonos.service || true
-    systemctl enable beo-player-bluesound.service
-    systemctl start beo-player-bluesound.service || true
+    start_service beo-player-sonos.service || true
+    start_service beo-player-bluesound.service || true
 fi
 
 echo "  🎮 Starting input server..."
-systemctl enable beo-input.service
-systemctl start beo-input.service
+start_service beo-input.service
 
 echo "  🔀 Starting Event Router..."
-systemctl enable beo-router.service
-systemctl start beo-router.service
+start_service beo-router.service
 
 echo "  🔗 Starting MasterLink sniffer..."
-systemctl enable beo-masterlink.service
-systemctl start beo-masterlink.service
+start_service beo-masterlink.service
 
 echo "  📱 Starting Bluetooth service..."
-systemctl enable beo-bluetooth.service
-systemctl start beo-bluetooth.service
+start_service beo-bluetooth.service
 
-echo "  💿 Starting CD source..."
-systemctl enable beo-source-cd.service
-systemctl start beo-source-cd.service
+# Start source services based on menu configuration
+echo ""
+echo "  📋 Checking menu config for optional sources..."
 
-echo "  🎵 Starting Spotify source..."
-systemctl enable beo-spotify.service
-systemctl start beo-spotify.service
+if menu_has "CD"; then
+    echo "  💿 Starting CD source..."
+    start_service beo-source-cd.service
+else
+    echo "  ⏭️  CD not in menu — skipping beo-source-cd"
+    disable_service beo-source-cd.service
+fi
 
-echo "  💾 Starting USB source..."
-systemctl enable beo-source-usb.service
-systemctl start beo-source-usb.service
+if menu_has "SPOTIFY"; then
+    echo "  🎵 Starting Spotify source..."
+    start_service beo-source-spotify.service
+else
+    echo "  ⏭️  SPOTIFY not in menu — skipping beo-source-spotify"
+    disable_service beo-source-spotify.service
+fi
 
-echo "  📰 Starting News source..."
-systemctl enable beo-source-news.service
-systemctl start beo-source-news.service
+if menu_has "USB"; then
+    echo "  💾 Starting USB source..."
+    start_service beo-source-usb.service
+else
+    echo "  ⏭️  USB not in menu — skipping beo-source-usb"
+    disable_service beo-source-usb.service
+fi
+
+if menu_has "NEWS"; then
+    echo "  📰 Starting News source..."
+    start_service beo-source-news.service
+else
+    echo "  ⏭️  NEWS not in menu — skipping beo-source-news"
+    disable_service beo-source-news.service
+fi
 
 # Start UI service last (depends on HTTP)
 echo "  🖥️  Starting UI service..."
-systemctl enable beo-ui.service
-systemctl start beo-ui.service
+start_service beo-ui.service
 
 # Enable health check timer (auto-recovers failed services every 5 min)
 echo "  🩺 Enabling health check timer..."
-systemctl enable beo-health.timer
-systemctl start beo-health.timer
+start_service beo-health.timer
 
 echo "Reloading daemon services"
 sudo systemctl daemon-reload

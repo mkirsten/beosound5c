@@ -5,6 +5,9 @@ Protocol (from c4mp-test):
   - UDP port 8750
   - Frame: ``0s2a{nn} {command} \r\n`` where nn is random 10–99
   - Volume: ``c4.amp.chvol {zone} {level}``
+  - Balance: ``c4.amp.balance {zone} {value}``
+    - Two's complement signed byte: f6=-10 (full left) .. 00=center .. 0a=+10 (full right)
+    - No readback (query returns TIMEOUT)
   - Source/power: ``c4.amp.out {zone} {input}``  (input 00 = off)
 
 Config (config.json "volume" section):
@@ -36,6 +39,7 @@ class C4AmpVolume(VolumeAdapter):
         self._zone = zone
         self._input_id = input_id
         self._last_volume: float = 0
+        self._last_balance: int = 0
         self._is_on = False
         # Debounce state
         self._pending_volume: float | None = None
@@ -61,11 +65,17 @@ class C4AmpVolume(VolumeAdapter):
         return self._last_volume
 
     async def set_balance(self, balance: float) -> None:
-        # C4 amp has no balance control
-        pass
+        # Router sends -20..+20, C4 amp accepts -10..+10
+        c4_bal = max(-10, min(10, round(balance / 2)))
+        # Two's complement signed byte: negative values wrap (e.g. -1 → ff, -10 → f6)
+        byte_val = c4_bal & 0xFF
+        await self._send(f"c4.amp.balance {self._zone} {byte_val:02x}")
+        self._last_balance = c4_bal
+        logger.info("-> C4 amp zone %s balance: %d (0x%02x)", self._zone, c4_bal, byte_val)
 
     async def get_balance(self) -> float:
-        return 0
+        # No readback — return last known value, scaled back to router range
+        return self._last_balance * 2
 
     async def power_on(self) -> None:
         await self._send(f"c4.amp.out {self._zone} {self._input_id}")

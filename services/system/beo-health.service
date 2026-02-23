@@ -3,4 +3,5 @@ Description=BeoSound 5c Health Check
 
 [Service]
 Type=oneshot
-ExecStart=/home/kirsten/beosound5c/services/system/beo-health.sh
+# Runs as root (no User=) because beo-health.sh needs systemctl start privileges
+ExecStart=__HOME__/beosound5c/services/system/beo-health.sh

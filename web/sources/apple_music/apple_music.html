@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apple Music - Beosound 5c</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../assets/phosphor/phosphor.css">
+    <style>
+        .splash-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+        }
+        .splash-card {
+            text-align: center;
+            color: #999;
+            font-family: 'Helvetica Neue', sans-serif;
+        }
+        .splash-card h2 {
+            color: #fff;
+            font-size: 22px;
+            font-weight: 300;
+            letter-spacing: 2px;
+            margin-bottom: 16px;
+        }
+        .splash-card p {
+            font-size: 14px;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+        .setup-qr {
+            margin: 0 auto 16px;
+            background: #fff;
+            padding: 12px;
+            border-radius: 8px;
+            display: inline-block;
+        }
+        .setup-url {
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 13px;
+            color: #666;
+            word-break: break-all;
+        }
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 3px solid #333;
+            border-top-color: #FC3C44;
+            border-radius: 50%;
+            margin: 0 auto 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="counter">
+            <span id="current-item">1</span> / <span id="total-items">100</span>
+        </div>
+        <div class="hierarchy-depth-1" id="hierarchy-background"></div>
+        <div class="arc-container" id="arc-container"></div>
+    </div>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/arc-utils.js"></script>
+    <script src="../js/emulator-bridge.js"></script>
+    <script src="../assets/qrcode.min.js"></script>
+    <script src="script.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const APPLE_MUSIC_URL = (typeof AppConfig !== 'undefined' && AppConfig.appleMusicServiceUrl)
+                || 'http://localhost:8774';
+
+            // Check Apple Music service state
+            try {
+                const resp = await fetch(`${APPLE_MUSIC_URL}/playlists`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.setup_needed) {
+                        showSetupScreen(data.setup_url, false);
+                        return;
+                    }
+                    if (data.needs_reauth) {
+                        showSetupScreen(data.setup_url, true);
+                        return;
+                    }
+                    if (data.loading) {
+                        showLoadingScreen();
+                        return;
+                    }
+                }
+            } catch (e) {
+                // Service unavailable — fall through to local JSON
+            }
+
+            // Normal playlist browsing — load from API
+            initArcList(APPLE_MUSIC_URL + '/playlists');
+        });
+
+        function showSetupScreen(url, isReconnect) {
+            const title = isReconnect ? 'RECONNECT APPLE MUSIC' : 'CONNECT APPLE MUSIC';
+            const msg = isReconnect
+                ? 'Your session has expired.<br>Scan the QR code to reconnect'
+                : 'Scan the QR code with your phone<br>to connect your Apple Music account';
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="splash-screen">
+                    <div class="splash-card">
+                        <h2>${title}</h2>
+                        <p>${msg}</p>
+                        <div class="setup-qr" id="setup-qr"></div>
+                        <div class="setup-url">${url}</div>
+                    </div>
+                </div>`;
+
+            if (typeof QRCode !== 'undefined') {
+                new QRCode(document.getElementById('setup-qr'), {
+                    text: url,
+                    width: 180,
+                    height: 180,
+                    colorDark: '#000000',
+                    colorLight: '#ffffff',
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+            }
+
+            // Poll — transitions to loading screen, then to playlists
+            pollForPlaylists();
+        }
+
+        function showLoadingScreen() {
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="splash-screen">
+                    <div class="splash-card">
+                        <div class="loading-spinner"></div>
+                        <h2>LOADING PLAYLISTS</h2>
+                        <p>Fetching your Apple Music library...</p>
+                    </div>
+                </div>`;
+
+            // Poll until playlists are ready
+            pollForPlaylists();
+        }
+
+        function pollForPlaylists() {
+            const APPLE_MUSIC_URL = (typeof AppConfig !== 'undefined' && AppConfig.appleMusicServiceUrl)
+                || 'http://localhost:8774';
+            const poll = setInterval(async () => {
+                try {
+                    const resp = await fetch(`${APPLE_MUSIC_URL}/playlists`);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        // Show loading screen while fetching
+                        if (data.loading && !document.querySelector('.loading-spinner')) {
+                            clearInterval(poll);
+                            showLoadingScreen();
+                            return;
+                        }
+                        // Playlists ready — reload to show arc
+                        if (Array.isArray(data) && data.length > 0) {
+                            clearInterval(poll);
+                            location.reload();
+                        }
+                    }
+                } catch (e) { /* keep polling */ }
+            }, 3000);
+        }
+
+        function initArcList(dataUrl) {
+            const appleMusicConfig = {
+                dataSource: dataUrl || '../json/apple_music_playlists.json',
+                dataType: 'parent_child',
+                viewMode: 'hierarchical',
+                parentKey: 'tracks',
+                parentNameKey: 'name',
+                storagePrefix: 'apple_music_arclist',
+                title: 'Apple Music',
+                context: 'apple_music',
+                sourceCommandUrl: ((typeof AppConfig !== 'undefined' && AppConfig.appleMusicServiceUrl) || 'http://localhost:8774') + '/command',
+                childNameMapper: (track, index, allTracks) => {
+                    const allSameArtist = allTracks && allTracks.every(t => t.artist === allTracks[0].artist);
+                    let displayName;
+                    if (allSameArtist) {
+                        displayName = track.name;
+                    } else {
+                        displayName = `${track.name}\n(${track.artist})`;
+                    }
+                    return {
+                        id: track.id,
+                        name: displayName,
+                        image: track.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
+                    };
+                }
+            };
+
+            const arcList = new ArcList(appleMusicConfig);
+            window.arcListInstance = arcList;
+        }
+    </script>
+</body>
+</html>

@@ -28,21 +28,19 @@ async def publish():
 
     # Read config.json for device name and broker
     config = {}
-    for path in ["/etc/beosound5c/config.json", "/home/kirsten/beosound5c/config/default.json"]:
-        try:
-            with open(path) as f:
-                config = json.load(f)
-            break
-        except Exception:
-            continue
+    try:
+        with open("/etc/beosound5c/config.json") as f:
+            config = json.load(f)
+    except Exception:
+        pass
 
     device = config.get("device", "unknown")
     transport = config.get("transport", {})
     broker = transport.get("mqtt_broker", "homeassistant.local")
 
     # Read MQTT credentials from secrets.env
-    mqtt_user = "beosound5c"
-    mqtt_pass = "beosound5c"
+    mqtt_user = ""
+    mqtt_pass = ""
     try:
         with open("/etc/beosound5c/secrets.env") as f:
             for line in f:
@@ -67,8 +65,8 @@ async def publish():
     try:
         async with aiomqtt.Client(
             hostname=broker,
-            username=mqtt_user,
-            password=mqtt_pass,
+            username=mqtt_user or None,
+            password=mqtt_pass or None,
             timeout=5,
         ) as client:
             await client.publish(topic, payload)

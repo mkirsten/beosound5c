@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BeoSound 5c Spotify Source (beo-spotify)
+BeoSound 5c Spotify Source (beo-source-spotify)
 
 Provides Spotify playback via the Web API with PKCE authentication.
 Plays on the configured player service (Sonos, BlueSound, etc.) via its
@@ -38,7 +38,7 @@ from lib.source_base import SourceBase
 from playlist_lookup import get_playlist_uri, DIGIT_PLAYLISTS_FILE
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
-log = logging.getLogger('beo-spotify')
+log = logging.getLogger('beo-source-spotify')
 
 # Configuration
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -327,7 +327,7 @@ class SpotifyService(SourceBase):
         ok = await self.player_play(uri=url, track_uri=track_uri)
         if ok:
             self.state = "playing"
-            await self.register("playing")
+            await self.register("playing", auto_power=True)
             self._start_polling()
         else:
             log.error("Player service failed to start playlist")
@@ -339,7 +339,7 @@ class SpotifyService(SourceBase):
         ok = await self.player_play(uri=url)
         if ok:
             self.state = "playing"
-            await self.register("playing")
+            await self.register("playing", auto_power=True)
             self._start_polling()
 
     async def _toggle(self):
@@ -354,7 +354,7 @@ class SpotifyService(SourceBase):
     async def _resume(self):
         if await self.player_resume():
             self.state = "playing"
-            await self.register("playing")
+            await self.register("playing", auto_power=True)
             self._start_polling()
 
     async def _pause(self):

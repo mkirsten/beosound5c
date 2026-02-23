@@ -113,11 +113,10 @@ class UIStore {
         
         // Artwork cache delegated to ArtworkManager
         
-        // Menu items from centralized constants (static views only — sources added by router)
+        // Menu items from centralized constants (static views only — sources/webpages added by router)
         this.menuItems = (window.Constants?.menuItems || [
             {title: 'PLAYING', path: 'menu/playing'},
             {title: 'SCENES', path: 'menu/scenes'},
-            {title: 'SECURITY', path: 'menu/security'},
             {title: 'SYSTEM', path: 'menu/system'},
             {title: 'SHOWING', path: 'menu/showing'}
         ]).map(item => ({title: item.title, path: item.path}));
@@ -164,14 +163,6 @@ class UIStore {
                     </div>
                 `,
                 preloadId: 'preload-scenes'
-            },
-            'menu/security': {
-                title: 'SECURITY',
-                content: `
-                    <div id="security-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                    </div>
-                `,
-                preloadId: 'preload-security'
             },
             'menu/playing': {
                 title: 'PLAYING',
@@ -399,8 +390,18 @@ class UIStore {
             for (const item of data.items) {
                 const path = `menu/${item.id}`;
 
+                // Webpage items: iframe view (preserved across navigations via rescue logic)
+                if (item.type === 'webpage' && item.url) {
+                    const containerId = `webpage-container-${item.id}`;
+                    this.views[path] = {
+                        title: item.title,
+                        content: `<div id="${containerId}" class="webpage-container" style="position:absolute;top:0;left:0;width:100%;height:100%;"></div>`,
+                        _webpage: { iframeId: `preload-webpage-${item.id}`, containerId, url: item.url }
+                    };
+                    newItems.push({ title: item.title, path });
+                }
                 // Dynamic sources: always register view from preset (even if menu item already exists)
-                if (item.dynamic && item.preset && window.SourcePresets?.[item.preset]) {
+                else if (item.dynamic && item.preset && window.SourcePresets?.[item.preset]) {
                     const preset = window.SourcePresets[item.preset];
                     newItems.push({ title: item.title, path: preset.item.path, hidden: !!item.hidden });
                     if (preset.view) {
@@ -539,8 +540,7 @@ class UIStore {
     preloadIframes() {
         const iframesToPreload = [
             { id: 'preload-spotify', src: 'softarc/spotify.html' },
-            { id: 'preload-scenes', src: 'softarc/scenes.html' },
-            { id: 'preload-security', src: 'softarc/security.html' }
+            { id: 'preload-scenes', src: 'softarc/scenes.html' }
         ];
 
         // Create a hidden container for preloaded iframes
@@ -572,8 +572,7 @@ class UIStore {
         // Map preload IDs to container IDs
         const containerMap = {
             'preload-spotify': 'spotify-container',
-            'preload-scenes': 'scenes-container',
-            'preload-security': 'security-container'
+            'preload-scenes': 'scenes-container'
         };
 
         const containerId = containerMap[preloadId];
@@ -602,8 +601,7 @@ class UIStore {
             // Fallback: create iframe if preload failed
             const srcMap = {
                 'preload-spotify': 'softarc/spotify.html',
-                'preload-scenes': 'softarc/scenes.html',
-                'preload-security': 'softarc/security.html'
+                'preload-scenes': 'softarc/scenes.html'
             };
             iframe = document.createElement('iframe');
             iframe.id = preloadId;
@@ -1036,6 +1034,24 @@ class UIStore {
             this.attachPreloadedIframe(view.preloadId);
         }
 
+        // Webpage views: reuse existing iframe or create on first visit
+        // iframe id starts with "preload-" so the rescue logic preserves it across navigations
+        if (view._webpage) {
+            const { iframeId, containerId, url } = view._webpage;
+            const container = document.getElementById(containerId);
+            if (container) {
+                let iframe = document.getElementById(iframeId);
+                if (!iframe) {
+                    iframe = document.createElement('iframe');
+                    iframe.id = iframeId;
+                    iframe.className = 'webpage-iframe';
+                    iframe.src = url;
+                }
+                iframe.style.cssText = 'width:100%;height:100%;border:none;';
+                container.appendChild(iframe);
+            }
+        }
+
         // Immediately update with cached info for playing view
         if (this.currentRoute === 'menu/playing') {
             // Force re-apply preset — content was just rebuilt so slots need re-injection
@@ -1049,22 +1065,6 @@ class UIStore {
             this.updateShowingView();
         }
 
-        // For security view in non-emulator mode with HA config, override with HA dashboard
-        if (this.currentRoute === 'menu/security') {
-            const haUrl = window.AppConfig?.homeAssistant?.url;
-            const securityDashboard = window.AppConfig?.homeAssistant?.securityDashboard;
-            const isEmulator = window.EmulatorModeManager?.isActive || window.parent !== window;
-
-            if (!isEmulator && haUrl && securityDashboard) {
-                const securityContainer = document.getElementById('security-container');
-                const securityIframe = securityContainer?.querySelector('iframe');
-                if (securityIframe) {
-                    securityIframe.src = `${haUrl}/${securityDashboard}&kiosk`;
-                    console.log('Using Home Assistant security dashboard');
-                }
-            }
-        }
-        
         this.setupContentScroll();
 
         // Fire onMount for dynamic menu presets (e.g. CD loading sequence)

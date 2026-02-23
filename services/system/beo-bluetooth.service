@@ -10,13 +10,13 @@ StartLimitBurst=3
 [Service]
 Type=notify
 # Requires user to be in the 'input' group for /dev/input access.
-# install.sh adds kirsten to the input group automatically.
-User=kirsten
+# install.sh adds the user to the input group automatically.
+User=__USER__
 SupplementaryGroups=input
-WorkingDirectory=/home/kirsten/beosound5c/services
+WorkingDirectory=__HOME__/beosound5c/services
 EnvironmentFile=-/etc/beosound5c/secrets.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/bluetooth.py
+ExecStart=/usr/bin/python3 __HOME__/beosound5c/services/bluetooth.py
 Restart=always
 RestartSec=5
 WatchdogSec=60
