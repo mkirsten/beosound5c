@@ -105,7 +105,14 @@ configure_player() {
         fi
     fi
 
-    cfg_set ".player.type = \"$PLAYER_TYPE\" | .player.ip = \"$PLAYER_IP\""
+    local tmp
+    tmp=$(mktemp)
+    if jq --arg t "$PLAYER_TYPE" --arg ip "$PLAYER_IP" \
+        '.player.type = $t | .player.ip = $ip' "$CONFIG_FILE" > "$tmp"; then
+        mv "$tmp" "$CONFIG_FILE"; chmod 644 "$CONFIG_FILE"
+    else
+        rm -f "$tmp"; log_error "Failed to update config.json"
+    fi
     log_success "Player: $PLAYER_TYPE${PLAYER_IP:+ @ $PLAYER_IP}"
 
     # Export for use by other configure steps in full-wizard mode

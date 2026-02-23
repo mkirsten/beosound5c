@@ -150,9 +150,8 @@ class LaserPointerSimulator {
             return;
         }
         
-        // Don't intercept wheel events when security iframe is active
-        const securityIframe = document.getElementById('security-iframe');
-        if (securityIframe && event.target.closest('#security-iframe')) {
+        // Don't intercept wheel events when a webpage iframe is active
+        if (event.target.closest('.webpage-iframe')) {
             return; // Let the iframe handle its own scroll events
         }
         

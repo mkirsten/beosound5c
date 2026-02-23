@@ -195,5 +195,5 @@ configure_bluetooth() {
         BT_DEVICE_NAME="BeoSound 5c"
     fi
 
-    cfg_set ".bluetooth.remote_mac = \"$BEOREMOTE_MAC\""
+    cfg_set_str '.bluetooth.remote_mac' "$BEOREMOTE_MAC"
 }

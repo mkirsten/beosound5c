@@ -32,19 +32,27 @@ scan_sonos_devices() {
         local network=$(ip route | grep -oP 'src \K[0-9.]+' | head -1 | sed 's/\.[0-9]*$/./')
         if [ -n "$network" ]; then
             log_info "Scanning network ${network}0/24 for Sonos devices (port 1400)..."
-            for i in $(seq 1 254); do
-                local ip="${network}${i}"
-                if timeout $timeout bash -c "echo >/dev/tcp/$ip/1400" 2>/dev/null; then
-                    local name=$(curl -s --connect-timeout $timeout "http://$ip:1400/xml/device_description.xml" 2>/dev/null | grep -oP '(?<=<roomName>)[^<]+' | head -1)
-                    if [ -n "$name" ]; then
-                        sonos_devices+=("$ip|$name")
+            local tmpfile
+            tmpfile=$(mktemp)
+            (
+                for i in $(seq 1 254); do
+                    local ip="${network}${i}"
+                    if timeout $timeout bash -c "echo >/dev/tcp/$ip/1400" 2>/dev/null; then
+                        local name=$(curl -s --connect-timeout $timeout "http://$ip:1400/xml/device_description.xml" 2>/dev/null | grep -oP '(?<=<roomName>)[^<]+' | head -1)
+                        if [ -n "$name" ]; then
+                            echo "$ip|$name" >> "$tmpfile"
+                        fi
                     fi
-                fi
-            done &
+                done
+            ) &
             local scan_pid=$!
             sleep 10
             kill $scan_pid 2>/dev/null
             wait $scan_pid 2>/dev/null
+            while IFS= read -r line; do
+                sonos_devices+=("$line")
+            done < "$tmpfile"
+            rm -f "$tmpfile"
         fi
     fi
 
@@ -84,19 +92,27 @@ scan_bluesound_devices() {
         local network=$(ip route | grep -oP 'src \K[0-9.]+' | head -1 | sed 's/\.[0-9]*$/./')
         if [ -n "$network" ]; then
             log_info "Scanning network ${network}0/24 for Bluesound devices (port 11000)..."
-            for i in $(seq 1 254); do
-                local ip="${network}${i}"
-                if timeout $timeout bash -c "echo >/dev/tcp/$ip/11000" 2>/dev/null; then
-                    local name=$(curl -s --connect-timeout $timeout "http://$ip:11000/SyncStatus" 2>/dev/null | grep -oP '(?<=<name>)[^<]+' | head -1)
-                    if [ -n "$name" ]; then
-                        bluesound_devices+=("$ip|$name")
+            local tmpfile
+            tmpfile=$(mktemp)
+            (
+                for i in $(seq 1 254); do
+                    local ip="${network}${i}"
+                    if timeout $timeout bash -c "echo >/dev/tcp/$ip/11000" 2>/dev/null; then
+                        local name=$(curl -s --connect-timeout $timeout "http://$ip:11000/SyncStatus" 2>/dev/null | grep -oP '(?<=<name>)[^<]+' | head -1)
+                        if [ -n "$name" ]; then
+                            echo "$ip|$name" >> "$tmpfile"
+                        fi
                     fi
-                fi
-            done &
+                done
+            ) &
             local scan_pid=$!
             sleep 10
             kill $scan_pid 2>/dev/null
             wait $scan_pid 2>/dev/null
+            while IFS= read -r line; do
+                bluesound_devices+=("$line")
+            done < "$tmpfile"
+            rm -f "$tmpfile"
         fi
     fi
 

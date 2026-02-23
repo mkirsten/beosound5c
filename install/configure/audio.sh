@@ -187,27 +187,24 @@ configure_audio() {
     read -p "Maximum volume percentage [$VOLUME_MAX]: " input_max
     VOLUME_MAX="${input_max:-$VOLUME_MAX}"
 
-    # Build jq expression for volume section
-    local jq_expr=".volume.type = \"$VOLUME_TYPE\" | .volume.host = \"$VOLUME_HOST\" | .volume.max = $VOLUME_MAX | .volume.output_name = \"$OUTPUT_NAME\""
-
-    # Add optional fields, remove stale ones
-    if [ -n "$VOLUME_ZONE" ]; then
-        jq_expr="$jq_expr | .volume.zone = \"$VOLUME_ZONE\""
+    # Build volume config safely using --arg for all user strings
+    local tmp
+    tmp=$(mktemp)
+    if jq --arg vtype "$VOLUME_TYPE" --arg vhost "$VOLUME_HOST" \
+        --argjson vmax "$VOLUME_MAX" --arg oname "$OUTPUT_NAME" \
+        --arg vzone "$VOLUME_ZONE" --arg vinput "$VOLUME_INPUT" \
+        --arg vmixport "$VOLUME_MIXER_PORT" \
+        '
+        .volume.type = $vtype | .volume.host = $vhost |
+        .volume.max = $vmax | .volume.output_name = $oname |
+        if $vzone != "" then .volume.zone = $vzone else del(.volume.zone) end |
+        if $vinput != "" then .volume.input = $vinput else del(.volume.input) end |
+        if $vmixport != "" then .volume.mixer_port = ($vmixport | tonumber) else del(.volume.mixer_port) end
+        ' "$CONFIG_FILE" > "$tmp"; then
+        mv "$tmp" "$CONFIG_FILE"; chmod 644 "$CONFIG_FILE"
     else
-        jq_expr="$jq_expr | del(.volume.zone)"
+        rm -f "$tmp"; log_error "Failed to update config.json"
     fi
-    if [ -n "$VOLUME_INPUT" ]; then
-        jq_expr="$jq_expr | .volume.input = \"$VOLUME_INPUT\""
-    else
-        jq_expr="$jq_expr | del(.volume.input)"
-    fi
-    if [ -n "$VOLUME_MIXER_PORT" ]; then
-        jq_expr="$jq_expr | .volume.mixer_port = $VOLUME_MIXER_PORT"
-    else
-        jq_expr="$jq_expr | del(.volume.mixer_port)"
-    fi
-
-    cfg_set "$jq_expr"
 
     log_success "Output: $OUTPUT_NAME, volume: $VOLUME_TYPE @ ${VOLUME_HOST:-local} (max $VOLUME_MAX%%)"
 }

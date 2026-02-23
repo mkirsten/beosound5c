@@ -10,8 +10,7 @@ const AppConfig = {
 
     // Home Assistant configuration
     homeAssistant: {
-        url: 'http://homeassistant.local:8123',
-        securityDashboard: 'dashboard-cameras/home'  // Dashboard path for SECURITY page (without leading slash)
+        url: 'http://homeassistant.local:8123'
     },
 
     // Webhook forwarding endpoint (backend forwards to HA)
@@ -25,6 +24,9 @@ const AppConfig = {
 
     // Spotify source
     spotifyServiceUrl: 'http://localhost:8771',
+
+    // Apple Music source
+    appleMusicServiceUrl: 'http://localhost:8774',
 
     // USB file source
     usbServiceUrl: 'http://localhost:8773',
@@ -65,11 +67,6 @@ const AppConfig = {
         if (config.scenes) AppConfig.scenes = config.scenes;
         if (config.home_assistant) {
             if (config.home_assistant.url) AppConfig.homeAssistant.url = config.home_assistant.url;
-        }
-        if (config.menu && config.menu.SECURITY && typeof config.menu.SECURITY === 'object') {
-            if (config.menu.SECURITY.dashboard) {
-                AppConfig.homeAssistant.securityDashboard = config.menu.SECURITY.dashboard;
-            }
         }
     }
 

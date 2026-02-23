@@ -25,6 +25,23 @@ cfg_set() {
     fi
 }
 
+# Set a single config key to a string value (safe against special characters).
+# Usage: cfg_set_str '.device' "$DEVICE_NAME"
+cfg_set_str() {
+    local path="$1"
+    local value="$2"
+    local tmp
+    tmp=$(mktemp)
+    if jq --arg v "$value" "$path = \$v" "$CONFIG_FILE" > "$tmp"; then
+        mv "$tmp" "$CONFIG_FILE"
+        chmod 644 "$CONFIG_FILE"
+    else
+        rm -f "$tmp"
+        log_error "Failed to update config.json"
+        return 1
+    fi
+}
+
 # Ensure config.json exists (copy default.json if missing, create dir)
 cfg_ensure() {
     mkdir -p "$CONFIG_DIR"

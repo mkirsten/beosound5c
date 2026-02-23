@@ -121,9 +121,15 @@ configure_transport() {
     fi
 
     # Write transport config
-    local jq_expr=".transport.mode = \"$TRANSPORT_MODE\""
+    cfg_set_str '.transport.mode' "$TRANSPORT_MODE"
     if [[ "$TRANSPORT_MODE" == "mqtt" || "$TRANSPORT_MODE" == "both" ]]; then
-        jq_expr="$jq_expr | .transport.mqtt_broker = \"$MQTT_BROKER\" | .transport.mqtt_port = $MQTT_PORT"
+        local tmp
+        tmp=$(mktemp)
+        if jq --arg broker "$MQTT_BROKER" --argjson port "$MQTT_PORT" \
+            '.transport.mqtt_broker = $broker | .transport.mqtt_port = $port' "$CONFIG_FILE" > "$tmp"; then
+            mv "$tmp" "$CONFIG_FILE"; chmod 644 "$CONFIG_FILE"
+        else
+            rm -f "$tmp"; log_error "Failed to update config.json"
+        fi
     fi
-    cfg_set "$jq_expr"
 }

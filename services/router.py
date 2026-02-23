@@ -47,7 +47,7 @@ ROUTER_PORT = 8770
 INPUT_WEBHOOK_URL = "http://localhost:8767/webhook"
 
 # Static menu IDs — these are built-in views (not dynamic sources)
-STATIC_VIEWS = {"showing", "system", "security", "scenes", "playing"}
+STATIC_VIEWS = {"showing", "system", "scenes", "playing"}
 
 # Source handles defaults (used when a source registers without specifying handles)
 _DIGITS = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
@@ -291,6 +291,7 @@ class EventRouter:
         self._session: aiohttp.ClientSession | None = None
         self._volume = None           # VolumeAdapter instance
         self._menu_order: list[dict] = []  # parsed menu from config
+        self._local_button_views: set[str] = {"menu/system"}  # views that suppress HA button forwarding
 
     def _parse_menu(self):
         """Parse the menu section from config.json into an ordered list.
@@ -313,13 +314,15 @@ class EventRouter:
                 entry_id = value
                 entry_cfg = {}
             else:
-                entry_id = value.get("id", title.lower())
+                entry_id = value.get("id", title.lower().replace(" ", "_"))
                 entry_cfg = value
             items.append({"id": entry_id, "title": title, "config": entry_cfg})
 
-        # Pre-create sources from menu entries (non-static-view items)
+        # Pre-create sources from menu entries (non-static-view, non-webpage items)
         for item in items:
-            if item["id"] not in STATIC_VIEWS:
+            if "url" in item["config"]:
+                pass  # Webpage item — buttons fall through to HA (gate/lock etc.)
+            elif item["id"] not in STATIC_VIEWS:
                 handles = DEFAULT_SOURCE_HANDLES.get(item["id"], set())
                 source = self.registry.create_from_config(item["id"], handles)
                 source.from_config = True
@@ -387,7 +390,14 @@ class EventRouter:
         items = []
         for entry in self._menu_order:
             entry_id = entry["id"]
-            if entry_id in STATIC_VIEWS:
+            entry_cfg = entry.get("config", {})
+            if "url" in entry_cfg:
+                # Webpage item — embedded iframe
+                items.append({
+                    "id": entry_id, "title": entry["title"],
+                    "type": "webpage", "url": entry_cfg["url"],
+                })
+            elif entry_id in STATIC_VIEWS:
                 items.append({"id": entry_id, "title": entry["title"]})
             else:
                 source = self.registry.get(entry_id)
@@ -454,8 +464,7 @@ class EventRouter:
             # Still forward to HA (below) so it can handle screen off etc.
 
         # 5. Views that handle buttons locally (iframes) — suppress HA forwarding
-        LOCAL_BUTTON_VIEWS = {"menu/system", "menu/security"}
-        if self.active_view in LOCAL_BUTTON_VIEWS and action in (
+        if self.active_view in self._local_button_views and action in (
             "go", "left", "right", "up", "down",
         ):
             logger.info("-> suppressed: %s on %s (handled by UI)", action, self.active_view)

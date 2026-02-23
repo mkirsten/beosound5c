@@ -53,7 +53,7 @@ log = logging.getLogger('beo-cd')
 
 # Configuration
 CDROM_DEVICE = cfg("cd", "device", default="/dev/sr0")
-BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/kirsten/beosound5c')
+BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 CD_CACHE_DIR = os.path.join(BS5C_BASE_PATH, 'web/assets/cd-cache')
 POLL_INTERVAL = 2  # seconds
 

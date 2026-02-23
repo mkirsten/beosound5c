@@ -7,11 +7,12 @@ StartLimitBurst=3
 
 [Service]
 Type=notify
-User=kirsten
-WorkingDirectory=/home/kirsten/beosound5c/services
+User=__USER__
+Group=__USER__
+WorkingDirectory=__HOME__/beosound5c/services
 EnvironmentFile=-/etc/beosound5c/secrets.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/router.py
+ExecStart=/usr/bin/python3 __HOME__/beosound5c/services/router.py
 Restart=always
 RestartSec=5
 WatchdogSec=60

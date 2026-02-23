@@ -10,7 +10,10 @@ run_verification() {
 
     # Check apt packages
     log_info "Checking installed packages..."
-    local REQUIRED_PACKAGES="chromium-browser python3 python3-hidapi bluetooth plymouth"
+    # Chromium package name varies: 'chromium-browser' (Bullseye) vs 'chromium' (Bookworm+)
+    local CHROMIUM_PKG="chromium-browser"
+    dpkg -l chromium-browser &>/dev/null || CHROMIUM_PKG="chromium"
+    local REQUIRED_PACKAGES="$CHROMIUM_PKG python3 python3-hidapi bluetooth plymouth"
     for pkg in $REQUIRED_PACKAGES; do
         if dpkg -l "$pkg" &>/dev/null; then
             log_success "Package installed: $pkg"
@@ -62,9 +65,23 @@ run_verification() {
         ((FAILED_CHECKS++))
     fi
 
+    # Check service files have no unresolved placeholders
+    if grep -rl '__USER__\|__HOME__' /etc/systemd/system/beo-*.service &>/dev/null; then
+        log_error "Service files contain unresolved placeholders (__USER__/__HOME__)"
+        log_error "Re-run: sudo ./install.sh services"
+        ((FAILED_CHECKS++))
+    else
+        log_success "Service files configured for user: $INSTALL_USER"
+    fi
+
     # Check services
     log_info "Checking service status..."
-    local SERVICES="beo-http beo-player-sonos beo-input beo-ui"
+    local player_type
+    player_type=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('player',{}).get('type','sonos'))" 2>/dev/null || echo "sonos")
+    local SERVICES="beo-http beo-input beo-ui"
+    if [ "$player_type" != "none" ]; then
+        SERVICES="beo-http beo-player-${player_type} beo-input beo-ui"
+    fi
     for svc in $SERVICES; do
         if systemctl is-active --quiet "$svc" 2>/dev/null; then
             log_success "Service running: $svc"

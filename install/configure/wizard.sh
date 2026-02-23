@@ -42,6 +42,7 @@ run_wizard() {
             configure_spotify
             configure_transport
             configure_audio
+            configure_menu
             generate_config
             ;;
         device)
@@ -71,10 +72,13 @@ run_wizard() {
         audio)
             configure_audio
             ;;
+        menu)
+            configure_menu
+            ;;
         *)
             log_error "Unknown configure step: $step"
             echo ""
-            echo "Available steps: device, player, ha, bluetooth, spotify, transport, audio"
+            echo "Available steps: device, player, ha, bluetooth, spotify, transport, audio, menu"
             exit 1
             ;;
     esac

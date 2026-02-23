@@ -22,7 +22,11 @@ install_plymouth_theme() {
         plymouth-set-default-theme beosound5c
 
         log_info "Updating initramfs (this may take a moment)..."
-        update-initramfs -u
+        if command -v update-initramfs &>/dev/null; then
+            update-initramfs -u
+        else
+            log_warn "update-initramfs not found (RPi OS Lite uses device tree, not initramfs)"
+        fi
 
         log_success "Plymouth theme installed"
     else

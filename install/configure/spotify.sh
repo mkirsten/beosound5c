@@ -45,7 +45,7 @@ configure_spotify() {
                 if [ -n "$refresh_token" ]; then
                     log_success "Spotify tokens found from previous setup!"
                     if [ -n "$client_id" ]; then
-                        cfg_set ".spotify.client_id = \"$client_id\""
+                        cfg_set_str '.spotify.client_id' "$client_id"
                     fi
                 fi
             fi

@@ -7,10 +7,9 @@ configure_homeassistant() {
     echo ""
     log_section "Home Assistant Configuration"
 
-    local current_url current_webhook current_dashboard
+    local current_url current_webhook
     current_url=$(cfg_read '.home_assistant.url')
     current_webhook=$(cfg_read '.home_assistant.webhook_url')
-    current_dashboard=$(cfg_read '.home_assistant.security_dashboard // empty')
     local current_token
     current_token=$(secret_read "HA_TOKEN")
 
@@ -49,25 +48,33 @@ configure_homeassistant() {
     read -p "Home Assistant webhook URL [$DEFAULT_WEBHOOK]: " HA_WEBHOOK_URL
     HA_WEBHOOK_URL="${HA_WEBHOOK_URL:-$DEFAULT_WEBHOOK}"
 
-    # --- Security dashboard ---
+    # --- Embedded web page (e.g., camera dashboard, climate view) ---
     echo ""
-    log_info "Home Assistant Dashboard for SECURITY Page (Optional)"
+    log_info "Embedded Web Page in Menu (Optional)"
     echo ""
-    echo "The SECURITY menu item can display a Home Assistant dashboard (e.g., camera feeds)."
-    echo "Enter the dashboard path without leading slash."
-    echo "Examples: lovelace-cameras/0, dashboard-cameras/home"
+    echo "You can embed a web page in the menu (e.g., camera dashboard, climate view)."
+    echo "The page will appear as a menu item with an iframe."
     echo ""
-    local HA_SECURITY_DASHBOARD
-    if [ -n "$current_dashboard" ]; then
-        read -p "HA dashboard for SECURITY page [$current_dashboard]: " HA_SECURITY_DASHBOARD
-        HA_SECURITY_DASHBOARD="${HA_SECURITY_DASHBOARD:-$current_dashboard}"
+    local WEBPAGE_NAME="" WEBPAGE_URL=""
+    local current_webpage_url
+    current_webpage_url=$(cfg_read '.menu.SECURITY.url // empty')
+    if [ -n "$current_webpage_url" ]; then
+        log_info "Current embedded page: SECURITY -> $current_webpage_url"
+        read -p "Keep this embedded page? (Y/n): " KEEP_WEBPAGE
+        if [[ "$KEEP_WEBPAGE" =~ ^[Nn]$ ]]; then
+            cfg_set 'del(.menu.SECURITY)'
+            log_info "Embedded page removed"
+        else
+            log_info "Keeping existing embedded page"
+        fi
     else
-        read -p "HA dashboard for SECURITY page (press Enter to skip): " HA_SECURITY_DASHBOARD
-    fi
-    if [ -n "$HA_SECURITY_DASHBOARD" ]; then
-        log_success "Security dashboard: $HA_SECURITY_DASHBOARD"
-    else
-        log_info "No security dashboard configured - SECURITY page will be empty"
+        read -p "Menu item name (press Enter to skip): " WEBPAGE_NAME
+        if [ -n "$WEBPAGE_NAME" ]; then
+            local default_webpage_url="${HA_URL}/dashboard-cameras/home?kiosk"
+            read -p "Full URL [$default_webpage_url]: " WEBPAGE_URL
+            WEBPAGE_URL="${WEBPAGE_URL:-$default_webpage_url}"
+            log_success "Webpage: $WEBPAGE_NAME -> $WEBPAGE_URL"
+        fi
     fi
 
     # --- HA Token ---
@@ -104,12 +111,24 @@ configure_homeassistant() {
     fi
 
     # --- Write to config ---
-    cfg_set ".home_assistant.url = \"$HA_URL\" | .home_assistant.webhook_url = \"$HA_WEBHOOK_URL\""
+    local tmp
+    tmp=$(mktemp)
+    if jq --arg url "$HA_URL" --arg wh "$HA_WEBHOOK_URL" \
+        '.home_assistant.url = $url | .home_assistant.webhook_url = $wh' "$CONFIG_FILE" > "$tmp"; then
+        mv "$tmp" "$CONFIG_FILE"; chmod 644 "$CONFIG_FILE"
+    else
+        rm -f "$tmp"; log_error "Failed to update config.json"
+    fi
 
-    # Handle security dashboard in menu
-    if [ -n "$HA_SECURITY_DASHBOARD" ]; then
-        # Add or update SECURITY menu entry
-        cfg_set "if .menu.SECURITY then .menu.SECURITY.dashboard = \"$HA_SECURITY_DASHBOARD\" else .menu.SECURITY = {\"id\": \"security\", \"dashboard\": \"$HA_SECURITY_DASHBOARD\"} end"
+    # Handle embedded webpage in menu
+    if [ -n "$WEBPAGE_URL" ]; then
+        tmp=$(mktemp)
+        if jq --arg name "$WEBPAGE_NAME" --arg url "$WEBPAGE_URL" \
+            '.menu[$name] = {"url": $url}' "$CONFIG_FILE" > "$tmp"; then
+            mv "$tmp" "$CONFIG_FILE"; chmod 644 "$CONFIG_FILE"
+        else
+            rm -f "$tmp"; log_error "Failed to update config.json"
+        fi
     fi
 
     # Write token to secrets

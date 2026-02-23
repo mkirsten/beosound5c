@@ -283,30 +283,16 @@ html, body {
   transform: translateY(-30px);
 }
 
-/* Security View Styles */
-#security-container {
+/* Webpage iframe views (SECURITY, CLIMATE, etc.) */
+.webpage-container {
   background: black;
   overflow: hidden;
-  transition: opacity 0.3s ease-in-out;
+  pointer-events: none !important;
 }
 
-#security-iframe {
-  opacity: 0;
-  transition: opacity 0.8s ease-in-out;
-}
-
-#security-iframe.loaded {
-  opacity: 1;
-}
-
-/* Ensure security iframe is fully interactive */
-#security-iframe {
+.webpage-iframe {
   pointer-events: auto !important;
   z-index: 1000 !important;
-}
-
-#security-container {
-  pointer-events: none !important;
 }
 
 /* Add styles for scrollable content */

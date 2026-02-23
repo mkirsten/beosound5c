@@ -279,7 +279,7 @@ class DevLaserPositionTest:
             if (document.querySelector('#settings-container:not([style*="display: none"]), #settings-iframe')) {
                 return 'menu/settings';
             }
-            if (document.querySelector('#security-container:not([style*="display: none"]), #security-iframe')) {
+            if (document.querySelector('.webpage-container, .webpage-iframe')) {
                 return 'menu/security';
             }
             if (document.querySelector('#scenes-container:not([style*="display: none"]), #scenes-iframe')) {

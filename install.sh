@@ -14,6 +14,7 @@
 #   sudo ./install.sh configure bluetooth  Pair/re-pair BT remote
 #   sudo ./install.sh configure transport  Reconfigure webhook/MQTT
 #   sudo ./install.sh configure audio      Reconfigure volume output
+#   sudo ./install.sh configure menu       Choose which menu items to show
 #   sudo ./install.sh services             Install/restart systemd services
 #   sudo ./install.sh verify               Run verification checks
 #        ./install.sh status               Show current config + service status
@@ -101,6 +102,7 @@ source "$SCRIPT_ROOT/install/configure/bluetooth.sh"
 source "$SCRIPT_ROOT/install/configure/spotify.sh"
 source "$SCRIPT_ROOT/install/configure/transport.sh"
 source "$SCRIPT_ROOT/install/configure/audio.sh"
+source "$SCRIPT_ROOT/install/configure/menu.sh"
 source "$SCRIPT_ROOT/install/configure/generate.sh"
 source "$SCRIPT_ROOT/install/configure/wizard.sh"
 
@@ -128,6 +130,7 @@ show_help() {
     echo "  spotify            Spotify integration"
     echo "  transport          Webhook/MQTT transport"
     echo "  audio              Volume output and adapter"
+    echo "  menu               Choose which menu items to show"
     echo ""
     echo "Options:"
     echo "  --user USERNAME    Install for specified user (default: \$SUDO_USER)"
@@ -242,18 +245,8 @@ install_services() {
     if [ -f "$SERVICE_SCRIPT" ]; then
         log_info "Running service installation script..."
 
-        # Update service files with correct user if not 'kirsten'
-        if [ "$INSTALL_USER" != "kirsten" ]; then
-            log_info "Updating service files for user: $INSTALL_USER"
-            for service_file in "$INSTALL_DIR/services/system/"*.service; do
-                if [ -f "$service_file" ]; then
-                    sed -i "s|User=kirsten|User=$INSTALL_USER|g" "$service_file"
-                    sed -i "s|Group=kirsten|Group=$INSTALL_USER|g" "$service_file"
-                    sed -i "s|/home/kirsten|/home/$INSTALL_USER|g" "$service_file"
-                fi
-            done
-        fi
-
+        # Export INSTALL_USER so install-services.sh can use it for placeholder replacement
+        export INSTALL_USER
         bash "$SERVICE_SCRIPT"
         log_success "Services installed"
     else
@@ -274,6 +267,7 @@ run_system_setup() {
     harden_sd_card
     configure_x11
     install_plymouth_theme
+    install_usb_music_support
 }
 
 # =============================================================================
