@@ -72,7 +72,7 @@ SUBCOMMAND="${SUBCOMMAND:-full}"
 # =============================================================================
 # Globals
 # =============================================================================
-INSTALL_DIR="/home/$INSTALL_USER/beosound5c"
+INSTALL_DIR="$SCRIPT_ROOT"
 CONFIG_DIR="/etc/beosound5c"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 SECRETS_FILE="$CONFIG_DIR/secrets.env"

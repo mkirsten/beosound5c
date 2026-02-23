@@ -22,6 +22,8 @@ log_section() { echo -e "\n${CYAN}=== $* ===${NC}\n"; }
 
 # Display banner
 show_banner() {
+    local version
+    version=$(cat "$SCRIPT_ROOT/VERSION" 2>/dev/null || echo "unknown")
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
@@ -32,7 +34,11 @@ show_banner() {
     echo -e "${CYAN}║${NC}       ${GREEN}|____/ \\___|\\___/|____/\\___/ \\__,_|_| |_|\\__,_|${NC}      ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}                            ${YELLOW}5 c${NC}                            ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}                  ${BLUE}Installation & Setup${NC}                     ${CYAN}║${NC}"
+    local subtitle="Installation & Setup  ${version}"
+    local lpad=$(( (58 - ${#subtitle}) / 2 ))
+    local rpad=$(( 58 - lpad - ${#subtitle} ))
+    printf -v lspc "%${lpad}s" ""; printf -v rspc "%${rpad}s" ""
+    echo -e "${CYAN}║${NC}${lspc}${BLUE}Installation & Setup${NC}  ${YELLOW}${version}${NC}${rspc}${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
     echo ""
