@@ -5,13 +5,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=kirsten
-Group=kirsten
-WorkingDirectory=/home/kirsten/beosound5c/services
+User=__USER__
+Group=__USER__
+WorkingDirectory=__HOME__/beosound5c/services
 EnvironmentFile=-/etc/beosound5c/secrets.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/sources/spotify/service.py
-Restart=always
+ExecStart=/usr/bin/python3 __HOME__/beosound5c/services/sources/spotify/service.py
+Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal

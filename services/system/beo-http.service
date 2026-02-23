@@ -8,10 +8,10 @@ StartLimitBurst=3
 
 [Service]
 Type=simple
-User=kirsten
-WorkingDirectory=/home/kirsten/beosound5c/web
+User=__USER__
+WorkingDirectory=__HOME__/beosound5c/web
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /home/kirsten/beosound5c/services/http_server.py 8000
+ExecStart=/usr/bin/python3 __HOME__/beosound5c/services/http_server.py 8000
 Restart=always
 RestartSec=5
 StandardOutput=journal

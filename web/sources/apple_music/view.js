@@ -1,80 +1,36 @@
 /**
- * Apple Music Source Preset — stub
+ * Apple Music Source Preset
  *
- * Browse mode: will show library/playlist browsing (not yet implemented).
- * Playing mode: shows track info in the standard PLAYING view.
- *
- * STATUS: STUB — shows placeholder UI. Service returns errors on commands.
+ * Browse mode: softarc iframe with playlist/track browser (same as Spotify).
+ * Playing mode: shows track info in the standard PLAYING view via media_update
+ *   events from the player service (Sonos/BlueSound handles artwork).
  */
-
-const _appleMusicController = (() => {
-    const SERVICE_URL = () => window.AppConfig?.appleMusicServiceUrl || 'http://localhost:8774';
-    let _playing = false;
-
-    function sendCommand(cmd) {
-        fetch(`${SERVICE_URL()}/command`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: cmd }),
-        }).catch(() => {});
-    }
-
-    return {
-        get isActive() { return _playing; },
-
-        updateMetadata(data) {
-            _playing = (data.state === 'playing' || data.state === 'paused');
-        },
-
-        handleNavEvent(data) {
-            return false; // No browse UI yet
-        },
-
-        handleButton(button) {
-            if (!_playing) return false;
-            const cmd = { go: 'toggle', left: 'prev', right: 'next' }[button];
-            if (!cmd) return false;
-            sendCommand(cmd);
-            return true;
-        },
-    };
-})();
 
 // ── Apple Music Source Preset ──
 window.SourcePresets = window.SourcePresets || {};
 window.SourcePresets.apple_music = {
-    controller: _appleMusicController,
+    // No controller — nav/button events route to the softarc iframe via IframeMessenger
     item: { title: 'APPLE MUSIC', path: 'menu/apple_music' },
     after: 'menu/playing',
     view: {
         title: 'APPLE MUSIC',
         content: `
-            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:white;opacity:0.5;font-size:18px;">
-                Apple Music — not yet implemented
-            </div>`
+            <div id="apple-music-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+            </div>`,
+        preloadId: 'preload-apple-music'
     },
 
     onAdd() {},
-    onMount() {},
+
+    onMount() {
+        // The softarc iframe handles its own init via DOMContentLoaded
+    },
+
     onRemove() {},
 
+    // PLAYING sub-preset: use media_update from beo-player-sonos (handles artwork perfectly)
+    // When Sonos is the output, beo-player-sonos polls and broadcasts artwork/metadata.
     playing: {
-        eventType: 'apple_music_update',
-
-        onUpdate(container, data) {
-            const titleEl = container.querySelector('.media-view-title');
-            const artistEl = container.querySelector('.media-view-artist');
-            const albumEl = container.querySelector('.media-view-album');
-            if (titleEl) crossfadeText(titleEl, data.title || '—');
-            if (artistEl) crossfadeText(artistEl, data.artist || '—');
-            if (albumEl) crossfadeText(albumEl, data.album || '—');
-            const img = container.querySelector('.playing-artwork');
-            if (img && window.ArtworkManager) {
-                window.ArtworkManager.displayArtwork(img, data.artwork, 'noArtwork');
-            }
-        },
-
-        onMount(container) {},
-        onRemove(container) {}
+        eventType: 'media_update'
     }
 };

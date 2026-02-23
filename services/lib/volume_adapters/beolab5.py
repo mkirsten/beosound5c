@@ -116,6 +116,9 @@ class BeoLab5Volume(VolumeAdapter):
         except Exception as e:
             logger.warning("Could not power off BeoLab 5: %s", e)
 
+    def is_on_cached(self) -> bool | None:
+        return self._power_cache
+
     async def is_on(self) -> bool:
         now = asyncio.get_event_loop().time()
         if self._power_cache is not None and (now - self._power_cache_time) < self._power_cache_ttl:

@@ -2,10 +2,10 @@
 """
 Fetch all Spotify playlists for the authenticated user.
 Auto-detects digit playlists by name pattern (e.g., "5: Dinner" -> digit 5).
-Run via cron or beo-spotify service to keep playlists updated.
+Run via cron or beo-source-spotify service to keep playlists updated.
 
 Token source: auth.get_access_token() (PKCE token store or env vars).
-Can also receive --access-token from the beo-spotify service.
+Can also receive --access-token from the beo-source-spotify service.
 """
 
 import json
@@ -167,7 +167,7 @@ def main():
         if idx + 1 < len(sys.argv):
             output_file = sys.argv[idx + 1]
 
-    # Parse --access-token <token> argument (passed by beo-spotify service)
+    # Parse --access-token <token> argument (passed by beo-source-spotify service)
     access_token = None
     if '--access-token' in sys.argv:
         idx = sys.argv.index('--access-token')

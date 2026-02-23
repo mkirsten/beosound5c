@@ -15,6 +15,7 @@ fi
 # Define service files
 SERVICES=(
     "beo-ui.service"
+    "beo-source-spotify.service"
     "beo-source-news.service"
     "beo-source-usb.service"
     "beo-source-cd.service"

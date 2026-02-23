@@ -846,7 +846,7 @@
             {
                 id: 'spotify',
                 title: 'SPOTIFY',
-                service: 'beo-spotify',
+                service: 'beo-source-spotify',
                 fetch: async () => {
                     const resp = await fetch('http://localhost:8771/status');
                     if (!resp.ok) throw new Error('offline');

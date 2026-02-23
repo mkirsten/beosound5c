@@ -45,7 +45,6 @@ const LASER_MAPPING_CONFIG = (function() {
             { title: 'PLAYING', path: 'menu/playing' },
             { title: 'SPOTIFY', path: 'menu/spotify' },
             { title: 'SCENES', path: 'menu/scenes' },
-            { title: 'SECURITY', path: 'menu/security' },
             { title: 'SYSTEM', path: 'menu/system' },
             { title: 'SHOWING', path: 'menu/showing' }
         ],

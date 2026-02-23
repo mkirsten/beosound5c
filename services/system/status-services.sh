@@ -17,6 +17,7 @@ SERVICES=(
     "beo-bluetooth.service"
     "beo-source-cd.service"
     "beo-source-usb.service"
+    "beo-source-spotify.service"
     "beo-source-news.service"
     "beo-ui.service"
 )
@@ -32,6 +33,7 @@ SERVICE_DESC["beo-masterlink.service"]="MasterLink Sniffer"
 SERVICE_DESC["beo-bluetooth.service"]="Bluetooth Remote Service"
 SERVICE_DESC["beo-source-cd.service"]="CD Source (Port 8769)"
 SERVICE_DESC["beo-source-usb.service"]="USB File Source (Port 8773)"
+SERVICE_DESC["beo-source-spotify.service"]="Spotify Source (Port 8771)"
 SERVICE_DESC["beo-source-news.service"]="News Source (Port 8776)"
 SERVICE_DESC["beo-ui.service"]="Chromium UI Kiosk"
 

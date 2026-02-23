@@ -39,6 +39,8 @@ import sys
 
 from aiohttp import web, ClientSession
 
+from .config import cfg
+
 log = logging.getLogger()
 
 INPUT_WEBHOOK_URL = "http://localhost:8767/webhook"
@@ -60,8 +62,9 @@ class SourceBase:
 
     # ── Router registration ──
 
-    async def register(self, state, navigate=False, _retries=5):
-        """Register / update source state in the router."""
+    async def register(self, state, navigate=False, auto_power=False, _retries=5):
+        """Register / update source state in the router.
+        auto_power: request speaker power-on (only for user-initiated playback)."""
         payload = {"id": self.id, "state": state}
         if state not in ("gone",):
             payload.update({
@@ -73,6 +76,8 @@ class SourceBase:
             })
         if navigate:
             payload["navigate"] = True
+        if auto_power:
+            payload["auto_power"] = True
         for attempt in range(_retries):
             try:
                 async with self._http_session.post(
@@ -185,6 +190,21 @@ class SourceBase:
 
     async def start(self):
         """Create the aiohttp app, register routes, start listening."""
+        # Menu guard — exit cleanly if this source isn't in config
+        menu = cfg("menu") or {}
+        menu_ids = set()
+        for v in menu.values():
+            if isinstance(v, str):
+                menu_ids.add(v)
+            elif isinstance(v, dict) and "id" in v:
+                menu_ids.add(v["id"])
+        if menu_ids and self.id not in menu_ids:
+            log.info("Source %s not in config menu — exiting", self.id)
+            from .watchdog import sd_notify
+            sd_notify("READY=1\nSTATUS=Source not in menu, exiting")
+            sd_notify("STOPPING=1")
+            sys.exit(0)
+
         app = web.Application()
         app.router.add_get("/status", self._handle_status_route)
         app.router.add_post("/command", self._handle_command_route)

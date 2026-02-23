@@ -24,8 +24,8 @@ clients = set()
 # Unified transport for HA communication (webhook, MQTT, or both)
 transport = Transport()
 
-# Base path for BeoSound 5c installation (from env or default)
-BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', '/home/kirsten/beosound5c')
+# Base path for BeoSound 5c installation (from env, or derive from script location)
+BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Media server connection
 MEDIA_SERVER_URL = 'ws://localhost:8766/ws'
@@ -375,7 +375,7 @@ def restart_service(action: str):
         if action == 'reboot':
             subprocess.Popen(['sudo', 'reboot'])
         elif action == 'restart-all':
-            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-player-sonos', 'beo-source-cd', 'beo-input', 'beo-http', 'beo-ui'])
+            subprocess.Popen(['sudo', 'systemctl', 'restart', 'beo-masterlink', 'beo-bluetooth', 'beo-router', 'beo-player-sonos', 'beo-source-cd', 'beo-source-spotify', 'beo-input', 'beo-http', 'beo-ui'])
         elif action.startswith('restart-'):
             service = 'beo-' + action.replace('restart-', '')
             # CD source: eject disc first, use correct service name

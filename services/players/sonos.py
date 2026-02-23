@@ -256,8 +256,8 @@ class MediaServer(PlayerBase):
                     if len(parts) == 3:
                         uri = f"https://open.spotify.com/{parts[1]}/{parts[2]}"
 
-                # Use ShareLink for Spotify URLs
-                if "open.spotify.com" in uri:
+                # Use ShareLink for Spotify / Apple Music URLs
+                if "open.spotify.com" in uri or "music.apple.com" in uri:
                     share_link = ShareLinkPlugin(coordinator)
                     # Pause first to prevent auto-play when adding to empty queue
                     if track_uri:

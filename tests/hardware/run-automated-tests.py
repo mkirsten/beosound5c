@@ -183,7 +183,7 @@ class AutomatedTestRunner:
                 return "menu/settings"
                 
             # Check for Security/Camera view
-            elif self._element_exists(driver, "#security-container, #security-iframe"):
+            elif self._element_exists(driver, ".webpage-container, .webpage-iframe"):
                 return "menu/security"
                 
             # Check for Scenes view

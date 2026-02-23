@@ -127,13 +127,13 @@ function handleExternalNavigation(uiStore, data) {
         'playing': 'menu/playing',
         'spotify': 'menu/spotify',
         'scenes': 'menu/scenes',
-        'security': 'menu/security',
         'system': 'menu/system',
         'showing': 'menu/showing',
         'home': 'menu/home'
     };
 
-    const route = pageRoutes[page] || page;
+    // Explicit mapping first, then auto-prefix bare names with "menu/"
+    const route = pageRoutes[page] || (page.startsWith('menu/') ? page : `menu/${page}`);
 
     if (uiStore.navigateToView) {
         uiStore.navigateToView(route);

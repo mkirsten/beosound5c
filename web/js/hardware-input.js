@@ -193,6 +193,16 @@ function routeNavToView(page, data, uiStore) {
         return true;
     }
 
+    // Webpage iframe — scroll the page, never move the laser
+    const webpageIframe = document.querySelector('#contentArea .webpage-iframe');
+    if (webpageIframe) {
+        try {
+            const scrollAmount = (data.direction === 'clock' ? 1 : -1) * 120;
+            webpageIframe.contentWindow.scrollBy(0, scrollAmount);
+        } catch (e) { /* cross-origin — scroll not possible, just consume */ }
+        return true;
+    }
+
     return false;
 }
 
@@ -299,7 +309,7 @@ function handleVolumeEvent(uiStore, data) {
         volumeHideTimer = setTimeout(() => {
             overlay.classList.remove('visible');
             volumeHideTimer = null;
-        }, 500);
+        }, 1000);
     }
 
     sendVolumeToRouter(currentVolume);
@@ -352,6 +362,12 @@ function routeButtonToView(page, button, uiStore) {
         if (uiStore.activeSource) {
             const ctrl = window.SourcePresets?.[uiStore.activeSource]?.controller;
             if (ctrl?.isActive && ctrl.handleButton && ctrl.handleButton(button)) return true;
+            // Source didn't handle it — map to playback actions via router
+            const playbackAction = { go: 'go', left: 'left', right: 'right' }[button];
+            if (playbackAction) {
+                sendToRouter(playbackAction);
+                return true;
+            }
         }
         if (window.EmulatorBridge?.isInEmulator) {
             const action = { left: 'prev_track', right: 'next_track', go: 'toggle_playback' }[button];
@@ -372,7 +388,24 @@ function routeButtonToView(page, button, uiStore) {
         return true;
     }
 
-    return false; // no view handler — webhook fallback
+    // Webpage views: buttons fall through to HA webhook (gate/lock, etc.)
+    return false;
+}
+
+// ── Router ──
+
+function sendToRouter(action) {
+    const payload = {
+        device_type: 'Audio',
+        device_name: AppConfig.deviceName || 'unknown',
+        action: action
+    };
+    console.log(`[ROUTER] Sending action: ${action}`);
+    fetch(`${AppConfig.routerUrl}/router/event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    }).catch(e => console.warn('[ROUTER] Send failed:', e));
 }
 
 // ── Webhooks ──
@@ -429,12 +462,12 @@ document.addEventListener('DOMContentLoaded', () => {
             #viewport { cursor: auto !important; }
             .list-item { cursor: pointer !important; }
             .flow-item { cursor: pointer !important; }
-            iframe, #security-iframe { cursor: auto !important; pointer-events: auto !important; z-index: 1000 !important; }
+            iframe, .webpage-iframe { cursor: auto !important; pointer-events: auto !important; z-index: 1000 !important; }
         `;
     } else {
         style.textContent = `
-            *, iframe, #security-iframe { cursor: none !important; }
-            iframe, #security-iframe { pointer-events: auto !important; z-index: 1000 !important; }
+            *, iframe, .webpage-iframe { cursor: none !important; }
+            iframe, .webpage-iframe { pointer-events: auto !important; z-index: 1000 !important; }
         `;
         console.log('[CURSOR] Mouse cursor hidden');
     }
@@ -461,14 +494,4 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Debug click events on security iframe
-    document.addEventListener('click', (e) => {
-        const securityIframe = document.getElementById('security-iframe');
-        if (securityIframe) {
-            console.log(`[CLICK DEBUG] Click on:`, e.target.tagName, e.target.id || 'no-id');
-            if (e.target === securityIframe || e.target.closest('#security-iframe')) {
-                console.log(`[CLICK DEBUG] Security iframe clicked!`);
-            }
-        }
-    }, true);
 });

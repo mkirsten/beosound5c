@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pkce import refresh_access_token
 from tokens import load_tokens, save_tokens
 
-log = logging.getLogger('beo-spotify')
+log = logging.getLogger('beo-source-spotify')
 
 
 def get_access_token():

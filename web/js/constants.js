@@ -70,11 +70,10 @@ const Constants = {
         logThrottle: 1000
     },
 
-    // Menu items (static views only — dynamic sources like Spotify, CD are added by the router)
+    // Menu items (static views only — dynamic sources and webpages are added by the router)
     menuItems: [
         { title: 'PLAYING', path: 'menu/playing' },
         { title: 'SCENES', path: 'menu/scenes' },
-        { title: 'SECURITY', path: 'menu/security' },
         { title: 'SYSTEM', path: 'menu/system' },
         { title: 'SHOWING', path: 'menu/showing' }
     ],

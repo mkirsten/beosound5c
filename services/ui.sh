@@ -124,7 +124,11 @@ xinit /bin/bash -c '
       fi
     ) &
 
-    /usr/bin/chromium-browser \
+    # Chromium binary: 'chromium-browser' (Bullseye) or 'chromium' (Bookworm+)
+    CHROMIUM_BIN="/usr/bin/chromium-browser"
+    [ -x "$CHROMIUM_BIN" ] || CHROMIUM_BIN="/usr/bin/chromium"
+
+    "$CHROMIUM_BIN" \
       --user-data-dir="$CHROMIUM_DATA_DIR" \
       --force-dark-mode \
       --enable-features=WebUIDarkMode \

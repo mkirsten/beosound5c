@@ -1,0 +1,20 @@
+[Unit]
+Description=BeoSound5c Apple Music Source (playlists, playback control, MusicKit API)
+After=network-online.target beo-input.service beo-router.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__HOME__/beosound5c/services
+EnvironmentFile=-/etc/beosound5c/secrets.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 __HOME__/beosound5c/services/sources/apple_music/service.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

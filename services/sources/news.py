@@ -73,8 +73,8 @@ class NewsService(SourceBase):
     async def on_start(self):
         self._api_key = cfg("news", "guardian_api_key", default="")
         if not self._api_key:
-            log.error("No guardian_api_key in config — refusing to start")
-            raise SystemExit(1)
+            log.info("No guardian_api_key in config — news source disabled")
+            raise SystemExit(0)
 
         log.info("Guardian API key configured, starting article fetch loop")
         await self.register("available")
