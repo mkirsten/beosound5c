@@ -4,7 +4,7 @@ A modern recreation of the Bang & Olufsen BeoSound 5 experience using web techno
 
 **Website: [www.beosound5c.com](https://www.beosound5c.com)**
 
-This project replaces the original BeoSound 5 software with a circular arc-based touch UI that integrates with Sonos players, Spotify, and Home Assistant. It works with the original BS5 hardware (rotary encoder, laser pointer, display) and supports BeoRemote One for wireless control.
+This project replaces the original BeoSound 5 software with a circular arc-based touch UI that integrates with Sonos players, music services (Spotify, Apple Music, TIDAL, Plex), and Home Assistant. It works with the original BS5 hardware (rotary encoder, laser pointer, display) and supports BeoRemote One for wireless control.
 
 I built this for my own setup, but it runs daily on multiple BeoSound 5 units. Your setup may require some configuration — particularly for Home Assistant integration.
 
@@ -74,6 +74,9 @@ The installer creates this interactively during setup. Here's a minimal example:
   "menu": {
     "PLAYING": "playing",
     "SPOTIFY": "spotify",
+    "APPLE MUSIC": "apple_music",
+    "TIDAL": "tidal",
+    "PLEX": "plex",
     "SCENES": "scenes",
     "SYSTEM": "system"
   },
@@ -113,8 +116,14 @@ Credentials live separately in `/etc/beosound5c/secrets.env` (created by the ins
 |---------|------|-------------|
 | `beo-input` | [`services/input.py`](services/input.py) | USB HID driver for BS5 rotary encoder, buttons, and laser pointer |
 | `beo-router` | [`services/router.py`](services/router.py) | Event router: dispatches remote events to HA or the active source, controls volume |
-| `beo-player-sonos` | [`services/players/sonos.py`](services/players/sonos.py) | Sonos player monitor: artwork, metadata, volume reporting |
+| `beo-player-sonos` | [`services/players/sonos.py`](services/players/sonos.py) | Sonos player: artwork, metadata, playback commands, volume reporting |
+| `beo-player-bluesound` | [`services/players/bluesound.py`](services/players/bluesound.py) | BluOS player: long-poll monitoring, HTTP/XML transport controls |
+| `beo-source-spotify` | [`services/sources/spotify/service.py`](services/sources/spotify/service.py) | Spotify: PKCE OAuth, playlist browsing, playback via player or Web API |
+| `beo-source-apple-music` | [`services/sources/apple_music/service.py`](services/sources/apple_music/service.py) | Apple Music: MusicKit API browsing and playback |
+| `beo-source-tidal` | [`services/sources/tidal/service.py`](services/sources/tidal/service.py) | TIDAL: tidalapi OAuth, playlist browsing and playback |
+| `beo-source-plex` | [`services/sources/plex/service.py`](services/sources/plex/service.py) | Plex: PIN-based OAuth, playlist/album browsing, source-managed playback |
 | `beo-source-cd` | [`services/sources/cd.py`](services/sources/cd.py) | CD player: disc detection, MusicBrainz metadata, mpv playback |
+| `beo-source-usb` | [`services/sources/usb.py`](services/sources/usb.py) | USB file playback from mounted drives |
 | `beo-masterlink` | [`services/masterlink.py`](services/masterlink.py) | USB sniffer for B&O IR and MasterLink bus commands |
 | `beo-bluetooth` | [`services/bluetooth.py`](services/bluetooth.py) | HID service for BeoRemote One wireless control |
 | `beo-http` | — | Simple HTTP server for static files |
@@ -135,7 +144,7 @@ Each BS5c is configured with one audio output. The installer asks you to choose 
 | RCA | DAC HAT with RCA out |
 | AirPlay | Any AirPlay-compatible speaker |
 
-Sources (CD, USB, Spotify, Demo) register with the router and appear in the menu automatically. The remote's media keys are forwarded to whichever source is currently active.
+Sources (Spotify, Apple Music, TIDAL, Plex, CD, USB) register with the router and appear in the menu. The remote's media keys are forwarded to whichever source is currently active. When no source is active, transport keys (play/pause/next/prev) are forwarded directly to the player.
 
 For details on each output, playback modes, sources, and volume adapters, see **[Audio Setup Options](docs/audio-setup.md)**.
 
@@ -147,13 +156,19 @@ config/                     # Per-device configuration
 ├── secrets.env.example     #   Credentials template
 └── <device>.json           #   One per device (deployed to /etc/beosound5c/)
 services/                   # Backend services
-├── sources/                # Content providers (register with router)
-│   ├── cd.py               #   CD player (beo-cd-source)
-│   ├── spotify.py          #   Spotify source (beo-source-spotify)
-│   └── usb.py              #   USB file playback (beo-usb-source)
-├── players/                # External playback monitors
-│   └── sonos.py            #   Sonos monitor (beo-sonos)
+├── sources/                # Music sources (register with router)
+│   ├── spotify/            #   Spotify (PKCE OAuth, Web API)
+│   ├── apple_music/        #   Apple Music (MusicKit API)
+│   ├── tidal/              #   TIDAL (tidalapi OAuth)
+│   ├── plex/               #   Plex (PIN-based OAuth, direct stream URLs)
+│   ├── cd.py               #   CD player (disc detect, MusicBrainz, mpv)
+│   └── usb.py              #   USB file playback
+├── players/                # External playback backends
+│   ├── sonos.py            #   Sonos (SoCo, ShareLink, artwork)
+│   └── bluesound.py        #   BluOS (HTTP/XML, long-poll)
 ├── lib/
+│   ├── player_base.py      # Abstract player base class
+│   ├── source_base.py      # Abstract source base class
 │   ├── volume_adapters/    # Pluggable volume output control
 │   │   ├── beolab5.py      #   BeoLab 5 via controller REST API
 │   │   ├── sonos.py        #   Sonos via SoCo
@@ -172,7 +187,8 @@ services/                   # Backend services
 web/                        # Web UI (HTML, CSS, JavaScript)
 ├── js/                     # UI logic, hardware emulation
 ├── json/                   # Scenes, settings, playlists
-└── softarc/                # Arc-based navigation subpages
+├── softarc/                # Arc-based navigation subpages
+└── sources/                # Source view presets
 tools/                      # Spotify OAuth, USB debugging, BLE testing
 ```
 
