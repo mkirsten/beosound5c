@@ -610,7 +610,15 @@ class PC2Device:
 
     async def _start_mixer_http(self):
         """Start the mixer HTTP API server (non-blocking)."""
-        app = web.Application()
+        @web.middleware
+        async def cors_middleware(request, handler):
+            if request.method == "OPTIONS":
+                return web.Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type"})
+            resp = await handler(request)
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            return resp
+
+        app = web.Application(middlewares=[cors_middleware])
         app.router.add_post('/mixer/volume', self._handle_mixer_volume)
         app.router.add_post('/mixer/power', self._handle_mixer_power)
         app.router.add_post('/mixer/mute', self._handle_mixer_mute)

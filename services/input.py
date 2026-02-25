@@ -697,6 +697,14 @@ async def process_command(data: dict) -> dict:
 
 async def handle_webhook(request):
     """Handle incoming webhook requests from Home Assistant (HTTP)."""
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        return web.Response(headers={
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+        })
+
     try:
         data = await request.json()
         logger.info('Webhook received: %s', data)
@@ -704,13 +712,19 @@ async def handle_webhook(request):
         result = await process_command(data)
 
         status_code = 400 if result.get('status') == 'error' else 200
-        return web.json_response(result, status=status_code)
+        response = web.json_response(result, status=status_code)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
 
     except json.JSONDecodeError:
-        return web.json_response({'status': 'error', 'message': 'Invalid JSON'}, status=400)
+        response = web.json_response({'status': 'error', 'message': 'Invalid JSON'}, status=400)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
     except Exception as e:
         logger.error('Webhook error: %s', e)
-        return web.json_response({'status': 'error', 'message': str(e)}, status=500)
+        response = web.json_response({'status': 'error', 'message': str(e)}, status=500)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
 
 
 async def handle_mqtt_command(data: dict):
@@ -1042,7 +1056,6 @@ def scan_loop(loop):
     dev.open(VID, PID)
     dev.set_nonblocking(True)
     logger.info("Opened BS5 @ VID:PID=%04x:%04x", VID, PID)
-
     last_laser = None
     first = True
 
@@ -1137,6 +1150,7 @@ async def main():
     # Start HTTP webhook server
     app = web.Application()
     app.router.add_post('/webhook', handle_webhook)
+    app.router.add_options('/webhook', handle_webhook)  # CORS preflight
     app.router.add_post('/forward', handle_forward)
     app.router.add_options('/forward', handle_forward)  # CORS preflight
     app.router.add_get('/appletv', handle_appletv)
@@ -1170,6 +1184,7 @@ async def main():
             sd_notify("WATCHDOG=1")
             await asyncio.sleep(20)
         logger.error("HID thread dead — stopping watchdog, systemd will restart us")
+        os._exit(1)  # fast exit so systemd restarts immediately
     asyncio.create_task(guarded_watchdog())
 
     try:
