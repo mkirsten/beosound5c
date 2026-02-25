@@ -369,6 +369,12 @@ function routeButtonToView(page, button, uiStore) {
                 return true;
             }
         }
+        // Fallback: no active source — send transport commands directly to player
+        const playerAction = { go: 'toggle', left: 'prev', right: 'next' }[button];
+        if (playerAction) {
+            sendToPlayer(playerAction);
+            return true;
+        }
         if (window.EmulatorBridge?.isInEmulator) {
             const action = { left: 'prev_track', right: 'next_track', go: 'toggle_playback' }[button];
             if (action) { window.EmulatorBridge.notifyPlaybackControl(action); return true; }
@@ -406,6 +412,15 @@ function sendToRouter(action) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
     }).catch(e => console.warn('[ROUTER] Send failed:', e));
+}
+
+function sendToPlayer(action) {
+    console.log(`[PLAYER] Direct send: ${action}`);
+    fetch(`${AppConfig.playerUrl}/player/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+    }).catch(e => console.warn('[PLAYER] Direct send failed:', e));
 }
 
 // ── Webhooks ──

@@ -601,7 +601,15 @@ class SpotifyService(SourceBase):
                     "Tap the button below to authorize BeoSound 5c to access your Spotify playlists.")
             cred_html = f'''
             <div class="step">
-                <div class="step-title"><span class="step-number">1</span>{heading}</div>
+                <div class="step-title"><span class="step-number">1</span>Verify redirect URI</div>
+                <div class="step-content">
+                    <p>Make sure this redirect URI is registered in your
+                    <a href="https://developer.spotify.com/dashboard" target="_blank">Spotify app settings</a>:</p>
+                    <div class="uri-box">{redirect_uri}</div>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-title"><span class="step-number">2</span>{heading}</div>
                 <div class="step-content">
                     <p>{desc}</p>
                     <a href="/start-auth?client_id={client_id}" class="submit-btn">{label}</a>

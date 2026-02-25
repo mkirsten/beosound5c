@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PLEX - Beosound 5c</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../assets/phosphor/phosphor.css">
+    <style>
+        .splash-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+        }
+        .splash-card {
+            text-align: center;
+            color: #999;
+            font-family: 'Helvetica Neue', sans-serif;
+        }
+        .splash-card h2 {
+            color: #fff;
+            font-size: 22px;
+            font-weight: 300;
+            letter-spacing: 2px;
+            margin-bottom: 16px;
+        }
+        .splash-card p {
+            font-size: 14px;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+        .setup-qr {
+            margin: 0 auto 16px;
+            background: #fff;
+            padding: 12px;
+            border-radius: 8px;
+            display: inline-block;
+        }
+        .setup-url {
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 13px;
+            color: #666;
+            word-break: break-all;
+        }
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 3px solid #333;
+            border-top-color: #E5A00D;
+            border-radius: 50%;
+            margin: 0 auto 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="counter">
+            <span id="current-item">1</span> / <span id="total-items">100</span>
+        </div>
+        <div class="hierarchy-depth-1" id="hierarchy-background"></div>
+        <div class="arc-container" id="arc-container"></div>
+    </div>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/arc-utils.js"></script>
+    <script src="../js/emulator-bridge.js"></script>
+    <script src="../assets/qrcode.min.js"></script>
+    <script src="script.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const PLEX_URL = (typeof AppConfig !== 'undefined' && AppConfig.plexServiceUrl)
+                || 'http://localhost:8778';
+
+            // Check Plex service state
+            try {
+                const resp = await fetch(`${PLEX_URL}/playlists`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.setup_needed) {
+                        showSetupScreen(PLEX_URL);
+                        return;
+                    }
+                    if (data.loading) {
+                        showLoadingScreen();
+                        return;
+                    }
+                    if (Array.isArray(data) && data.length === 0) {
+                        showEmptyScreen();
+                        return;
+                    }
+                }
+            } catch (e) {
+                // Service unavailable — fall through to local JSON
+            }
+
+            // Normal playlist browsing — load from API
+            initArcList(PLEX_URL + '/playlists');
+        });
+
+        function showSetupScreen(serviceUrl) {
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="splash-screen">
+                    <div class="splash-card">
+                        <h2>CONNECT PLEX</h2>
+                        <p>Press GO to start the Plex login process</p>
+                        <div id="setup-qr" class="setup-qr" style="display:none"></div>
+                        <div id="setup-url" class="setup-url"></div>
+                        <div id="setup-status" style="color:#666;font-size:13px;margin-top:12px"></div>
+                    </div>
+                </div>`;
+
+            let loginStarted = false;
+
+            // Listen for GO button from iframe messenger
+            window.addEventListener('message', async (e) => {
+                if (e.data && e.data.type === 'button' && e.data.button === 'go' && !loginStarted) {
+                    loginStarted = true;
+                    await startLogin(serviceUrl);
+                }
+            });
+
+            // Also auto-start the login
+            startLogin(serviceUrl);
+        }
+
+        async function startLogin(serviceUrl) {
+            const statusEl = document.getElementById('setup-status');
+            const urlEl = document.getElementById('setup-url');
+            const qrEl = document.getElementById('setup-qr');
+
+            statusEl.textContent = 'Starting login...';
+
+            try {
+                const resp = await fetch(`${serviceUrl}/start-login`, { method: 'POST' });
+                const data = await resp.json();
+                if (data.error) {
+                    statusEl.textContent = 'Error: ' + data.error;
+                    return;
+                }
+
+                const url = data.url;
+                urlEl.textContent = url;
+
+                // Show QR code
+                if (typeof QRCode !== 'undefined') {
+                    qrEl.style.display = 'inline-block';
+                    qrEl.innerHTML = '';
+                    new QRCode(qrEl, {
+                        text: url,
+                        width: 180,
+                        height: 180,
+                        colorDark: '#000000',
+                        colorLight: '#ffffff',
+                        correctLevel: QRCode.CorrectLevel.M
+                    });
+                }
+
+                statusEl.textContent = 'Scan QR code or open URL on your phone';
+
+                // Poll for completion
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const check = await fetch(`${serviceUrl}/check-login`, { method: 'POST' });
+                        const result = await check.json();
+                        if (result.status === 'ok') {
+                            clearInterval(pollInterval);
+                            statusEl.textContent = 'Connected! Loading playlists...';
+                            // Wait for playlists then reload
+                            pollForPlaylists();
+                        } else if (result.status === 'expired') {
+                            clearInterval(pollInterval);
+                            statusEl.textContent = 'Login expired. Press GO to try again.';
+                            qrEl.style.display = 'none';
+                            urlEl.textContent = '';
+                        }
+                    } catch (e) { /* keep polling */ }
+                }, 3000);
+            } catch (e) {
+                statusEl.textContent = 'Error: ' + e.message;
+            }
+        }
+
+        function showEmptyScreen() {
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="splash-screen">
+                    <div class="splash-card">
+                        <h2>NO PLAYLISTS</h2>
+                        <p>Your Plex server has no audio playlists or albums.<br>
+                        Add music to your Plex library, then come back here.</p>
+                    </div>
+                </div>`;
+
+            pollForPlaylists();
+        }
+
+        function showLoadingScreen() {
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="splash-screen">
+                    <div class="splash-card">
+                        <div class="loading-spinner"></div>
+                        <h2>LOADING PLAYLISTS</h2>
+                        <p>Fetching your Plex library...</p>
+                    </div>
+                </div>`;
+
+            pollForPlaylists();
+        }
+
+        function pollForPlaylists() {
+            const PLEX_URL = (typeof AppConfig !== 'undefined' && AppConfig.plexServiceUrl)
+                || 'http://localhost:8778';
+            const poll = setInterval(async () => {
+                try {
+                    const resp = await fetch(`${PLEX_URL}/playlists`);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data.loading && !document.querySelector('.loading-spinner')) {
+                            clearInterval(poll);
+                            showLoadingScreen();
+                            return;
+                        }
+                        if (Array.isArray(data) && data.length > 0) {
+                            clearInterval(poll);
+                            location.reload();
+                        }
+                    }
+                } catch (e) { /* keep polling */ }
+            }, 3000);
+        }
+
+        function initArcList(dataUrl) {
+            const plexConfig = {
+                dataSource: dataUrl || '../json/plex_playlists.json',
+                dataType: 'parent_child',
+                viewMode: 'hierarchical',
+                parentKey: 'tracks',
+                parentNameKey: 'name',
+                storagePrefix: 'plex_arclist',
+                title: 'PLEX',
+                context: 'plex',
+                sourceCommandUrl: ((typeof AppConfig !== 'undefined' && AppConfig.plexServiceUrl) || 'http://localhost:8778') + '/command',
+                childNameMapper: (track, index, allTracks) => {
+                    const allSameArtist = allTracks && allTracks.every(t => t.artist === allTracks[0].artist);
+                    let displayName;
+                    if (allSameArtist) {
+                        displayName = track.name;
+                    } else {
+                        displayName = `${track.name}\n(${track.artist})`;
+                    }
+                    return {
+                        id: track.id,
+                        name: displayName,
+                        image: track.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzMzMzMzIi8+Cjx0ZXh0IHg9IjMyIiB5PSI0MCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7imqo8L3RleHQ+Cjwvc3ZnPgo='
+                    };
+                }
+            };
+
+            const arcList = new ArcList(plexConfig);
+            window.arcListInstance = arcList;
+        }
+    </script>
+</body>
+</html>

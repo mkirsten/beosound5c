@@ -458,6 +458,24 @@ class EventRouter:
             await self._forward_to_source(active, payload)
             return
 
+        # 1b. No active source, Audio mode, transport action → forward to player directly
+        _TRANSPORT_ACTIONS = {
+            "go": "toggle", "left": "prev", "right": "next",
+            "play": "toggle", "pause": "pause", "next": "next", "prev": "prev",
+        }
+        if device_type == "Audio" and not active and action in _TRANSPORT_ACTIONS:
+            player_action = _TRANSPORT_ACTIONS[action]
+            logger.info("-> player direct: %s (no active source)", player_action)
+            try:
+                async with self._session.post(
+                    f"http://localhost:8766/player/{player_action}",
+                    timeout=aiohttp.ClientTimeout(total=1.0),
+                ) as resp:
+                    logger.debug("Player responded: HTTP %d", resp.status)
+            except Exception as e:
+                logger.warning("Player direct send failed: %s", e)
+            return
+
         # 2. Action matches a registered source id? (e.g., "cd" button)
         source_by_action = self.registry.get(action)
         if source_by_action and source_by_action.state != "gone" and source_by_action.command_url:

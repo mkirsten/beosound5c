@@ -8,6 +8,7 @@
     "SPOTIFY": "spotify",
     "APPLE MUSIC": "apple_music",
     "TIDAL": "tidal",
+    "PLEX": "plex",
     "NEWS": "news",
     "SCENES": "scenes",
     "SECURITY": { "url": "softarc/security.html" },

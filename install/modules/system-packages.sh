@@ -11,9 +11,10 @@ install_system_packages() {
 
     log_info "Installing X11 and display packages..."
     # Chromium package name varies: 'chromium-browser' (Bullseye) vs 'chromium' (Bookworm+)
-    local CHROMIUM_PKG="chromium-browser"
-    if ! apt-cache show chromium-browser &>/dev/null; then
-        CHROMIUM_PKG="chromium"
+    local CHROMIUM_PKG="chromium"
+    if apt-cache policy chromium-browser 2>/dev/null | grep -q 'Candidate:' && \
+       ! apt-cache policy chromium-browser 2>/dev/null | grep -q 'Candidate: (none)'; then
+        CHROMIUM_PKG="chromium-browser"
     fi
     apt-get install -y --no-install-recommends \
         xserver-xorg \

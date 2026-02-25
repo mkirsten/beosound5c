@@ -297,6 +297,7 @@ class PlayerBase:
         app.router.add_post("/player/next", self._handle_next)
         app.router.add_post("/player/prev", self._handle_prev)
         app.router.add_post("/player/stop", self._handle_stop)
+        app.router.add_post("/player/toggle", self._handle_toggle)
         app.router.add_get("/player/state", self._handle_state)
         app.router.add_get("/player/capabilities", self._handle_capabilities)
         app.router.add_get("/player/status", self._handle_status)
@@ -424,6 +425,15 @@ class PlayerBase:
 
     async def _handle_stop(self, request: web.Request) -> web.Response:
         ok = await self.stop()
+        return web.json_response(
+            {"status": "ok" if ok else "error"},
+            headers=self._cors_headers())
+
+    async def _handle_toggle(self, request: web.Request) -> web.Response:
+        if self._current_playback_state == "playing":
+            ok = await self.pause()
+        else:
+            ok = await self.resume()
         return web.json_response(
             {"status": "ok" if ok else "error"},
             headers=self._cors_headers())

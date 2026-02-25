@@ -26,6 +26,7 @@ SERVICES=(
     "beo-source-spotify.service"
     "beo-source-apple-music.service"
     "beo-source-tidal.service"
+    "beo-source-plex.service"
     "beo-source-usb.service"
     "beo-source-news.service"
     "beo-ui.service"
@@ -269,6 +270,14 @@ if menu_has "TIDAL"; then
 else
     echo "  ⏭️  TIDAL not in menu — skipping beo-source-tidal"
     disable_service beo-source-tidal.service
+fi
+
+if menu_has "PLEX"; then
+    echo "  🎵 Starting Plex source..."
+    start_service beo-source-plex.service
+else
+    echo "  ⏭️  PLEX not in menu — skipping beo-source-plex"
+    disable_service beo-source-plex.service
 fi
 
 if menu_has "USB"; then

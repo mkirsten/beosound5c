@@ -31,11 +31,17 @@ const AppConfig = {
     // TIDAL source
     tidalServiceUrl: 'http://localhost:8777',
 
+    // Plex source
+    plexServiceUrl: 'http://localhost:8778',
+
     // USB file source
     usbServiceUrl: 'http://localhost:8773',
 
     // News source (Guardian)
     newsServiceUrl: 'http://localhost:8776',
+
+    // Player service (Sonos/BlueSound — for direct transport commands)
+    playerUrl: 'http://localhost:8766',
 
     // WebSocket endpoints (browser connects to same host as web UI)
     websocket: {
