@@ -47,7 +47,7 @@ class BeoLab5Volume(VolumeAdapter):
             self._debounce_ms / 1000, lambda: asyncio.ensure_future(self._flush())
         )
 
-    async def get_volume(self) -> float:
+    async def get_volume(self) -> float | None:
         try:
             async with self._session.get(
                 f"{self._base}/number/volume",
@@ -60,7 +60,7 @@ class BeoLab5Volume(VolumeAdapter):
                 return vol
         except Exception as e:
             logger.warning("Could not read BeoLab 5 volume: %s", e)
-            return 0
+            return None
 
     async def set_balance(self, balance: float) -> None:
         bal = max(-20, min(20, balance))
@@ -98,11 +98,17 @@ class BeoLab5Volume(VolumeAdapter):
         except Exception as e:
             logger.warning("Could not power on BeoLab 5: %s", e)
             return
-        # Send remembered volume, capped for safety
-        safe_vol = min(self._last_volume, self._power_on_max)
-        if safe_vol > 0:
-            logger.info("Power-on volume: %.0f%% (capped from %.0f%%)", safe_vol, self._last_volume)
-            await self.set_volume(safe_vol)
+        # Always send a safe volume on power-on
+        safe_vol = self._last_volume
+        if safe_vol < 1 or safe_vol > self._power_on_max:
+            safe_vol = self._power_on_max
+        logger.info("Power-on volume: %.0f%% (last=%.0f%%, cap=%d%%)",
+                     safe_vol, self._last_volume, self._power_on_max)
+        await self.set_volume(safe_vol)
+        # Read back actual volume to sync state
+        readback = await self.get_volume()
+        if readback is not None:
+            self._last_volume = readback
 
     async def power_off(self) -> None:
         try:

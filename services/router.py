@@ -290,6 +290,7 @@ class EventRouter:
         self._balance_step = 1
         self._session: aiohttp.ClientSession | None = None
         self._volume = None           # VolumeAdapter instance
+        self._accept_player_volume = False  # set in start() based on adapter/player match
         self._menu_order: list[dict] = []  # parsed menu from config
         self._local_button_views: set[str] = {"menu/system"}  # views that suppress HA button forwarding
 
@@ -341,7 +342,36 @@ class EventRouter:
         # Create volume adapter from config
         self._volume = create_volume_adapter(self._session)
         # Fetch current volume from output device
-        self.volume = await self._volume.get_volume()
+        initial_vol = await self._volume.get_volume()
+        if initial_vol is not None:
+            self.volume = initial_vol
+        else:
+            logger.warning("Could not read initial volume — defaulting to 0")
+            self.volume = 0
+
+        # Determine whether to accept volume reports from the player service.
+        # Only accept when the player IS the volume adapter (e.g. sonos+sonos).
+        adapter_type = cfg("volume", "type")
+        if adapter_type is None:
+            # Mirror the inference logic from create_volume_adapter
+            player_type = str(cfg("player", "type", default="")).lower()
+            if player_type in ("sonos", "bluesound"):
+                adapter_type = player_type
+            elif player_type in ("local", "powerlink"):
+                adapter_type = "powerlink"
+            else:
+                adapter_type = "beolab5"
+        adapter_type = str(adapter_type).lower()
+        if adapter_type in ("esphome",):
+            adapter_type = "beolab5"
+        player_type = str(cfg("player", "type", default="")).lower()
+        self._accept_player_volume = (adapter_type == player_type)
+        if self._accept_player_volume:
+            logger.info("Volume reports from player: accepted (%s)", adapter_type)
+        else:
+            logger.info("Volume reports from player: ignored (adapter=%s, player=%s)",
+                         adapter_type, player_type)
+
         logger.info("Router started (transport: %s, output: %s, volume: %.0f%%)",
                      self.transport.mode, self.output_device, self.volume)
 
@@ -497,7 +527,14 @@ class EventRouter:
         await self._volume.set_volume(self.volume)
 
     async def report_volume(self, volume: float):
-        """A device reports its current volume (e.g. Sonos says 'I'm at 40%')."""
+        """A device reports its current volume (e.g. Sonos says 'I'm at 40%').
+
+        Only accepted when the volume adapter matches the player type —
+        otherwise the player's volume is irrelevant (e.g. Sonos volume
+        doesn't matter when output goes through BeoLab 5).
+        """
+        if not self._accept_player_volume:
+            return
         self.volume = max(0, min(100, volume))
         logger.info("Volume reported: %.0f%%", self.volume)
         await self._broadcast_volume()

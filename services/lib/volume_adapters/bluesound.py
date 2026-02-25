@@ -40,7 +40,7 @@ class BluesoundVolume(VolumeAdapter):
             self._debounce_ms / 1000, lambda: asyncio.ensure_future(self._flush())
         )
 
-    async def get_volume(self) -> float:
+    async def get_volume(self) -> float | None:
         try:
             async with self._session.get(
                 f"{self._base_url}/Volume",
@@ -55,7 +55,7 @@ class BluesoundVolume(VolumeAdapter):
                 return float(vol)
         except Exception as e:
             logger.warning("Could not read BlueSound volume: %s", e)
-            return 0
+            return None
 
     async def is_on(self) -> bool:
         return True  # BlueSound is always on

@@ -35,7 +35,7 @@ class SonosVolume(VolumeAdapter):
             self._debounce_ms / 1000, lambda: asyncio.ensure_future(self._flush())
         )
 
-    async def get_volume(self) -> float:
+    async def get_volume(self) -> float | None:
         try:
             loop = asyncio.get_running_loop()
             vol = await loop.run_in_executor(None, lambda: self._speaker.volume)
@@ -43,7 +43,7 @@ class SonosVolume(VolumeAdapter):
             return float(vol)
         except Exception as e:
             logger.warning("Could not read Sonos volume: %s", e)
-            return 0
+            return None
 
     async def is_on(self) -> bool:
         return True  # Sonos is always on
