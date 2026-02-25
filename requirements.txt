@@ -24,5 +24,8 @@ pyusb>=1.2.1
 # MQTT transport (optional, for HA communication)
 aiomqtt>=2.0.0
 
+# TIDAL integration
+tidalapi>=0.8.0
+
 # Text-to-speech (news source)
 edge-tts>=6.1.0

@@ -24,6 +24,8 @@ SERVICES=(
     "beo-bluetooth.service"
     "beo-source-cd.service"
     "beo-source-spotify.service"
+    "beo-source-apple-music.service"
+    "beo-source-tidal.service"
     "beo-source-usb.service"
     "beo-source-news.service"
     "beo-ui.service"
@@ -80,7 +82,7 @@ fi
 # Generate self-signed SSL cert for Spotify OAuth (HTTPS required for non-localhost)
 SSL_DIR="$CONFIG_DIR/ssl"
 if [ ! -f "$SSL_DIR/cert.pem" ]; then
-    echo "  🔐 Generating SSL certificate for Spotify OAuth..."
+    echo "  🔐 Generating SSL certificate for OAuth (Spotify, Apple Music)..."
     mkdir -p "$SSL_DIR"
     HOSTNAME=$(hostname)
     LOCAL_IP=$(hostname -I | awk '{print $1}')
@@ -185,15 +187,7 @@ disable_service() {
 
 # Helper: check if a menu item is enabled in config.json
 menu_has() {
-    python3 -c "
-import json, sys
-try:
-    cfg = json.load(open('$CONFIG_DIR/config.json'))
-    menu = cfg.get('menu', {})
-    sys.exit(0 if '$1' in menu else 1)
-except:
-    sys.exit(1)
-" 2>/dev/null
+    grep -q "\"$1\"" "$CONFIG_DIR/config.json" 2>/dev/null
 }
 
 # Enable and start services in dependency order
@@ -259,6 +253,22 @@ if menu_has "SPOTIFY"; then
 else
     echo "  ⏭️  SPOTIFY not in menu — skipping beo-source-spotify"
     disable_service beo-source-spotify.service
+fi
+
+if menu_has "APPLE MUSIC"; then
+    echo "  🍎 Starting Apple Music source..."
+    start_service beo-source-apple-music.service
+else
+    echo "  ⏭️  APPLE MUSIC not in menu — skipping beo-source-apple-music"
+    disable_service beo-source-apple-music.service
+fi
+
+if menu_has "TIDAL"; then
+    echo "  🎵 Starting TIDAL source..."
+    start_service beo-source-tidal.service
+else
+    echo "  ⏭️  TIDAL not in menu — skipping beo-source-tidal"
+    disable_service beo-source-tidal.service
 fi
 
 if menu_has "USB"; then

@@ -19,6 +19,7 @@ content on the Sonos without importing SoCo directly:
 """
 
 import asyncio
+import re
 import time
 import logging
 import sys
@@ -31,9 +32,25 @@ try:
     import soco
     from soco import SoCo
     from soco.plugins.sharelink import ShareLinkPlugin
+    from soco.plugins.sharelink import AppleMusicShare
 except ImportError:
     print("ERROR: soco library not installed. Install with: pip install soco")
     sys.exit(1)
+
+# Patch SoCo's AppleMusicShare to support /song/ URLs (SoCo only has /album/ and /playlist/)
+_orig_canonical_uri = AppleMusicShare.canonical_uri
+
+def _patched_canonical_uri(self, uri):
+    result = _orig_canonical_uri(self, uri)
+    if result:
+        return result
+    # https://music.apple.com/se/song/clocks/1122776156
+    match = re.search(r"https://music\.apple\.com/\w+/song/[^/]+/(\d+)", uri)
+    if match:
+        return "song:" + match.group(1)
+    return None
+
+AppleMusicShare.canonical_uri = _patched_canonical_uri
 
 # Ensure services/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -256,8 +273,8 @@ class MediaServer(PlayerBase):
                     if len(parts) == 3:
                         uri = f"https://open.spotify.com/{parts[1]}/{parts[2]}"
 
-                # Use ShareLink for Spotify / Apple Music URLs
-                if "open.spotify.com" in uri or "music.apple.com" in uri:
+                # Use ShareLink for Spotify / Apple Music / TIDAL URLs
+                if "open.spotify.com" in uri or "music.apple.com" in uri or "tidal.com" in uri:
                     share_link = ShareLinkPlugin(coordinator)
                     # Pause first to prevent auto-play when adding to empty queue
                     if track_uri:
@@ -289,7 +306,21 @@ class MediaServer(PlayerBase):
             return await self.resume()
 
         except Exception as e:
-            logger.error("Play failed: %s", e)
+            err = str(e)
+            if "800" in err and uri:
+                # UPnP 800 = music service account not linked on Sonos
+                if "tidal.com" in uri:
+                    svc = "TIDAL"
+                elif "music.apple.com" in uri:
+                    svc = "Apple Music"
+                elif "spotify.com" in uri:
+                    svc = "Spotify"
+                else:
+                    svc = "the music service"
+                logger.error("Play failed: %s account not linked on Sonos — "
+                             "add it in the Sonos app first", svc)
+            else:
+                logger.error("Play failed: %s", e)
             return False
 
     async def pause(self) -> bool:

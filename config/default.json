@@ -6,6 +6,8 @@
     "CD": { "id": "cd", "hidden": true },
     "USB": { "id": "usb", "paths": ["/mnt/usb-music"] },
     "SPOTIFY": "spotify",
+    "APPLE MUSIC": "apple_music",
+    "TIDAL": "tidal",
     "NEWS": "news",
     "SCENES": "scenes",
     "SECURITY": { "url": "softarc/security.html" },
