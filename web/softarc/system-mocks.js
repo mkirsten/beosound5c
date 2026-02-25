@@ -8,7 +8,7 @@
         'beo-http': 'Running', 'beo-ui': 'Running', 'beo-input': 'Running',
         'beo-bluetooth': 'Running', 'beo-masterlink': 'Running',
         'beo-player-sonos': 'Running', 'beo-source-cd': 'Running',
-        'beo-source-spotify': 'Running',
+        'beo-source-spotify': 'Running', 'beo-source-tidal': 'Running',
         'beo-source-usb': 'Inactive', 'beo-source-news': 'Running',
     };
 
@@ -18,7 +18,7 @@
         git_tag: 'v0.9.2-dev',
     };
 
-    const config = { DEVICE_NAME: 'Church' };
+    const config = { device: 'Church' };
 
     const router = {
         active_source: 'spotify', active_source_name: 'Spotify',
@@ -60,6 +60,17 @@
         },
     };
 
+    const tidal = {
+        user_name: 'Markus Kirsten', has_credentials: true, needs_reauth: false,
+        state: 'stopped', playlist_count: 18, fetching: false,
+        last_refresh: new Date().toISOString(), last_refresh_duration: 3.8,
+        digit_playlists: {
+            '0': 'Favorites', '1': 'New Releases', '2': 'Classical',
+            '3': 'Jazz', '4': 'Ambient', '5': 'Dinner',
+            '6': 'Party', '7': 'Sleep', '8': 'Focus', '9': 'Workout',
+        },
+    };
+
     const cd = {
         drive_connected: true, disc_inserted: true,
         metadata: { artist: 'Nils Frahm', title: 'All Melody', musicbrainz: true, artwork: null },
@@ -76,7 +87,10 @@
         baseTemp = Math.max(40, Math.min(60, baseTemp + (Math.random() - 0.5) * 3));
         const memPct = Math.max(20, Math.min(50, 32 + (Math.random() - 0.5) * 8));
         return {
-            system: { ...system, cpu_temp: baseTemp.toFixed(1) + '°C', memory: `1.2G / 3.8G (${memPct.toFixed(0)}%)` },
+            status: 'ok',
+            ...system,
+            cpu_temp: baseTemp.toFixed(1) + '°C',
+            memory: `1.2G / 3.8G (${memPct.toFixed(0)}%)`,
             config, services, git_tag: system.git_tag,
         };
     }
@@ -90,6 +104,7 @@
         if (url.includes(':8767/bt/remotes'))     return btRemotes;
         if (url.includes(':8768/mixer/status'))   return masterlink;
         if (url.includes(':8771/status'))          return spotify;
+        if (url.includes(':8777/status'))          return tidal;
         if (url.includes(':8769/status'))          return cd;
         if (url.includes(':8767/people'))          return people;
         return null;

@@ -427,11 +427,20 @@ class UIStore {
             }
 
             this._menuLoaded = true;
+            this._menuRetries = 0;
             this.renderMenuItems();
             console.log(`[MENU] Loaded ${newItems.length} items from router (active: ${data.active_source || 'none'})`);
         } catch (e) {
             this._menuLoaded = true;  // allow media updates even if router is down
-            console.log('[MENU] Router unavailable, using defaults');
+            // Retry with backoff until router comes up (safety net for startup races)
+            const attempt = (this._menuRetries = (this._menuRetries || 0) + 1);
+            if (attempt <= 15) {
+                const delay = Math.min(attempt * 2000, 10000);
+                console.log(`[MENU] Router unavailable, retrying in ${delay / 1000}s (attempt ${attempt})`);
+                setTimeout(() => this._fetchMenu(), delay);
+            } else {
+                console.log('[MENU] Router unavailable after 15 attempts, using defaults');
+            }
         }
     }
 
@@ -444,6 +453,14 @@ class UIStore {
             script.src = `sources/${preset}/view.js`;
             script.onload = () => {
                 console.log(`[MENU] Loaded source script: ${preset}`);
+                // Auto-register source iframe if the view declares iframeSrc
+                const sp = window.SourcePresets?.[preset];
+                if (sp?.view?.preloadId && sp.view.iframeSrc) {
+                    this._preloadSourceIframe(sp.view.preloadId, sp.view.iframeSrc);
+                    if (sp.item?.path) {
+                        window.IframeMessenger?.registerIframe(sp.item.path, sp.view.preloadId);
+                    }
+                }
                 resolve();
             };
             script.onerror = () => {
@@ -537,9 +554,10 @@ class UIStore {
     }
 
     // Preload iframe content in background for instant navigation
+    // Source iframes (spotify, apple_music, etc.) are preloaded dynamically
+    // via _loadSourceScript() when their view.js declares iframeSrc.
     preloadIframes() {
         const iframesToPreload = [
-            { id: 'preload-spotify', src: 'softarc/spotify.html' },
             { id: 'preload-scenes', src: 'softarc/scenes.html' }
         ];
 
@@ -567,15 +585,74 @@ class UIStore {
         this.iframesPreloaded = true;
     }
 
+    /**
+     * Preload a source iframe into the hidden container.
+     * Called automatically when a source script declares iframeSrc in its view.
+     */
+    _preloadSourceIframe(id, src) {
+        if (document.getElementById(id)) return; // already exists
+
+        let preloadContainer = document.getElementById('iframe-preload-container');
+        if (!preloadContainer) {
+            preloadContainer = document.createElement('div');
+            preloadContainer.id = 'iframe-preload-container';
+            preloadContainer.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;';
+            document.body.appendChild(preloadContainer);
+        }
+
+        const iframe = document.createElement('iframe');
+        iframe.id = id;
+        iframe.src = src;
+        iframe.style.cssText = 'width:1024px;height:768px;border:none;';
+        preloadContainer.appendChild(iframe);
+        console.log(`[PRELOAD] Loading source iframe: ${src}`);
+    }
+
+    /**
+     * Send reload-data to all source iframes that have a preloadId.
+     * Called when navigating to PLAYING or on reload-playlists relay.
+     */
+    _reloadAllSourceIframes() {
+        for (const sp of Object.values(window.SourcePresets || {})) {
+            if (sp.view?.preloadId) {
+                const iframe = document.getElementById(sp.view.preloadId);
+                if (iframe?.contentWindow) {
+                    iframe.contentWindow.postMessage({ type: 'reload-data' }, '*');
+                }
+            }
+        }
+    }
+
     // Move a preloaded iframe into the current view container
     attachPreloadedIframe(preloadId) {
-        // Map preload IDs to container IDs
-        const containerMap = {
-            'preload-spotify': 'spotify-container',
-            'preload-scenes': 'scenes-container'
-        };
+        // Build maps dynamically from SourcePresets + built-in views
+        let containerId = null;
+        let iframeSrc = null;
 
-        const containerId = containerMap[preloadId];
+        // Check SourcePresets first
+        for (const sp of Object.values(window.SourcePresets || {})) {
+            if (sp.view?.preloadId === preloadId) {
+                containerId = sp.view.containerId;
+                iframeSrc = sp.view.iframeSrc;
+                break;
+            }
+        }
+
+        // Fall back to built-in views (scenes, security)
+        if (!containerId) {
+            const builtins = {
+                'preload-scenes': { container: 'scenes-container', src: 'softarc/scenes.html' },
+                'preload-security': { container: 'security-container', src: 'softarc/security.html' },
+            };
+            const b = builtins[preloadId];
+            if (b) { containerId = b.container; iframeSrc = b.src; }
+        }
+
+        if (!containerId) {
+            console.warn(`[PRELOAD] No mapping for ${preloadId}`);
+            return;
+        }
+
         const container = document.getElementById(containerId);
         if (!container) {
             console.warn(`[PRELOAD] Container ${containerId} not found`);
@@ -597,15 +674,11 @@ class UIStore {
             // Move iframe from preload container to view container
             container.appendChild(iframe);
             console.log(`[PRELOAD] Attached ${preloadId} to ${containerId}`);
-        } else {
+        } else if (iframeSrc) {
             // Fallback: create iframe if preload failed
-            const srcMap = {
-                'preload-spotify': 'softarc/spotify.html',
-                'preload-scenes': 'softarc/scenes.html'
-            };
             iframe = document.createElement('iframe');
             iframe.id = preloadId;
-            iframe.src = srcMap[preloadId];
+            iframe.src = iframeSrc;
             iframe.style.cssText = 'width: 100%; height: 100%; border: none; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);';
             container.appendChild(iframe);
             console.log(`[PRELOAD] Created fresh iframe for ${containerId}`);
@@ -950,13 +1023,10 @@ class UIStore {
         // For overlay transitions, update immediately to prevent content hiding
         const isOverlayTransition = path === 'menu/playing' || path === 'menu/showing';
 
-        // When arriving at PLAYING, tell the spotify iframe to reload its data so
-        // playlist additions/removals are picked up.
+        // When arriving at PLAYING, tell all source iframes to reload their data
+        // so playlist additions/removals are picked up.
         if (path === 'menu/playing') {
-            const spotifyIframe = document.getElementById('preload-spotify');
-            if (spotifyIframe?.contentWindow) {
-                spotifyIframe.contentWindow.postMessage({ type: 'reload-data' }, '*');
-            }
+            this._reloadAllSourceIframes();
         }
 
         if (isOverlayTransition) {
@@ -1424,10 +1494,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Relay messages from child iframes
     window.addEventListener('message', (event) => {
         if (event.data?.type === 'reload-playlists') {
-            const spotifyIframe = document.getElementById('preload-spotify');
-            if (spotifyIframe?.contentWindow) {
-                spotifyIframe.contentWindow.postMessage({ type: 'reload-data' }, '*');
-            }
+            // Tell all source iframes to reload their data
+            uiStore._reloadAllSourceIframes();
         } else if (event.data?.type === 'click') {
             // Only forward iframe clicks after navigation has settled
             if (!uiStore._navGuardUntil || Date.now() > uiStore._navGuardUntil) {

@@ -79,8 +79,8 @@ const Constants = {
     ],
 
     // Iframe mappings (IDs match the preloaded iframe elements)
+    // Source iframes (spotify, apple_music, etc.) self-register via SourcePresets
     iframes: {
-        'menu/spotify': 'preload-spotify',
         'menu/scenes': 'preload-scenes',
         'menu/system': 'system-iframe'
     },

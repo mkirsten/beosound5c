@@ -1,7 +1,7 @@
 [Unit]
 Description=BeoSound5c Chromium UI kiosk
-After=network.target beo-http.service
-Wants=network.target beo-http.service
+After=network.target beo-http.service beo-router.service
+Wants=network.target beo-http.service beo-router.service
 Requires=beo-http.service
 
 [Service]

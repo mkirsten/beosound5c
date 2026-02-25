@@ -81,6 +81,17 @@ xinit /bin/bash -c '
     sleep 0.5
   done
 
+  # Wait for router to be ready (menu data comes from here)
+  log "Waiting for router..."
+  for i in {1..30}; do
+    if curl -s -o /dev/null http://localhost:8770/router/menu 2>/dev/null; then
+      log "Router ready"
+      break
+    fi
+    [ "$i" -eq 30 ] && log "Router not ready after 15s, starting anyway"
+    sleep 0.5
+  done
+
   # Crash recovery loop - restart Chromium if it exits
   CRASH_COUNT=0
   MAX_CRASHES=10

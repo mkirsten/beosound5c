@@ -35,7 +35,6 @@ const IframeMessenger = {
         // Dynamic registrations override static
         if (this._dynamicIframes[route]) return this._dynamicIframes[route];
         const iframes = window.Constants?.iframes || {
-            'menu/spotify': 'preload-spotify',
             'menu/scenes': 'scenes-iframe',
             'menu/system': 'system-iframe'
         };
@@ -137,7 +136,6 @@ const IframeMessenger = {
      */
     getLocalHandledRoutes() {
         const staticRoutes = Object.keys(window.Constants?.iframes || {
-            'menu/spotify': 'preload-spotify',
             'menu/scenes': 'scenes-iframe',
             'menu/system': 'system-iframe'
         });

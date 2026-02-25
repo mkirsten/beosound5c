@@ -632,15 +632,14 @@
                     const inp = data?.input || {};
                     const rtr = data?.router || {};
                     const plr = data?.player || {};
-                    const sys = inp.system || {};
                     const cfg = inp.config || {};
                     const svcs = inp.services || {};
 
                     let html = '<div class="subcard-body">';
-                    html += row('Device', cfg.DEVICE_NAME || sys.hostname);
-                    html += row('IP', sys.ip_address);
-                    html += row('Version', sys.git_tag || inp.git_tag);
-                    html += row('Uptime', sys.uptime);
+                    html += row('Device', cfg.device || inp.hostname);
+                    html += row('IP', inp.ip_address);
+                    html += row('Version', inp.git_tag);
+                    html += row('Uptime', inp.uptime);
 
                     // Services summary
                     const total = Object.keys(svcs).length;
@@ -698,13 +697,13 @@
                     ]);
 
                     // Accumulate history for charts
-                    const sys = results.input?.system || {};
-                    const temp = parseFloat(sys.cpu_temp);
+                    const inp = results.input || {};
+                    const temp = parseFloat(inp.cpu_temp);
                     if (!isNaN(temp)) {
                         HISTORY.cpu_temp.push(temp);
                         if (HISTORY.cpu_temp.length > HISTORY_MAX) HISTORY.cpu_temp.shift();
                     }
-                    const memPct = parseMemPct(sys.memory);
+                    const memPct = parseMemPct(inp.memory);
                     if (memPct != null) {
                         HISTORY.memory.push(memPct);
                         if (HISTORY.memory.length > HISTORY_MAX) HISTORY.memory.shift();
@@ -714,7 +713,6 @@
                 },
                 render: (data) => {
                     const inp = data?.input || {};
-                    const sys = inp.system || {};
                     const svcs = inp.services || {};
                     const cfg = inp.config || {};
                     const hist = data?.history || {};
@@ -724,17 +722,17 @@
                     // Performance
                     html += sectionLabel('Performance');
                     html += '<div class="subcard-body">';
-                    const temp = parseFloat(sys.cpu_temp);
-                    html += row('CPU Temp', sys.cpu_temp, tempClass(sys.cpu_temp));
+                    const temp = parseFloat(inp.cpu_temp);
+                    html += row('CPU Temp', inp.cpu_temp, tempClass(inp.cpu_temp));
                     html += '</div>';
                     if (!isNaN(temp)) {
                         html += meterBar(temp, 85, tempColor(temp));
                         html += sparkline(hist.cpu_temp, 250, 24, tempColor(temp));
                     }
 
-                    const memPct = parseMemPct(sys.memory);
+                    const memPct = parseMemPct(inp.memory);
                     html += '<div class="subcard-body">';
-                    html += row('Memory', sys.memory);
+                    html += row('Memory', inp.memory);
                     html += '</div>';
                     if (memPct != null) {
                         const memCol = memPct > 85 ? '#a44' : memPct > 70 ? '#fa0' : '#4a4';
@@ -744,11 +742,11 @@
                     // Network
                     html += sectionLabel('Network');
                     html += '<div class="subcard-body">';
-                    html += row('Hostname', sys.hostname);
-                    html += row('IP', sys.ip_address);
-                    html += row('Device', cfg.DEVICE_NAME);
-                    if (sys.interfaces) {
-                        for (const [iface, info] of Object.entries(sys.interfaces)) {
+                    html += row('Hostname', inp.hostname);
+                    html += row('IP', inp.ip_address);
+                    html += row('Device', cfg.device);
+                    if (inp.interfaces) {
+                        for (const [iface, info] of Object.entries(inp.interfaces)) {
                             html += row(iface, typeof info === 'string' ? info : JSON.stringify(info));
                         }
                     }
@@ -856,6 +854,46 @@
                     if (!data) return '<div class="subcard-body">' + row('Status', 'No data', 'dim') + '</div>';
                     let html = '<div class="subcard-body">';
                     html += row('Account', data.display_name || '—');
+                    html += row('Auth', data.has_credentials ? (data.needs_reauth ? 'Expired' : 'OK') : 'Not connected',
+                        data.has_credentials ? (data.needs_reauth ? 'warn' : 'ok') : 'err');
+                    html += row('State', data.state);
+                    html += row('Playlists', data.playlist_count);
+                    html += row('Fetching', data.fetching ? 'Yes' : 'No', data.fetching ? 'warn' : '');
+                    if (data.last_refresh) {
+                        const d = new Date(data.last_refresh);
+                        html += row('Last Refresh', d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                    }
+                    if (data.last_refresh_duration != null) {
+                        html += row('Refresh Time', data.last_refresh_duration + 's');
+                    }
+                    html += '</div>';
+
+                    // Digit playlists grid
+                    if (data.digit_playlists && Object.keys(data.digit_playlists).length > 0) {
+                        html += '<div style="margin-top:12px; font-size:11px; color:#555; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px">Digit Playlists</div>';
+                        html += '<div class="digit-grid">';
+                        for (let i = 0; i <= 9; i++) {
+                            const name = data.digit_playlists[String(i)] || '—';
+                            html += `<div class="digit-item"><span class="digit-num">${i}</span><span class="digit-name">${trunc(name, 14)}</span></div>`;
+                        }
+                        html += '</div>';
+                    }
+                    return html;
+                },
+            },
+            {
+                id: 'tidal',
+                title: 'TIDAL',
+                service: 'beo-source-tidal',
+                fetch: async () => {
+                    const resp = await fetch('http://localhost:8777/status');
+                    if (!resp.ok) throw new Error('offline');
+                    return resp.json();
+                },
+                render: (data) => {
+                    if (!data) return '<div class="subcard-body">' + row('Status', 'No data', 'dim') + '</div>';
+                    let html = '<div class="subcard-body">';
+                    html += row('Account', data.user_name || '—');
                     html += row('Auth', data.has_credentials ? (data.needs_reauth ? 'Expired' : 'OK') : 'Not connected',
                         data.has_credentials ? (data.needs_reauth ? 'warn' : 'ok') : 'err');
                     html += row('State', data.state);
@@ -1084,7 +1122,7 @@
                 container.innerHTML = html;
 
                 // Update git tag from system data (overview and system both fetch it)
-                const tag = data?.input?.system?.git_tag || data?.input?.git_tag;
+                const tag = data?.input?.git_tag;
                 if ((card.id === 'overview' || card.id === 'system') && tag) {
                     document.getElementById('git-tag').textContent = tag;
                 }

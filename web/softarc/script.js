@@ -2170,8 +2170,8 @@ class ArcList {
             return;
         }
         
-        // Direct source command (e.g. Spotify → SoCo playback via source service)
-        if (this.config.sourceCommandUrl && this.config.context === 'spotify') {
+        // Direct source command (e.g. Spotify/TIDAL/Apple Music → playback via source service)
+        if (this.config.sourceCommandUrl) {
             let cmdPayload;
             if (this.viewMode === 'parent' || this.viewMode === 'single') {
                 const rawId = (this.parentData[Math.round(this.currentIndex)] || this.items[Math.round(this.currentIndex)]).id;
