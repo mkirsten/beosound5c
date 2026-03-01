@@ -9,7 +9,6 @@ Token source: --developer-token and --user-token from the service process.
 
 import json
 import os
-import re
 import sys
 import time
 import urllib.request
@@ -19,6 +18,9 @@ from datetime import datetime
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..', '..'))
+sys.path.insert(0, os.path.join(PROJECT_ROOT, 'services'))
+
+from lib.digit_playlists import detect_digit_playlist, build_digit_mapping
 
 DIGIT_PLAYLISTS_FILE = os.path.join(PROJECT_ROOT, 'web', 'json', 'apple_music_digit_playlists.json')
 DEFAULT_OUTPUT_FILE = os.path.join(PROJECT_ROOT, 'web', 'json', 'apple_music_playlists.json')
@@ -138,16 +140,21 @@ def fetch_playlist_tracks(developer_token, user_token, playlist_id, storefront):
 def fetch_user_playlists(developer_token, user_token):
     """Fetch all library playlists (handles pagination)."""
     playlists = []
-    url = f'{API_BASE}/me/library/playlists?limit=25'
+    page_limit = 100
+    url = f'{API_BASE}/me/library/playlists?limit={page_limit}'
+    page = 0
 
     while url:
         time.sleep(RATE_LIMIT_DELAY)
+        page += 1
         try:
             data = _api_request(url, developer_token, user_token)
             if not data:
+                log(f"  Page {page}: no data returned")
                 break
 
-            for pl in data.get('data', []):
+            page_items = data.get('data', [])
+            for pl in page_items:
                 attrs = pl.get('attributes', {})
                 artwork = attrs.get('artwork', {})
                 image = None
@@ -167,59 +174,30 @@ def fetch_user_playlists(developer_token, user_token):
                     'lastModifiedDate': attrs.get('lastModifiedDate', ''),
                 })
 
-            url = data.get('next')
-            if url and not url.startswith('http'):
-                url = f'{API_BASE}{url}'
+            next_url = data.get('next')
+            if next_url:
+                if not next_url.startswith('http'):
+                    next_url = f'{API_BASE}{next_url}'
+                # Ensure limit is preserved across pages
+                if 'limit=' not in next_url:
+                    next_url += f'&limit={page_limit}' if '?' in next_url else f'?limit={page_limit}'
+                log(f"  Page {page}: {len(page_items)} playlists (continuing...)")
+                url = next_url
+            else:
+                log(f"  Page {page}: {len(page_items)} playlists (last page)")
+                url = None
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 raise
-            log(f"Error fetching playlists: {e}")
+            log(f"  Page {page}: HTTP error {e.code} — stopping pagination ({len(playlists)} so far)")
             break
         except Exception as e:
-            log(f"Error fetching playlists: {e}")
+            log(f"  Page {page}: error {e} — stopping pagination ({len(playlists)} so far)")
             break
 
     return playlists
 
 
-def detect_digit_playlist(name):
-    """Check if playlist name starts with a digit pattern like '5:' or '5 -'.
-    Returns the digit (0-9) or None."""
-    match = re.match(r'^(\d)[\s]*[:\-]', name)
-    if match:
-        return match.group(1)
-    return None
-
-
-def build_digit_mapping(playlists):
-    """Build digit 0-9 mapping. Explicitly named playlists get pinned;
-    remaining slots filled alphabetically."""
-    pinned = {}
-    pinned_ids = set()
-    for pl in playlists:
-        digit = detect_digit_playlist(pl['name'])
-        if digit is not None and digit not in pinned:
-            pinned[digit] = pl
-            pinned_ids.add(pl['id'])
-
-    remaining = iter(pl for pl in playlists if pl['id'] not in pinned_ids)
-
-    mapping = {}
-    for slot in "0123456789":
-        if slot in pinned:
-            pl = pinned[slot]
-        else:
-            pl = next(remaining, None)
-            if not pl:
-                continue
-        mapping[slot] = {
-            'id': pl['id'],
-            'name': pl['name'],
-            'image': pl.get('image'),
-            'url': pl.get('url'),
-        }
-
-    return mapping
 
 
 def main():

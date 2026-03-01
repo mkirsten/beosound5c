@@ -263,6 +263,17 @@ function handleVolumeUpdate(data) {
     if (newVol == null || typeof newVol !== 'number') return;
     currentVolume = newVol;
     updateVolumeArc(currentVolume);
+
+    // Show the arc overlay briefly (same as physical wheel)
+    const overlay = document.getElementById('volume-overlay');
+    if (overlay) {
+        overlay.classList.add('visible');
+        if (volumeHideTimer) clearTimeout(volumeHideTimer);
+        volumeHideTimer = setTimeout(() => {
+            overlay.classList.remove('visible');
+            volumeHideTimer = null;
+        }, 1000);
+    }
 }
 
 function sendVolumeToRouter(volume) {
@@ -330,6 +341,7 @@ function getWebhookContext(page) {
 }
 
 function handleButtonEvent(uiStore, data) {
+    if (!data.button) return;
     const page = uiStore.currentRoute || 'unknown';
     const button = data.button.toLowerCase();
     console.log(`[BUTTON] ${button} on ${page}`);

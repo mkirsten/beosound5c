@@ -5,59 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Apple Music - Beosound 5c</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="splash.css">
     <link rel="stylesheet" href="../assets/phosphor/phosphor.css">
-    <style>
-        .splash-screen {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #000;
-        }
-        .splash-card {
-            text-align: center;
-            color: #999;
-            font-family: 'Helvetica Neue', sans-serif;
-        }
-        .splash-card h2 {
-            color: #fff;
-            font-size: 22px;
-            font-weight: 300;
-            letter-spacing: 2px;
-            margin-bottom: 16px;
-        }
-        .splash-card p {
-            font-size: 14px;
-            margin-bottom: 20px;
-            line-height: 1.6;
-        }
-        .setup-qr {
-            margin: 0 auto 16px;
-            background: #fff;
-            padding: 12px;
-            border-radius: 8px;
-            display: inline-block;
-        }
-        .setup-url {
-            font-family: 'SF Mono', Monaco, Consolas, monospace;
-            font-size: 13px;
-            color: #666;
-            word-break: break-all;
-        }
-        .loading-spinner {
-            width: 48px;
-            height: 48px;
-            border: 3px solid #333;
-            border-top-color: #FC3C44;
-            border-radius: 50%;
-            margin: 0 auto 24px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-    </style>
+    <style>:root { --splash-accent: #FC3C44; }</style>
 </head>
 <body>
     <div id="app">
@@ -75,8 +25,7 @@
     <script src="script.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
-            const APPLE_MUSIC_URL = (typeof AppConfig !== 'undefined' && AppConfig.appleMusicServiceUrl)
-                || 'http://localhost:8774';
+            const APPLE_MUSIC_URL = getServiceUrl('appleMusicServiceUrl', 8774);
 
             // Check Apple Music service state
             try {
@@ -170,8 +119,7 @@
         }
 
         function pollForPlaylists() {
-            const APPLE_MUSIC_URL = (typeof AppConfig !== 'undefined' && AppConfig.appleMusicServiceUrl)
-                || 'http://localhost:8774';
+            const APPLE_MUSIC_URL = getServiceUrl('appleMusicServiceUrl', 8774);
             const poll = setInterval(async () => {
                 try {
                     const resp = await fetch(`${APPLE_MUSIC_URL}/playlists`);
@@ -203,7 +151,7 @@
                 storagePrefix: 'apple_music_arclist',
                 title: 'Apple Music',
                 context: 'apple_music',
-                sourceCommandUrl: ((typeof AppConfig !== 'undefined' && AppConfig.appleMusicServiceUrl) || 'http://localhost:8774') + '/command',
+                sourceCommandUrl: getServiceUrl('appleMusicServiceUrl', 8774) + '/command',
                 childNameMapper: (track, index, allTracks) => {
                     const allSameArtist = allTracks && allTracks.every(t => t.artist === allTracks[0].artist);
                     let displayName;

@@ -3,7 +3,7 @@ Control4 amplifier volume adapter — controls volume via UDP commands.
 
 Protocol (from c4mp-test):
   - UDP port 8750
-  - Frame: ``0s2a{nn} {command} \r\n`` where nn is random 10–99
+  - Frame: ``0s2a{nn} {command} \r\n`` where nn is random 10-99
   - Volume: ``c4.amp.chvol {zone} {level}``
   - Balance: ``c4.amp.balance {zone} {value}``
     - Two's complement signed byte: f6=-10 (full left) .. 00=center .. 0a=+10 (full right)
@@ -34,31 +34,20 @@ class C4AmpVolume(VolumeAdapter):
     """Volume control for a Control4 multi-zone amplifier over UDP."""
 
     def __init__(self, host: str, max_volume: int, zone: str = "01", input_id: str = "01"):
+        super().__init__(max_volume, debounce_ms=50)
         self._host = host
-        self._max_volume = max_volume
         self._zone = zone
         self._input_id = input_id
         self._last_volume: float = 0
         self._last_balance: int = 0
         self._is_on = False
-        # Debounce state
-        self._pending_volume: float | None = None
-        self._debounce_handle: asyncio.TimerHandle | None = None
-        self._debounce_ms = 50
 
     # -- public API --
 
-    async def set_volume(self, volume: float) -> None:
-        capped = min(volume, self._max_volume)
-        if volume > self._max_volume:
-            logger.warning("Volume %.0f%% capped to %d%%", volume, self._max_volume)
-        self._pending_volume = capped
-        if self._debounce_handle is not None:
-            self._debounce_handle.cancel()
-        loop = asyncio.get_running_loop()
-        self._debounce_handle = loop.call_later(
-            self._debounce_ms / 1000, lambda: asyncio.ensure_future(self._flush())
-        )
+    async def _apply_volume(self, volume: float) -> None:
+        await self._send(f"c4.amp.chvol {self._zone} {int(volume)}")
+        self._last_volume = volume
+        logger.info("-> C4 amp zone %s volume: %d%%", self._zone, int(volume))
 
     async def get_volume(self) -> float:
         # UDP protocol has no query command — return last known value
@@ -67,7 +56,7 @@ class C4AmpVolume(VolumeAdapter):
     async def set_balance(self, balance: float) -> None:
         # Router sends -20..+20, C4 amp accepts -10..+10
         c4_bal = max(-10, min(10, round(balance / 2)))
-        # Two's complement signed byte: negative values wrap (e.g. -1 → ff, -10 → f6)
+        # Two's complement signed byte: negative values wrap (e.g. -1 -> ff, -10 -> f6)
         byte_val = c4_bal & 0xFF
         await self._send(f"c4.amp.balance {self._zone} {byte_val:02x}")
         self._last_balance = c4_bal
@@ -91,17 +80,6 @@ class C4AmpVolume(VolumeAdapter):
         return self._is_on
 
     # -- internal --
-
-    async def _flush(self) -> None:
-        """Send the most recent pending volume value."""
-        vol = self._pending_volume
-        if vol is None:
-            return
-        self._pending_volume = None
-        self._debounce_handle = None
-        await self._send(f"c4.amp.chvol {self._zone} {int(vol)}")
-        self._last_volume = vol
-        logger.info("-> C4 amp zone %s volume: %d%%", self._zone, int(vol))
 
     async def _send(self, command: str) -> str | None:
         """Send a UDP command and return the response (if any)."""

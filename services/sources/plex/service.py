@@ -29,6 +29,7 @@ from tokens import load_tokens, save_tokens, delete_tokens
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from lib.config import cfg
 from lib.source_base import SourceBase
+from lib.digit_playlists import DigitPlaylistMixin
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger('beo-source-plex')
@@ -64,7 +65,7 @@ def _find_token_file():
     return paths[-1]
 
 
-class PlexService(SourceBase):
+class PlexService(DigitPlaylistMixin, SourceBase):
     """Main Plex source service with source-managed track advancement."""
 
     id = "plex"
@@ -151,6 +152,7 @@ class PlexService(SourceBase):
         except (FileNotFoundError, json.JSONDecodeError) as e:
             log.warning("Could not load playlists: %s", e)
             self.playlists = []
+        self._reload_digit_playlists()
 
     # -- SourceBase hooks --
 
@@ -165,16 +167,6 @@ class PlexService(SourceBase):
         app.router.add_options('/logout', self._handle_cors)
 
     async def handle_status(self) -> dict:
-        digit_playlists = {}
-        try:
-            with open(DIGIT_PLAYLISTS_FILE) as f:
-                raw = json.load(f)
-            for d, info in raw.items():
-                if info and info.get('name'):
-                    digit_playlists[d] = info['name']
-        except Exception:
-            pass
-
         return {
             'state': self.state,
             'now_playing': self.now_playing,
@@ -184,7 +176,7 @@ class PlexService(SourceBase):
             'server_name': self.auth.server_name,
             'last_refresh': self._last_refresh_wall.isoformat() if self._last_refresh_wall else None,
             'last_refresh_duration': self._last_refresh_duration,
-            'digit_playlists': digit_playlists,
+            'digit_playlists': self._get_digit_names(),
             'fetching': self._fetching_playlists,
             'current_playlist': self._current_playlist.get('name') if self._current_playlist else None,
             'current_index': self._current_index,
@@ -244,20 +236,6 @@ class PlexService(SourceBase):
             return {'status': 'error', 'message': f'Unknown: {cmd}'}
 
         return {'state': self.state}
-
-    # -- Digit playlist lookup --
-
-    def _get_digit_playlist(self, digit):
-        """Look up a digit playlist from the Plex digit mapping file."""
-        try:
-            with open(DIGIT_PLAYLISTS_FILE) as f:
-                mapping = json.load(f)
-            info = mapping.get(str(digit))
-            if info and info.get('id'):
-                return info
-        except Exception:
-            pass
-        return None
 
     # -- Playback control (source-managed track advancement) --
 

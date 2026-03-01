@@ -4,7 +4,7 @@
   "menu": {
     "PLAYING": "playing",
     "CD": { "id": "cd", "hidden": true },
-    "USB": { "id": "usb", "paths": ["/mnt/usb-music"] },
+    "USB": { "id": "usb", "mounts": [{ "name": "USB", "path": "/mnt/usb-music" }] },
     "SPOTIFY": "spotify",
     "APPLE MUSIC": "apple_music",
     "TIDAL": "tidal",

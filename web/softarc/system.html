@@ -654,6 +654,9 @@
                         html += row('Sources', names.join(', '));
                     }
 
+                    // Audio HAT
+                    if (inp.audio_hat) html += row('Audio HAT', inp.audio_hat);
+
                     // Audio output
                     html += row('Output', rtr.output_device || '—');
 
@@ -805,7 +808,7 @@
                 render: (data) => {
                     if (!data) return '<div class="subcard-body">' + row('Status', 'No data', 'dim') + '</div>';
                     let html = '<div class="subcard-body">';
-                    html += row('USB', data.usb_connected ? 'Connected' : 'Not found', data.usb_connected ? 'ok' : 'err');
+                    html += row('USB', data.connected ? 'Connected' : 'Not found', data.connected ? 'ok' : 'err');
                     if (data.volume !== undefined) html += row('Volume', data.volume);
                     if (data.mute !== undefined) html += row('Mute', data.mute ? 'Yes' : 'No');
                     if (data.speakers_on !== undefined) html += row('Speakers', data.speakers_on ? 'On' : 'Off');

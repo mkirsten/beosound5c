@@ -2,6 +2,9 @@
 Description=BeoSound5c Apple Music Source (playlists, playback control, MusicKit API)
 After=network-online.target beo-input.service beo-router.service
 Wants=network-online.target
+OnFailure=beo-notify-failure@%n.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=simple

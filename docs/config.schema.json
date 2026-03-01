@@ -127,8 +127,8 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["beolab5", "esphome", "sonos", "bluesound", "powerlink", "c4amp", "hdmi", "spdif", "rca"],
-          "description": "Volume adapter type. 'esphome' is an alias for 'beolab5'. If omitted, inferred from player.type for sonos/bluesound, otherwise defaults to 'beolab5'.",
+          "enum": ["beolab5", "sonos", "bluesound", "powerlink", "c4amp", "hdmi", "spdif", "rca"],
+          "description": "Volume adapter type. If omitted, inferred from player.type for sonos/bluesound, otherwise defaults to 'beolab5'.",
           "default": "beolab5"
         },
         "host": {

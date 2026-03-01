@@ -44,7 +44,7 @@ def _validate(config: dict, path: str) -> None:
         logger.warning("Config %s: missing home_assistant.webhook_url — HA integration disabled", path)
     vol = config.get("volume") or {}
     vol_type = vol.get("type", "beolab5")
-    if vol_type not in ("esphome", "beolab5", "sonos", "bluesound", "powerlink", "c4amp", "hdmi", "spdif", "rca"):
+    if vol_type not in ("beolab5", "sonos", "bluesound", "powerlink", "c4amp", "hdmi", "spdif", "rca"):
         logger.warning("Config %s: unknown volume.type '%s'", path, vol_type)
     # News source requires a Guardian API key
     menu = config.get("menu") or {}

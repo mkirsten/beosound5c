@@ -29,6 +29,7 @@ from tokens import load_tokens, save_tokens, delete_tokens
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from lib.config import cfg
 from lib.source_base import SourceBase
+from lib.digit_playlists import DigitPlaylistMixin
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger('beo-source-apple-music')
@@ -65,7 +66,7 @@ def _get_local_ip():
         return '127.0.0.1'
 
 
-class AppleMusicService(SourceBase):
+class AppleMusicService(DigitPlaylistMixin, SourceBase):
     """Main Apple Music source service."""
 
     id = "apple_music"
@@ -161,6 +162,7 @@ class AppleMusicService(SourceBase):
         except (FileNotFoundError, json.JSONDecodeError) as e:
             log.warning("Could not load playlists: %s", e)
             self.playlists = []
+        self._reload_digit_playlists()
 
     # -- SourceBase hooks --
 
@@ -172,16 +174,6 @@ class AppleMusicService(SourceBase):
         app.router.add_post('/logout', self._handle_logout)
 
     async def handle_status(self) -> dict:
-        digit_playlists = {}
-        try:
-            with open(DIGIT_PLAYLISTS_FILE) as f:
-                raw = json.load(f)
-            for d, info in raw.items():
-                if info and info.get('name'):
-                    digit_playlists[d] = info['name']
-        except Exception:
-            pass
-
         return {
             'state': self.state,
             'now_playing': self.now_playing,
@@ -190,7 +182,7 @@ class AppleMusicService(SourceBase):
             'needs_reauth': self.auth.revoked,
             'last_refresh': self._last_refresh_wall.isoformat() if self._last_refresh_wall else None,
             'last_refresh_duration': self._last_refresh_duration,
-            'digit_playlists': digit_playlists,
+            'digit_playlists': self._get_digit_names(),
             'fetching': self._fetching_playlists,
         }
 
@@ -248,20 +240,6 @@ class AppleMusicService(SourceBase):
             return {'status': 'error', 'message': f'Unknown: {cmd}'}
 
         return {'state': self.state}
-
-    # -- Digit playlist lookup --
-
-    def _get_digit_playlist(self, digit):
-        """Look up a digit playlist from the Apple Music digit mapping file."""
-        try:
-            with open(DIGIT_PLAYLISTS_FILE) as f:
-                mapping = json.load(f)
-            info = mapping.get(str(digit))
-            if info and info.get('id'):
-                return info
-        except Exception:
-            pass
-        return None
 
     # -- Playback control --
 
@@ -386,8 +364,11 @@ class AppleMusicService(SourceBase):
                 '--developer-token', developer_token,
                 '--user-token', user_token,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE)
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+                stderr=asyncio.subprocess.STDOUT)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=600)
+            # Log fetch.py output so pagination progress is visible in journalctl
+            for line in stdout.decode().strip().splitlines():
+                log.info("fetch: %s", line)
             if proc.returncode == 0:
                 self._load_playlists()
                 self._last_refresh = time.monotonic()
@@ -396,17 +377,16 @@ class AppleMusicService(SourceBase):
                 log.info("Playlist refresh complete (%d playlists, %.1fs)",
                          len(self.playlists), self._last_refresh_duration)
             elif proc.returncode == 1:
-                err_msg = (stdout.decode() + stderr.decode())[-500:]
-                if '401' in err_msg:
+                output = stdout.decode()[-500:]
+                if '401' in output:
                     self.auth.revoked = True
                     log.error("User token expired — re-authentication required")
-                elif '403' in err_msg:
+                elif '403' in output:
                     log.error("Apple Music subscription required (403) — library inaccessible")
                 else:
-                    log.error("fetch.py failed (rc=%d): %s", proc.returncode, err_msg)
+                    log.error("fetch.py failed (rc=%d): %s", proc.returncode, output)
             else:
-                err_msg = (stdout.decode() + stderr.decode())[-500:]
-                log.error("fetch.py failed (rc=%d): %s", proc.returncode, err_msg)
+                log.error("fetch.py failed (rc=%d): %s", proc.returncode, stdout.decode()[-500:])
         except asyncio.TimeoutError:
             log.error("Playlist refresh timed out")
         except Exception as e:

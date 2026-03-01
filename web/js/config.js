@@ -46,7 +46,7 @@ const AppConfig = {
     // WebSocket endpoints (browser connects to same host as web UI)
     websocket: {
         input: 'ws://localhost:8765',
-        media: 'ws://localhost:8766/ws'
+        media: 'ws://localhost:8770/router/ws'
     },
 
     // Camera overlay configuration
@@ -131,6 +131,18 @@ const Debug = {
     }
 };
 
+/**
+ * Get a service URL from AppConfig with localhost fallback.
+ * @param {string} key   AppConfig property name, e.g. 'spotifyServiceUrl'
+ * @param {number} port  Fallback localhost port
+ * @returns {string}
+ */
+function getServiceUrl(key, port) {
+    return (typeof AppConfig !== 'undefined' && AppConfig[key])
+        || `http://localhost:${port}`;
+}
+
 // Make config available globally
 window.AppConfig = AppConfig;
 window.Debug = Debug;
+window.getServiceUrl = getServiceUrl;

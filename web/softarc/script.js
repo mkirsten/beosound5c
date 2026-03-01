@@ -988,10 +988,10 @@ class ArcList {
             
             this.ws.onclose = () => {
                 clearTimeout(timeout);
-                const wasConnected = this.ws !== null;
+                const hadConnection = this.ws !== null;
                 this.ws = null;
                 // Only attempt to reconnect if we had a successful connection before
-                if (wasConnected) {
+                if (hadConnection) {
                     setTimeout(() => this.connectWebSocket(), 5000);
                 }
             };

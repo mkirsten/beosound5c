@@ -23,7 +23,7 @@ log_section() { echo -e "\n${CYAN}=== $* ===${NC}\n"; }
 # Display banner
 show_banner() {
     local version
-    version=$(cat "$SCRIPT_ROOT/VERSION" 2>/dev/null || echo "unknown")
+    version=$(git -C "$SCRIPT_ROOT" describe --tags --abbrev=0 2>/dev/null || echo "unknown")
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"

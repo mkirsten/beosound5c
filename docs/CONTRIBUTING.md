@@ -19,10 +19,16 @@ This project is built for my personal setup, but contributions should be **as ge
 - **Generic features** that work across different setups are welcome in the project
 
 When adding features:
-- Ensure you follow the architecture in the project e.g., with Source vs. Player vs. VolumeAdapter
+- Ensure they work in emulator mode — add mocks where needed so others can test without hardware
 - Keep changes minimal and focused
-- Ensure they work in emulator mode where possible and reasonable — add mocks where needed so others can test without hardware
+
+### Code Style
+
+Using AI for code assistance is fine. Please:
+- Sanity check generated code
+- Keep changes minimal — don't refactor unrelated code
+- Match the existing style
 
 ## License
 
-By contributing, you agree that your contributions will be part of the License for the project
+By contributing, you agree that your contributions will be licensed under the MIT License.

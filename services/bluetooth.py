@@ -287,7 +287,7 @@ class BluetoothHIDService:
         logger.info("[%s] Listening on %s (%s)", tag, path, name)
 
         stop_flag = [False]
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             await loop.run_in_executor(
                 None, self._read_loop, fd, tag, keymap, stop_flag
@@ -493,7 +493,7 @@ class BluetoothHIDService:
     # --- Main loop ---
 
     async def monitor(self):
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
         await self.start()
         asyncio.create_task(watchdog_loop())
 

@@ -18,10 +18,10 @@ window.crossfadeText = crossfadeText;
 const DEFAULT_ARTWORK_SLOT = `
     <div class="playing-flipper">
         <div class="playing-face playing-front">
-            <img class="playing-artwork" src="" alt="Album Art">
+            <img class="playing-artwork" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Album Art">
         </div>
         <div class="playing-face playing-back" style="display:none">
-            <img class="playing-artwork-back" src="" alt="">
+            <img class="playing-artwork-back" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="">
         </div>
     </div>`;
 const DEFAULT_INFO_SLOT = `
@@ -139,7 +139,7 @@ class UIStore {
                 content: `
                     <div id="status-page" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; text-align: center; background-color: rgba(0,0,0,0.4);">
                         <div id="apple-tv-artwork-container" style="width: 60%; aspect-ratio: 1; margin: 20px; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
-                            <img id="apple-tv-artwork" src="" alt="Apple TV Media" style="width: 100%; height: 100%; object-fit: contain; transition: opacity 0.6s ease;">
+                            <img id="apple-tv-artwork" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Apple TV Media" style="width: 100%; height: 100%; object-fit: contain; transition: opacity 0.6s ease;">
                         </div>
                         <div id="apple-tv-media-info" style="width: 80%; padding: 10px;">
                             <div id="apple-tv-media-title" style="font-size: 24px; font-weight: bold; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
@@ -171,10 +171,10 @@ class UIStore {
                         <div class="playing-artwork-slot media-view-artwork">
                             <div class="playing-flipper">
                                 <div class="playing-face playing-front">
-                                    <img class="playing-artwork" src="" alt="Album Art">
+                                    <img class="playing-artwork" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Album Art">
                                 </div>
                                 <div class="playing-face playing-back" style="display:none">
-                                    <img class="playing-artwork-back" src="" alt="">
+                                    <img class="playing-artwork-back" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="">
                                 </div>
                             </div>
                         </div>
@@ -230,20 +230,10 @@ class UIStore {
     // 2. Track changes  
     // 3. External control detected
     
-    // Handle media update from WebSocket (Sonos player)
+    // Handle media update from WebSocket (via router)
     handleMediaUpdate(data, reason = 'update') {
-        // Defer until menu is loaded — we need to know if a source is active
-        // before deciding whether to show Sonos metadata or suppress it
-        if (!this._menuLoaded) return;
-
-        // Suppress Sonos metadata when a local player source is active.
-        // Local sources (CD, USB, Demo) stream to Sonos via AirPlay but provide
-        // their own metadata — showing Sonos metadata would be wrong/delayed.
-        // When player is "remote" (e.g. Spotify via player service) or no source
-        // is active, Sonos metadata flows through.
-        if (this.activeSourcePlayer === 'local') {
-            return;
-        }
+        // Suppression of local-source metadata is handled by the router —
+        // if we receive an update here, it should be displayed.
 
         // Only log the reason, not the full data object
         console.log(`[MEDIA-WS] ${reason}: ${data.title} - ${data.artist}`);
@@ -267,9 +257,12 @@ class UIStore {
     
     // Update the now playing view with current media info (Sonos/generic path)
     updateNowPlayingView() {
-        // Skip when a local player source is active — its own updates are
-        // routed via routeToPlayingPreset in ws-dispatcher
+        // Local player sources push updates via routeToPlayingPreset.
+        // Replay cached data so the view is populated when first mounted.
         if (this.activeSourcePlayer === 'local') {
+            if (window.replayLastSourceUpdate) {
+                window.replayLastSourceUpdate(this);
+            }
             return;
         }
 
@@ -401,11 +394,20 @@ class UIStore {
                     newItems.push({ title: item.title, path });
                 }
                 // Dynamic sources: always register view from preset (even if menu item already exists)
-                else if (item.dynamic && item.preset && window.SourcePresets?.[item.preset]) {
-                    const preset = window.SourcePresets[item.preset];
-                    newItems.push({ title: item.title, path: preset.item.path, hidden: !!item.hidden });
-                    if (preset.view) {
-                        this.views[preset.item.path] = preset.view;
+                else if (item.dynamic && item.preset) {
+                    // Load source script if not yet available (config sources with hidden:true
+                    // never get a menu_item "add" event, so their script won't load otherwise)
+                    if (!window.SourcePresets?.[item.preset]) {
+                        await this._loadSourceScript(item.preset);
+                    }
+                    const preset = window.SourcePresets?.[item.preset];
+                    if (preset) {
+                        newItems.push({ title: item.title, path: preset.item.path, hidden: !!item.hidden });
+                        if (preset.view) {
+                            this.views[preset.item.path] = preset.view;
+                        }
+                    } else {
+                        newItems.push({ title: item.title, path, hidden: !!item.hidden });
                     }
                 } else {
                     const existing = this.menuItems.find(m => m.path === path);
@@ -515,6 +517,11 @@ class UIStore {
 
         if (this.activePlayingPreset.onMount) {
             this.activePlayingPreset.onMount(container);
+        }
+
+        // Re-populate after DOM rebuild so artwork/text isn't blank
+        if (this.currentRoute === 'menu/playing') {
+            this.updateNowPlayingView();
         }
     }
 

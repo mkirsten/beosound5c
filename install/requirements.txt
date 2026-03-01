@@ -27,5 +27,8 @@ aiomqtt>=2.0.0
 # TIDAL integration
 tidalapi>=0.8.0
 
+# Plex integration
+plexapi>=4.15.0
+
 # Text-to-speech (news source)
 edge-tts>=6.1.0

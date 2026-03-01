@@ -20,6 +20,7 @@ logger = logging.getLogger('beo-input')
 VID, PID = 0x0cd4, 0x1112
 BTN_MAP = {0x20:'left', 0x10:'right', 0x40:'go', 0x80:'power'}
 clients = set()
+dev = None  # HID device handle, set by scan_loop when connected
 
 # Unified transport for HA communication (webhook, MQTT, or both)
 transport = Transport()
@@ -30,6 +31,15 @@ BS5C_BASE_PATH = os.getenv('BS5C_BASE_PATH', os.path.dirname(os.path.dirname(os.
 # Media server connection
 MEDIA_SERVER_URL = 'ws://localhost:8766/ws'
 media_server_ws = None
+
+# Shared HTTP client session (created lazily in async context)
+_http_session = None
+
+async def get_http_session():
+    global _http_session
+    if _http_session is None or _http_session.closed:
+        _http_session = ClientSession()
+    return _http_session
 
 # ——— track current "byte1" state (LED/backlight bits) ———
 state_byte1 = 0x00
@@ -43,6 +53,8 @@ def is_backlight_on():
 
 def bs5_send(data: bytes):
     """Low-level HID write."""
+    if dev is None:
+        return
     try:
         dev.write(data)
     except Exception as e:
@@ -155,16 +167,41 @@ def get_system_info() -> dict:
         # Backlight status
         info['backlight'] = 'On' if is_backlight_on() else 'Off'
 
-        # Git info
+        # Git info (try git first, fall back to VERSION file from deploy)
+        info['git_tag'] = '--'
         try:
             result = subprocess.run(
                 ['git', 'describe', '--tags', '--always'],
                 capture_output=True, text=True, timeout=2,
                 cwd=BS5C_BASE_PATH
             )
-            info['git_tag'] = result.stdout.strip() if result.stdout else '--'
+            if result.stdout and result.stdout.strip():
+                info['git_tag'] = result.stdout.strip()
         except Exception:
-            info['git_tag'] = '--'
+            pass
+        if info['git_tag'] == '--':
+            try:
+                vf = os.path.join(BS5C_BASE_PATH, 'VERSION')
+                with open(vf) as f:
+                    v = f.read().strip()
+                    if v:
+                        info['git_tag'] = v
+            except Exception:
+                pass
+
+        # Audio HAT info (from install-time detection)
+        info['audio_hat'] = None
+        try:
+            with open('/etc/beosound5c/audio-hat') as f:
+                hat = {}
+                for line in f:
+                    if '=' in line:
+                        k, v = line.strip().split('=', 1)
+                        hat[k.lower()] = v
+                if hat.get('hat_name'):
+                    info['audio_hat'] = hat.get('hat_name')
+        except Exception:
+            pass
 
         # Service status — discover all beo-* units dynamically
         info['services'] = {}
@@ -338,7 +375,7 @@ async def start_log_stream(ws, service: str):
         async def stream_logs():
             try:
                 while process.poll() is None:
-                    line = await asyncio.get_event_loop().run_in_executor(
+                    line = await asyncio.get_running_loop().run_in_executor(
                         None, process.stdout.readline
                     )
                     if line and id(ws) in log_stream_processes:
@@ -412,7 +449,7 @@ async def refresh_spotify_playlists(ws):
             stdout, stderr = process.communicate(timeout=120)
             return process.returncode, stdout, stderr
 
-        returncode, stdout, stderr = await asyncio.get_event_loop().run_in_executor(
+        returncode, stdout, stderr = await asyncio.get_running_loop().run_in_executor(
             None, wait_for_process
         )
 
@@ -458,37 +495,35 @@ async def handle_camera_stream(request):
     entity = request.query.get('entity', 'camera.doorbell_medium_resolution_channel')
 
     try:
-        async with ClientSession() as session:
-            headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
+        session = await get_http_session()
+        headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
 
-            # Get camera stream URL from HA
-            camera_url = f'{ha_url}/api/camera_proxy_stream/{entity}'
-            logger.info('Proxying camera stream from: %s', camera_url)
+        camera_url = f'{ha_url}/api/camera_proxy_stream/{entity}'
+        logger.info('Proxying camera stream from: %s', camera_url)
 
-            async with session.get(camera_url, headers=headers) as resp:
-                if resp.status == 200:
-                    # Stream the MJPEG response
-                    response = web.StreamResponse(
-                        status=200,
-                        headers={
-                            'Content-Type': resp.content_type or 'multipart/x-mixed-replace;boundary=frame',
-                            'Access-Control-Allow-Origin': '*',
-                            'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        }
-                    )
-                    await response.prepare(request)
+        async with session.get(camera_url, headers=headers) as resp:
+            if resp.status == 200:
+                response = web.StreamResponse(
+                    status=200,
+                    headers={
+                        'Content-Type': resp.content_type or 'multipart/x-mixed-replace;boundary=frame',
+                        'Access-Control-Allow-Origin': '*',
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    }
+                )
+                await response.prepare(request)
 
-                    async for chunk in resp.content.iter_any():
-                        await response.write(chunk)
+                async for chunk in resp.content.iter_any():
+                    await response.write(chunk)
 
-                    return response
-                else:
-                    logger.warning('Camera HA returned status: %s', resp.status)
-                    return web.json_response(
-                        {'error': f'Camera unavailable: HTTP {resp.status}'},
-                        status=resp.status,
-                        headers={'Access-Control-Allow-Origin': '*'}
-                    )
+                return response
+            else:
+                logger.warning('Camera HA returned status: %s', resp.status)
+                return web.json_response(
+                    {'error': f'Camera unavailable: HTTP {resp.status}'},
+                    status=resp.status,
+                    headers={'Access-Control-Allow-Origin': '*'}
+                )
     except Exception as e:
         logger.error('Camera error: %s', e)
         return web.json_response(
@@ -502,32 +537,30 @@ async def handle_camera_snapshot(request):
     ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
     ha_token = os.getenv('HA_TOKEN', '')
 
-    # Get camera entity from query params, default to doorbell
     entity = request.query.get('entity', 'camera.doorbell_medium_resolution_channel')
 
     try:
-        async with ClientSession() as session:
-            headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
+        session = await get_http_session()
+        headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
 
-            # Get camera snapshot from HA
-            camera_url = f'{ha_url}/api/camera_proxy/{entity}'
-            logger.info('Getting camera snapshot from: %s', camera_url)
+        camera_url = f'{ha_url}/api/camera_proxy/{entity}'
+        logger.info('Getting camera snapshot from: %s', camera_url)
 
-            async with session.get(camera_url, headers=headers) as resp:
-                if resp.status == 200:
-                    content = await resp.read()
-                    return web.Response(
-                        body=content,
-                        content_type=resp.content_type or 'image/jpeg',
-                        headers={'Access-Control-Allow-Origin': '*'}
-                    )
-                else:
-                    logger.warning('Camera HA returned status: %s', resp.status)
-                    return web.json_response(
-                        {'error': f'Camera unavailable: HTTP {resp.status}'},
-                        status=resp.status,
-                        headers={'Access-Control-Allow-Origin': '*'}
-                    )
+        async with session.get(camera_url, headers=headers) as resp:
+            if resp.status == 200:
+                content = await resp.read()
+                return web.Response(
+                    body=content,
+                    content_type=resp.content_type or 'image/jpeg',
+                    headers={'Access-Control-Allow-Origin': '*'}
+                )
+            else:
+                logger.warning('Camera HA returned status: %s', resp.status)
+                return web.json_response(
+                    {'error': f'Camera unavailable: HTTP {resp.status}'},
+                    status=resp.status,
+                    headers={'Access-Control-Allow-Origin': '*'}
+                )
     except Exception as e:
         logger.error('Camera error: %s', e)
         return web.json_response(
@@ -554,8 +587,8 @@ async def process_command(data: dict) -> dict:
         set_backlight(False)
         # Also power off audio output (BeoLab 5 etc.)
         try:
-            async with ClientSession() as s:
-                await s.post('http://localhost:8770/router/output/off', timeout=aiohttp.ClientTimeout(total=2))
+            s = await get_http_session()
+            await s.post('http://localhost:8770/router/output/off', timeout=aiohttp.ClientTimeout(total=2))
         except Exception:
             pass
         return {'status': 'ok', 'screen': 'off'}
@@ -737,7 +770,12 @@ async def handle_mqtt_command(data: dict):
 
 async def handle_health(request):
     """Health check endpoint."""
-    return web.json_response({'status': 'ok', 'service': 'beo-input', 'screen': 'on' if is_backlight_on() else 'off'})
+    return web.json_response({
+        'status': 'ok',
+        'service': 'beo-input',
+        'screen': 'on' if is_backlight_on() else 'off',
+        'hid_connected': dev is not None,
+    })
 
 async def handle_led(request):
     """Quick LED control for visual feedback. GET /led?mode=pulse|on|off|blink"""
@@ -746,7 +784,7 @@ async def handle_led(request):
     if mode == 'pulse':
         # Quick pulse: on then off after 100ms
         set_led('on')
-        asyncio.get_event_loop().call_later(0.1, lambda: set_led('off'))
+        asyncio.get_running_loop().call_later(0.1, lambda: set_led('off'))
     else:
         set_led(mode)
 
@@ -796,9 +834,9 @@ async def handle_appletv(request):
     ha_token = os.getenv('HA_TOKEN', '')
 
     try:
-        async with ClientSession() as session:
-            headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
-            async with session.get(f'{ha_url}/api/states/media_player.loft_apple_tv', headers=headers) as resp:
+        session = await get_http_session()
+        headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
+        async with session.get(f'{ha_url}/api/states/media_player.loft_apple_tv', headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     # Transform for frontend
@@ -837,9 +875,9 @@ async def handle_people(request):
     ha_token = os.getenv('HA_TOKEN', '')
 
     try:
-        async with ClientSession() as session:
-            headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
-            async with session.get(f'{ha_url}/api/states', headers=headers) as resp:
+        session = await get_http_session()
+        headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
+        async with session.get(f'{ha_url}/api/states', headers=headers) as resp:
                 if resp.status == 200:
                     all_states = await resp.json()
                     # Filter for person.* entities, excluding system users
@@ -881,7 +919,7 @@ async def handle_bt_remotes(request):
         })
 
     try:
-        remotes = await asyncio.get_event_loop().run_in_executor(None, get_bt_remotes)
+        remotes = await asyncio.get_running_loop().run_in_executor(None, get_bt_remotes)
         response = web.json_response(remotes)
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
@@ -907,13 +945,12 @@ async def handler(ws, path=None):
 async def _notify_cd_resync():
     """Ask beo-cd to re-send its menu item and metadata (if a disc is in)."""
     try:
-        from aiohttp import ClientTimeout
-        async with ClientSession(timeout=ClientTimeout(total=3)) as session:
-            async with session.get('http://localhost:8769/resync') as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if data.get('resynced'):
-                        logger.info('CD resync triggered for new client')
+        session = await get_http_session()
+        async with session.get('http://localhost:8769/resync', timeout=aiohttp.ClientTimeout(total=3)) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                if data.get('resynced'):
+                    logger.info('CD resync triggered for new client')
     except Exception as e:
         logger.debug('CD resync skipped (beo-cd not reachable): %s', e)
 
@@ -959,14 +996,14 @@ async def receive_commands(ws):
                 info = get_system_info()
                 await ws.send(json.dumps({'type': 'system_info', **info}))
             elif cmd == 'get_network_status':
-                net = await asyncio.get_event_loop().run_in_executor(None, get_network_status)
+                net = await asyncio.get_running_loop().run_in_executor(None, get_network_status)
                 await ws.send(json.dumps({'type': 'network_status', **net}))
             elif cmd == 'restart_service':
                 restart_service(params.get('action', ''))
             elif cmd == 'refresh_playlists':
                 await refresh_spotify_playlists(ws)
             elif cmd == 'get_bt_remotes':
-                remotes = await asyncio.get_event_loop().run_in_executor(None, get_bt_remotes)
+                remotes = await asyncio.get_running_loop().run_in_executor(None, get_bt_remotes)
                 await ws.send(json.dumps({'type': 'bt_remotes', 'remotes': remotes}))
             elif cmd == 'start_bt_pairing':
                 result = await start_bt_pairing()
@@ -978,6 +1015,9 @@ async def receive_commands(ws):
 
 def parse_report(rep: list, loop=None):
     global last_power_press_time, power_button_state
+    if len(rep) < 4:
+        logger.warning("Truncated HID report (%d bytes), ignoring", len(rep))
+        return None, None, None, None
     nav_evt = vol_evt = btn_evt = None
     laser_pos = rep[2]
 
@@ -1038,56 +1078,77 @@ def parse_report(rep: list, loop=None):
 async def _output_power(url):
     """Fire-and-forget call to router output power endpoint."""
     try:
-        async with ClientSession() as s:
-            await s.post(url, timeout=aiohttp.ClientTimeout(total=2))
+        s = await get_http_session()
+        await s.post(url, timeout=aiohttp.ClientTimeout(total=2))
     except Exception:
         pass
 
 _hid_alive = True   # cleared when scan_loop thread dies
 
+HID_RETRY_INTERVAL = 3  # seconds between device scan retries
+
 def scan_loop(loop):
     global dev, _hid_alive
-    devices = hid.enumerate(VID, PID)
-    if not devices:
-        logger.warning("BS5 not found (no HID device)")
-        sys.exit(1)
 
-    dev = hid.device()
-    dev.open(VID, PID)
-    dev.set_nonblocking(True)
-    logger.info("Opened BS5 @ VID:PID=%04x:%04x", VID, PID)
-    last_laser = None
-    first = True
+    while _hid_alive:
+        # --- Try to find and open the device ---
+        if dev is None:
+            devices = hid.enumerate(VID, PID)
+            if not devices:
+                time.sleep(HID_RETRY_INTERVAL)
+                continue
+            try:
+                d = hid.device()
+                d.open(VID, PID)
+                d.set_nonblocking(True)
+                dev = d
+                logger.info("Opened BS5 @ VID:PID=%04x:%04x", VID, PID)
+            except Exception as e:
+                logger.warning("Failed to open BS5: %s", e)
+                time.sleep(HID_RETRY_INTERVAL)
+                continue
 
-    try:
-        while True:
-            rpt = dev.read(64, timeout_ms=50)
-            if rpt:
-                rep = list(rpt)
-                nav_evt, vol_evt, btn_evt, laser_pos = parse_report(rep, loop)
+        # --- Read loop (runs while device is connected) ---
+        last_laser = None
+        first = True
+        try:
+            while True:
+                rpt = dev.read(64, timeout_ms=50)
+                if rpt:
+                    rep = list(rpt)
+                    nav_evt, vol_evt, btn_evt, laser_pos = parse_report(rep, loop)
+                    if laser_pos is None:
+                        continue
 
-                for evt_type, evt in (
-                    ('nav',    nav_evt),
-                    ('volume', vol_evt),
-                    ('button', btn_evt),
-                ):
-                    if evt:
+                    for evt_type, evt in (
+                        ('nav',    nav_evt),
+                        ('volume', vol_evt),
+                        ('button', btn_evt),
+                    ):
+                        if evt:
+                            asyncio.run_coroutine_threadsafe(
+                                broadcast(json.dumps({'type':evt_type,'data':evt})),
+                                loop
+                            )
+
+                    if first or laser_pos != last_laser:
                         asyncio.run_coroutine_threadsafe(
-                            broadcast(json.dumps({'type':evt_type,'data':evt})),
+                            broadcast(json.dumps({'type':'laser','data':{'position':laser_pos}})),
                             loop
                         )
+                        last_laser, first = laser_pos, False
 
-                if first or laser_pos != last_laser:
-                    asyncio.run_coroutine_threadsafe(
-                        broadcast(json.dumps({'type':'laser','data':{'position':laser_pos}})),
-                        loop
-                    )
-                    last_laser, first = laser_pos, False
+                time.sleep(0.001)
+        except Exception as e:
+            logger.warning("BS5 disconnected: %s — will retry", e)
+            try:
+                dev.close()
+            except Exception:
+                pass
+            dev = None
+            time.sleep(HID_RETRY_INTERVAL)
 
-            time.sleep(0.001)
-    except Exception as e:
-        logger.error("HID scan_loop crashed: %s", e)
-        _hid_alive = False
+    _hid_alive = False
 
 # ——— Media server communication ———
 
@@ -1170,28 +1231,21 @@ async def main():
     logger.info("HTTP webhook server listening on http://0.0.0.0:8767")
 
     # Start HID scanning thread
-    threading.Thread(target=scan_loop, args=(asyncio.get_event_loop(),), daemon=True).start()
+    threading.Thread(target=scan_loop, args=(asyncio.get_running_loop(),), daemon=True).start()
 
     # Start media server connection task
     media_task = asyncio.create_task(connect_to_media_server())
 
-    # Start systemd watchdog heartbeat (stops if HID thread dies)
-    async def guarded_watchdog():
-        from lib.watchdog import sd_notify
-        sd_notify("READY=1")
-        logger.info("Watchdog started (guarded by HID thread)")
-        while _hid_alive:
-            sd_notify("WATCHDOG=1")
-            await asyncio.sleep(20)
-        logger.error("HID thread dead — stopping watchdog, systemd will restart us")
-        os._exit(1)  # fast exit so systemd restarts immediately
-    asyncio.create_task(guarded_watchdog())
+    # Start systemd watchdog heartbeat
+    asyncio.create_task(watchdog_loop())
 
     try:
         # Wait for server to close
         await ws_srv.wait_closed()
     finally:
         await transport.stop()
+        if _http_session and not _http_session.closed:
+            await _http_session.close()
 
 if __name__ == '__main__':
     asyncio.run(main())

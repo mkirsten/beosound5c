@@ -36,18 +36,11 @@ BEOSOUND_DEVICE_NAME = cfg("device", default="BeoSound5c")
 ROUTER_URL = "http://localhost:8770/router/event"
 MIXER_PORT = int(os.getenv('MIXER_PORT', '8768'))
 
-# Hardware volume range
-RAW_VOL_MAX = 90  # safe max out of 0-127
-
-
-def _pct_to_raw(pct: float) -> int:
-    """Map 0-100% to 0-RAW_VOL_MAX."""
-    return max(0, min(RAW_VOL_MAX, int(pct * RAW_VOL_MAX / 100)))
-
-
-def _raw_to_pct(raw: int) -> float:
-    """Map 0-RAW_VOL_MAX back to 0-100%."""
-    return round(raw * 100 / RAW_VOL_MAX, 1)
+# Volume — the PC2 0xE3 command sets volume as an absolute byte (0-127).
+# 0xEB steps increment/decrement by 1 in the same scale.
+# Device echoes actual volume via message types 0x03/0x1D at byte[3] & 0x7F.
+VOL_MAX = int(cfg("volume", "max", default=70))
+VOL_DEFAULT = int(cfg("volume", "default", default=30))
 
 # Message processing settings
 MESSAGE_TIMEOUT = 2.0  # Discard messages older than 2 seconds
@@ -185,9 +178,11 @@ class PC2Device:
             'local': False,
             'distribute': False,
             'from_ml': False,
-            'volume_raw': 0,
+            'volume': 0,           # tracked volume
+            'volume_confirmed': 0, # last volume read from device feedback
         }
         self._mixer_runner = None  # aiohttp AppRunner for cleanup
+        self._vol_lock = threading.Lock()  # serialize step-based volume changes
 
     def open(self):
         """Find and open the PC2 device"""
@@ -260,9 +255,9 @@ class PC2Device:
         self.dev.write(self.EP_OUT, telegram, 0)
 
     def set_address_filter(self):
-        """Set the address filter to capture all data"""
-        logger.info("Setting address filter to capture all data")
+        """Set the address filter to capture all data."""
         self.send_message([0xF6, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+        logger.info("Address filter set")
 
     def start_sniffing(self):
         """Start sniffing USB messages and sending them via webhook"""
@@ -300,7 +295,14 @@ class PC2Device:
                     message = list(data)
                     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
-                    # Process the message (only for Beo4 keycodes)
+                    # Mixer state feedback (0x03 / 0x1D) — update confirmed volume
+                    if len(message) >= 5 and message[2] in (0x03, 0x1D):
+                        vol = message[3] & 0x7F
+                        self.mixer_state['volume_confirmed'] = vol
+                        self.mixer_state['volume'] = vol
+                        logger.debug("Mixer feedback: volume=%d", vol)
+
+                    # Beo4 keycodes
                     if len(message) > 2 and message[2] == 0x02:
                         msg_data = self.process_beo4_keycode(timestamp, message)
                         if msg_data:
@@ -424,33 +426,105 @@ class PC2Device:
             0x1B: "Light"
         }
 
-        # Key mapping
+        # Key mapping (Beo4 IR keycodes)
+        # Reference: B&O MLGW protocol + own hardware testing
         key_map = {
+            # Digits
             0x00: "0", 0x01: "1", 0x02: "2", 0x03: "3", 0x04: "4",
             0x05: "5", 0x06: "6", 0x07: "7", 0x08: "8", 0x09: "9",
+            # Power / standby
             0x0C: "off",
             0x0D: "mute",
             0x0F: "alloff",
-            0x5C: "menu", # Display on Beo1
-            0x20: "track",
+            # Source control (arrow keys on non-joystick, joystick in MODE 3)
             0x1E: "up", 0x1F: "down",
-            0x32: "left", 0x34: "right",
-            0x35: "go", 0x36: "stop", 0x7F: "back",
-            0x37: "record",
+            0x32: "left", 0x33: "return", 0x34: "right",
+            0x35: "go", 0x36: "stop",
+            0x37: "record", 0x38: "shift-stop",
+            # Cursor (joystick in MODE 1)
+            0xCA: "cursor_up", 0xCB: "cursor_down",
+            0xCC: "cursor_left", 0xCD: "cursor_right",
+            0x13: "select",
+            # Navigation
+            0x7F: "back",
             0x58: "list",
+            0x5C: "menu",
+            0x20: "track",
+            0x40: "guide",
+            0x43: "info",
+            # Volume
             0x60: "volup", 0x64: "voldown",
-            0x80: "tv",
+            # Sound / picture
+            0x2A: "format",
+            0x44: "speaker",
+            0x46: "sound",
+            0xF7: "stand",
+            0xDA: "cinema_on", 0xDB: "cinema_off",
+            0xAD: "2d", 0xAE: "3d",
+            0x1C: "p.mute",
+            # Sources — audio
             0x81: "radio",
-            0x85: "vmem",
-            0x86: "dvd",
-            0x8A: "dtv",
             0x91: "amem",
             0x92: "cd",
+            0x93: "n.radio",
             0x94: "n.music",
-            0x9B: "light",
+            0x95: "server",
+            0x96: "spotify",
+            0x97: "join",
+            # Sources — video
+            0x80: "tv",
+            0x82: "v.aux",
+            0x83: "a.aux",
+            0x84: "media",
+            0x85: "vmem",
+            0x86: "dvd",
+            0x87: "camera",
+            0x88: "text",
+            0x8A: "dtv",
+            0x8B: "pc",
+            0x8C: "youtube",
+            0x8D: "doorcam",
+            0x8E: "photo",
+            0x90: "usb2",
             0xBF: "av",
+            0xFA: "p-in-p",
+            # Color keys
+            0xD4: "yellow", 0xD5: "green", 0xD8: "blue", 0xD9: "red",
+            # Shift combos
+            0x17: "shift-cd",
+            0x22: "shift-play",
+            0x24: "shift-goto",
+            0x28: "clock",
+            0xC0: "edit",
             0xC1: "random",
-            0xD4: "yellow", 0xD5: "green", 0xD8: "blue", 0xD9: "red"
+            0xC2: "shift-2",
+            0xC3: "repeat",
+            0xC4: "shift-4",
+            0xC5: "shift-5",
+            0xC6: "shift-6",
+            0xC7: "shift-7",
+            0xC8: "shift-8",
+            0xC9: "shift-9",
+            # Other
+            0x0A: "clear",
+            0x0B: "store",
+            0x0E: "reset",
+            0x14: "back2",
+            0x15: "mots",
+            0x2D: "eject",
+            0x3F: "select2",
+            0x47: "sleep",
+            0x4B: "app",
+            0x9B: "light",
+            0x9C: "command",
+            0xF2: "mots2",
+            # Repeat/hold codes
+            0x70: "rewind_repeat", 0x71: "wind_repeat",
+            0x72: "step_up_repeat", 0x73: "step_down_repeat",
+            0x75: "go_repeat",
+            0x76: "green_repeat", 0x77: "yellow_repeat",
+            0x78: "blue_repeat", 0x79: "red_repeat",
+            0x7E: "key_release",
         }
 
         # Parse link, mode and keycode
@@ -477,118 +551,144 @@ class PC2Device:
             'raw_data': hex_data
         }
 
-    # --- Mixer control (PC2 DAC/amp commands) ---
+    # --- Mixer control (PC2 commands) ---
+    # Protocol details derived from libpc2 (GPL-3.0) by Tore Sinding Bekkedal;
+    # no source code was copied. See https://github.com/toresbe/libpc2
 
     def speaker_power(self, on):
-        """Turn speakers on or off with proper mute sequencing."""
+        """Turn speakers on or off with proper mute sequencing.
+
+        libpc2: "I have observed the PC2 crashing very hard if this is fudged."
+        Power on: 0xEA 0xFF then unmute.  Power off: mute then 0xEA 0x00.
+        """
         if on:
-            self.send_message([0xea, 0xFF])   # power on
+            self.send_message([0xea, 0xFF])
             time.sleep(0.05)
-            self.send_message([0xea, 0x81])   # unmute
+            self.send_message([0xea, 0x81])  # unmute
             self.mixer_state['speakers_on'] = True
             self.mixer_state['muted'] = False
             logger.info("Speakers powered ON")
         else:
-            self.send_message([0xea, 0x80])   # mute first
+            self.send_message([0xea, 0x80])  # mute first
             time.sleep(0.05)
-            self.send_message([0xea, 0x00])   # power off
+            self.send_message([0xea, 0x00])
             self.mixer_state['speakers_on'] = False
             self.mixer_state['muted'] = True
             logger.info("Speakers powered OFF")
 
     def speaker_mute(self, muted):
         """Mute or unmute speakers."""
-        if muted:
-            self.send_message([0xea, 0x80])
-            self.mixer_state['muted'] = True
-            logger.info("Speakers MUTED")
-        else:
-            self.send_message([0xea, 0x81])
-            self.mixer_state['muted'] = False
-            logger.info("Speakers UNMUTED")
+        self.send_message([0xea, 0x80 if muted else 0x81])
+        self.mixer_state['muted'] = muted
+        logger.info("Speakers %s", "MUTED" if muted else "UNMUTED")
 
-    def volume_adjust(self, steps):
-        """Adjust volume by given number of steps (positive=up, negative=down)."""
-        cmd = [0xeb, 0x80] if steps > 0 else [0xeb, 0x81]
-        for _ in range(abs(steps)):
-            self.send_message(cmd)
-            time.sleep(0.02)
-        # Best-effort tracking (relative, may drift)
-        self.mixer_state['volume_raw'] = max(0, min(RAW_VOL_MAX,
-            self.mixer_state['volume_raw'] + steps))
-        logger.info("Volume %s by %d step(s)", "UP" if steps > 0 else "DOWN", abs(steps))
+    def set_volume(self, target):
+        """Set volume to an absolute value using 0xEB step commands.
 
-    def set_volume(self, raw):
-        """Set absolute volume via CMD_SET_PARAMS (0xE3).
-
-        raw: 0–RAW_VOL_MAX (clamped). Bass/treble/balance neutral.
+        Steps from the device-confirmed volume to the target.
+        0xE3 (set_parameters) only works at power-on, so live changes
+        must use 0xEB 0x80 (up) / 0xEB 0x81 (down) one step at a time.
         """
-        raw = max(0, min(RAW_VOL_MAX, int(raw)))
-        self.send_message([0xe3, raw, 0, 0, 0])
-        self.mixer_state['volume_raw'] = raw
-        logger.info("Volume set to raw %d (%.0f%%)", raw, _raw_to_pct(raw))
+        target = max(0, min(VOL_MAX, int(target)))
+        with self._vol_lock:
+            current = self.mixer_state['volume']
+            diff = target - current
+            if diff == 0:
+                return
+            direction = [0xeb, 0x80] if diff > 0 else [0xeb, 0x81]
+            for _ in range(abs(diff)):
+                self.send_message(direction)
+                time.sleep(0.02)
+            self.mixer_state['volume'] = target
+        logger.info("Volume set to %d (%d steps)", target, abs(diff))
 
     def set_routing(self, local=False, distribute=False, from_ml=False):
-        """Set audio routing. All False = audio off."""
-        if not local and not distribute and not from_ml:
-            # All off
-            self.send_message([0xe7, 0x01])
-            time.sleep(0.02)
-            self.send_message([0xe5, 0x00, 0x00, 0x00, 0x01])
+        """Set audio routing per libpc2 logic. All False = audio off."""
+        muted_byte = 0x00 if (distribute or local) else 0x01
+        dist_byte = 0x01 if distribute else 0x00
+
+        if local and from_ml:
+            locally = 0x03
+        elif from_ml:
+            locally = 0x04
+        elif local:
+            locally = 0x01
         else:
-            self.send_message([0xe7, 0x00])
-            time.sleep(0.02)
-            # Build locally byte: 0x00=off, 0x01=local, 0x03=local+from_ml, 0x04=from_ml
-            if local and from_ml:
-                locally = 0x03
-            elif from_ml:
-                locally = 0x04
-            elif local:
-                locally = 0x01
-            else:
-                locally = 0x00
-            dist = 0x01 if distribute else 0x00
-            self.send_message([0xe5, locally, dist, 0x00, 0x00])
+            locally = 0x00
+
+        self.send_message([0xe7, muted_byte])
+        time.sleep(0.02)
+        self.send_message([0xe5, locally, dist_byte, 0x00, muted_byte])
 
         self.mixer_state['local'] = local
         self.mixer_state['distribute'] = distribute
         self.mixer_state['from_ml'] = from_ml
         logger.info("Routing: local=%s distribute=%s from_ml=%s", local, distribute, from_ml)
 
-    def audio_on(self):
-        """Convenience: power on speakers, set safe volume, and route local audio."""
+    def activate_source(self):
+        """Tell PC2 to connect local audio source to the PowerLink bus."""
+        self.send_message([0xe4, 0x01])
+        logger.info("Audio source activated")
+
+    def set_parameters(self, volume, bass=0, treble=0, balance=0, loudness=False):
+        """Set mixer parameters via 0xE3. Only effective at power-on."""
+        volume = max(0, min(VOL_MAX, volume))
+        vol_byte = volume | (0x80 if loudness else 0x00)
+        self.send_message([0xe3, vol_byte, bass & 0xFF, treble & 0xFF, balance & 0xFF])
+        self.mixer_state['volume'] = volume
+        self.mixer_state['volume_confirmed'] = volume
+        logger.info("Parameters: vol=%d bass=%d treble=%d bal=%d loud=%s",
+                     volume, bass, treble, balance, loudness)
+
+    def audio_on(self, volume=None):
+        """Power on speakers: source → route → power → set_parameters.
+
+        0xE3 sets initial volume directly at power-on (no stepping needed).
+        """
+        if volume is None:
+            volume = VOL_DEFAULT
+        volume = max(0, min(VOL_MAX, volume))
+
+        self.activate_source()
+        time.sleep(0.1)
+        self.set_routing(local=True)
+        time.sleep(0.1)
         self.speaker_power(True)
         time.sleep(0.05)
-        self.set_volume(_pct_to_raw(20))
-        time.sleep(0.02)
-        self.set_routing(local=True)
+        self.set_parameters(volume)
+        time.sleep(0.1)
+        logger.info("Audio ON at volume %d", volume)
 
     def audio_off(self):
-        """Convenience: disable routing and power off speakers."""
+        """Power off: route off → power off."""
         self.set_routing(local=False, distribute=False, from_ml=False)
         time.sleep(0.05)
         self.speaker_power(False)
+        self.mixer_state['volume'] = 0
+        logger.info("Audio OFF")
 
     # --- Mixer HTTP API (port 8768) ---
 
     async def _handle_mixer_volume(self, request):
-        """POST /mixer/volume  {"volume": 0-100}"""
+        """POST /mixer/volume  {"volume": 0-70}"""
         data = await request.json()
-        pct = float(data.get('volume', 0))
-        raw = _pct_to_raw(pct)
+        vol = int(data.get('volume', 0))
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self.set_volume, raw)
+        await loop.run_in_executor(None, self.set_volume, vol)
         return web.json_response({
-            'ok': True, 'volume_pct': _raw_to_pct(raw), 'volume_raw': raw,
+            'ok': True,
+            'volume': self.mixer_state['volume'],
+            'volume_confirmed': self.mixer_state['volume_confirmed'],
         })
 
     async def _handle_mixer_power(self, request):
-        """POST /mixer/power  {"on": true/false}"""
+        """POST /mixer/power  {"on": true/false, "volume": optional}"""
         data = await request.json()
         on = data.get('on', False)
         loop = asyncio.get_running_loop()
         if on:
-            await loop.run_in_executor(None, self.audio_on)
+            vol = data.get('volume', None)
+            await loop.run_in_executor(None, self.audio_on, vol)
         else:
             await loop.run_in_executor(None, self.audio_off)
         return web.json_response({'ok': True, 'speakers_on': on})
@@ -604,7 +704,7 @@ class PC2Device:
     async def _handle_mixer_status(self, request):
         """GET /mixer/status"""
         state = dict(self.mixer_state)
-        state['volume_pct'] = _raw_to_pct(state['volume_raw'])
+        state['volume_pct'] = state['volume']  # volume is already absolute
         state['connected'] = self.connected
         return web.json_response(state)
 
@@ -676,7 +776,7 @@ if __name__ == "__main__":
         pc2.set_address_filter()
 
         if audio_test:
-            logger.info("Audio test mode. Commands: on, off, vol+ [n], vol- [n], set <pct>, mute, unmute, distribute, local, quit")
+            logger.info("Audio test mode. Commands: on [vol], off, vol <n>, vol+ [n], vol- [n], mute, unmute, status, quit")
             while True:
                 try:
                     line = input("> ").strip().lower()
@@ -690,26 +790,24 @@ if __name__ == "__main__":
                 if cmd == 'quit':
                     break
                 elif cmd == 'on':
-                    pc2.audio_on()
+                    vol = int(parts[1]) if len(parts) > 1 else None
+                    pc2.audio_on(vol)
                 elif cmd == 'off':
                     pc2.audio_off()
+                elif cmd == 'vol' and len(parts) > 1:
+                    pc2.set_volume(int(parts[1]))
                 elif cmd == 'vol+':
                     n = int(parts[1]) if len(parts) > 1 else 1
-                    pc2.volume_adjust(n)
+                    pc2.set_volume(pc2.mixer_state['volume'] + n)
                 elif cmd == 'vol-':
                     n = int(parts[1]) if len(parts) > 1 else 1
-                    pc2.volume_adjust(-n)
-                elif cmd == 'set':
-                    pct = float(parts[1]) if len(parts) > 1 else 0
-                    pc2.set_volume(_pct_to_raw(pct))
+                    pc2.set_volume(pc2.mixer_state['volume'] - n)
                 elif cmd == 'mute':
                     pc2.speaker_mute(True)
                 elif cmd == 'unmute':
                     pc2.speaker_mute(False)
-                elif cmd == 'distribute':
-                    pc2.set_routing(local=True, distribute=True)
-                elif cmd == 'local':
-                    pc2.set_routing(local=True)
+                elif cmd == 'status':
+                    print(pc2.mixer_state)
                 else:
                     print(f"Unknown command: {cmd}")
         else:

@@ -813,6 +813,19 @@ class ArcList {
         const item = this.items[idx];
         if (!item) return;
 
+        // Custom onGo callback — let the callback decide what's actionable
+        if (this.config.onGo) {
+            const el = this.container.querySelector('.arc-item.selected');
+            if (el) {
+                el.classList.add('go-flash');
+                setTimeout(() => el.classList.remove('go-flash'), 400);
+            }
+            const pathContext = this.navStack.map(f => f.selectedItem);
+            this.config.onGo(item, this.depth, pathContext, idx);
+            return;
+        }
+
+        // Default: only leaves are actionable
         if (!this.isActionable(item)) return;
 
         // Blue flash on the selected item
@@ -820,13 +833,6 @@ class ArcList {
         if (el) {
             el.classList.add('go-flash');
             setTimeout(() => el.classList.remove('go-flash'), 400);
-        }
-
-        // Custom onGo callback
-        if (this.config.onGo) {
-            const pathContext = this.navStack.map(f => f.selectedItem);
-            this.config.onGo(item, this.depth, pathContext, idx);
-            return;
         }
 
         // Default: send webhook
@@ -1369,8 +1375,14 @@ class ArcList {
     }
 
     destroy() {
-        if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
-        if (this.snapTimer) clearTimeout(this.snapTimer);
+        if (this.animationFrame) {
+            cancelAnimationFrame(this.animationFrame);
+            this.animationFrame = null;
+        }
+        if (this.snapTimer) {
+            clearTimeout(this.snapTimer);
+            this.snapTimer = null;
+        }
         if (this._saveInterval) {
             clearInterval(this._saveInterval);
             this._saveInterval = null;
@@ -1383,6 +1395,33 @@ class ArcList {
             this.ws.close();
             this.ws = null;
         }
+    }
+
+    revive() {
+        if (!this.animationFrame) this.startAnimation();
+        if (!this._saveInterval) {
+            this._saveInterval = setInterval(() => this.saveState(), 1000);
+        }
+        if (!this._messageHandler) {
+            this._messageHandler = (event) => {
+                if (event.data?.type === 'button') {
+                    this.handleButton(event.data.button || event.data.data?.button);
+                } else if (event.data?.type === 'nav') {
+                    this.handleNavFromParent(event.data.data);
+                } else if (event.data?.type === 'keyboard') {
+                    this.handleKeyPress({
+                        key: event.data.key,
+                        code: event.data.code,
+                        preventDefault: () => {},
+                        stopPropagation: () => {},
+                    });
+                } else if (event.data?.type === 'reload-data') {
+                    this.reloadData();
+                }
+            };
+            window.addEventListener('message', this._messageHandler);
+        }
+        this.render();
     }
 }
 

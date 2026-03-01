@@ -31,6 +31,7 @@ _SINK_RULES = [
     ("optical",   lambda name, desc: any(k in name.lower() or k in desc.lower()
                                          for k in ("spdif", "iec958", "optical", "digital-stereo",
                                                     "hifiberry-digi"))),
+    ("usb",       lambda name, desc: name.startswith("alsa_output.usb-")),
     ("analog",    lambda name, desc: any(k in name.lower() or k in desc.lower()
                                          for k in ("headphones", "analog", "bcm2835",
                                                     "alsa_output.platform"))),
@@ -74,7 +75,7 @@ class AudioOutputs:
 
         Where type is one of:
             sonos, homepod, appletv, mac, iphone, ipad, airplay (generic),
-            bluetooth, hdmi, optical, analog, other
+            bluetooth, hdmi, optical, usb, analog, other
         """
         try:
             short = subprocess.run(

@@ -89,7 +89,7 @@ class CDDrive:
                 if drive_present and HAS_DISCID:
                     # Audio CDs can't be probed with dd — use discid TOC read
                     try:
-                        await asyncio.get_event_loop().run_in_executor(
+                        await asyncio.get_running_loop().run_in_executor(
                             None, lambda: discid.read(self.device_path)
                         )
                         disc_present = True
@@ -116,7 +116,7 @@ class CDDrive:
     async def eject(self):
         """Eject the disc."""
         try:
-            await asyncio.get_event_loop().run_in_executor(
+            await asyncio.get_running_loop().run_in_executor(
                 None, lambda: subprocess.run(['eject', self.device_path], timeout=5)
             )
             log.info("Disc ejected")
@@ -140,7 +140,7 @@ class CDMetadata:
             return None
 
         try:
-            disc = await asyncio.get_event_loop().run_in_executor(
+            disc = await asyncio.get_running_loop().run_in_executor(
                 None, lambda: discid.read(self.device_path)
             )
             self.last_disc = disc
@@ -152,7 +152,7 @@ class CDMetadata:
                 return self._fallback_metadata(disc)
 
             try:
-                result = await asyncio.get_event_loop().run_in_executor(
+                result = await asyncio.get_running_loop().run_in_executor(
                     None, lambda: musicbrainzngs.get_releases_by_discid(
                         disc_id, includes=['artists', 'recordings']
                     )
@@ -292,6 +292,12 @@ class CDPlayer:
         self._pause_timer = None
         self._pending_track = None  # track we're seeking to (suppress stale events)
         self._volume = 100.0  # track mpv volume internally (avoids IPC read races)
+        # Detect mpv CD device flag (--cdrom-device pre-0.39, --cdda-device 0.39+)
+        try:
+            opts = subprocess.check_output(['mpv', '--list-options'], stderr=subprocess.DEVNULL, text=True)
+            self._cd_device_flag = '--cdda-device' if '--cdda-device' in opts else '--cdrom-device'
+        except Exception:
+            self._cd_device_flag = '--cdrom-device'
         # Callbacks — set by CDService
         self._on_track_change = None  # track changed during playback (UI update)
         self._on_disc_end = None      # disc finished or shuffle order exhausted
@@ -331,7 +337,7 @@ class CDPlayer:
         env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
         cmd = [
             'mpv', '--ao=pulse',
-            f'--cdrom-device={self.device_path}',
+            f'{self._cd_device_flag}={self.device_path}',
             'cdda://',
             '--no-video', '--no-terminal',
             '--gapless-audio=yes',
@@ -587,7 +593,7 @@ class CDPlayer:
 
     def _start_pause_timer(self):
         self._cancel_pause_timer()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         self._pause_timer = loop.call_later(
             self.PAUSE_TIMEOUT, lambda: asyncio.ensure_future(self._pause_timeout()))
 
@@ -617,7 +623,7 @@ class CDPlayer:
         if self.process:
             self.process.terminate()
             try:
-                await asyncio.get_event_loop().run_in_executor(
+                await asyncio.get_running_loop().run_in_executor(
                     None, self.process.wait, 2)
             except subprocess.TimeoutExpired:
                 self.process.kill()
@@ -678,11 +684,12 @@ class CDService(SourceBase):
         self.drive = CDDrive()
         self.metadata_lookup = CDMetadata()
         self.audio = AudioOutputs()
-        self.player = CDPlayer()
+        self.cdplayer = CDPlayer()
         self.metadata = None
         self._all_releases = []  # full release list from MusicBrainz
         self._rip_process = None
-        self._is_first_detection = True  # skip autoplay on startup with disc already in
+        self._metadata_task = None  # cancel on eject to prevent phantom playback
+        self._is_first_detection = True  # suppress navigate (not autoplay) on startup
         self._external_drive_cache = None
         self._external_drive_cache_time = 0
 
@@ -690,33 +697,33 @@ class CDService(SourceBase):
 
     async def on_start(self):
         # Wire player callbacks for gapless chapter tracking, disc end, and AirPlay
-        self.player._on_track_change = self._on_track_change
-        self.player._on_disc_end = self._on_disc_end
-        self.player._on_pause_timeout = self._on_pause_timeout
-        self.player._on_before_play = self._ensure_airplay
+        self.cdplayer._on_track_change = self._on_track_change
+        self.cdplayer._on_disc_end = self._on_disc_end
+        self.cdplayer._on_pause_timeout = self._on_pause_timeout
+        self.cdplayer._on_before_play = self._ensure_airplay
 
         await self.drive.start_polling(
             on_drive_change=self._on_drive_change,
             on_disc_change=self._on_disc_change
         )
 
-        # Clear first-detection flag after grace period — if no disc was
-        # found in the first 6s, the next insertion should autoplay
-        asyncio.get_event_loop().call_later(6, self._clear_first_detection)
+        # After grace period, treat any disc detection as a real insertion
+        asyncio.get_running_loop().call_later(6, self._clear_first_detection)
 
         # Start systemd watchdog heartbeat
         asyncio.create_task(watchdog_loop())
 
         asyncio.create_task(self._set_default_airplay())
 
-    async def on_stop(self):
-        await self.player.stop()
-        await self.drive.stop()
-
     def _clear_first_detection(self):
         if self._is_first_detection:
             self._is_first_detection = False
-            log.info("Startup grace ended — next disc will autoplay")
+            log.info("Startup grace ended — next disc detection will navigate")
+
+    async def on_stop(self):
+        await self.cdplayer.stop()
+        await self.drive.stop()
+
 
     def add_routes(self, app):
         app.router.add_get('/speakers', self._handle_speakers)
@@ -726,7 +733,7 @@ class CDService(SourceBase):
             'drive_connected': self.drive.drive_connected,
             'disc_inserted': self.drive.disc_inserted,
             'metadata': self.metadata,
-            'playback': self.player.get_status(),
+            'playback': self.cdplayer.get_status(),
             'audio_outputs': self.audio.get_outputs(),
             'current_sink': self.audio.current_sink,
             'has_external_drive': self._detect_external_drive(),
@@ -741,7 +748,7 @@ class CDService(SourceBase):
     async def handle_resync(self) -> dict:
         """Re-register source state and metadata. Called by input.py on new WebSocket client."""
         if self.drive.disc_inserted:
-            state = self.player.state if self.player.state in ('playing', 'paused') else 'available'
+            state = self.cdplayer.state if self.cdplayer.state in ('playing', 'paused') else 'available'
             await self.register(state)
             if self.metadata:
                 await self._broadcast_cd_update()
@@ -760,48 +767,48 @@ class CDService(SourceBase):
         if cmd == '_cd_button':
             return await self._handle_cd_button_action()
         elif cmd == 'play':
-            await self.player.play()
+            await self.cdplayer.play()
             await self.register('playing', auto_power=True)
             await self._broadcast_cd_update()
         elif cmd == 'pause':
-            await self.player.pause()
+            await self.cdplayer.pause()
             await self.register('paused')
             await self._broadcast_cd_update()
         elif cmd == 'toggle':
-            await self.player.toggle_playback()
-            if self.player.state == 'playing':
+            await self.cdplayer.toggle_playback()
+            if self.cdplayer.state == 'playing':
                 await self.register('playing', auto_power=True)
             else:
                 await self.register('paused')
             await self._broadcast_cd_update()
         elif cmd == 'next':
-            await self.player.next_track()
+            await self.cdplayer.next_track()
             await self._broadcast_cd_update()
         elif cmd == 'prev':
-            await self.player.prev_track()
+            await self.cdplayer.prev_track()
             await self._broadcast_cd_update()
         elif cmd == 'stop':
-            await self.player.stop()
+            await self.cdplayer.stop()
             await self.register('available')
             await self._broadcast_cd_update()
         elif cmd == 'play_track':
             # Track number from action ("5") or explicit track field
             track = data.get('track') or int(data.get('action', 1))
-            await self.player.play_track(track)
+            await self.cdplayer.play_track(track)
             await self.register('playing', auto_power=True)
             await self._broadcast_cd_update()
         elif cmd == 'eject':
-            await self.player.stop()
+            await self.cdplayer.stop()
             await self.register('available')
             await self.drive.eject()
             # _on_disc_change will send 'gone' when disc is actually ejected
         elif cmd == 'set_speaker':
             await self.audio.set_output(data.get('sink', ''))
         elif cmd == 'toggle_shuffle':
-            self.player.toggle_shuffle()
+            self.cdplayer.toggle_shuffle()
             await self._broadcast_cd_update()
         elif cmd == 'toggle_repeat':
-            self.player.toggle_repeat()
+            self.cdplayer.toggle_repeat()
             await self._broadcast_cd_update()
         elif cmd == 'use_release':
             await self._use_alternative_release(data.get('release_id', ''))
@@ -812,7 +819,7 @@ class CDService(SourceBase):
         else:
             return {'status': 'error', 'message': f'Unknown: {cmd}'}
 
-        return {'playback': self.player.get_status()}
+        return {'playback': self.cdplayer.get_status()}
 
     # ── AirPlay default ──
 
@@ -849,13 +856,18 @@ class CDService(SourceBase):
         if inserted:
             is_startup = self._is_first_detection
             self._is_first_detection = False
+            navigate = not is_startup
+            autoplay = not is_startup  # don't autoplay disc already in drive at boot
             # Register as available — router adds menu item
-            navigate = not is_startup  # navigate to CD view on real insertion
             await self.register('available', navigate=navigate)
-            # Fetch metadata in background (autoplay only on real insertion)
-            asyncio.create_task(self._fetch_and_update_metadata(autoplay=not is_startup))
+            self._metadata_task = asyncio.create_task(
+                self._fetch_and_update_metadata(autoplay=autoplay, navigate=navigate))
         else:
-            await self.player.stop()
+            # Cancel in-flight metadata fetch to prevent phantom playback
+            if self._metadata_task and not self._metadata_task.done():
+                self._metadata_task.cancel()
+                self._metadata_task = None
+            await self.cdplayer.stop()
             self.metadata = None
             # Unregister — router removes menu item and deactivates if active
             await self.register('gone')
@@ -868,6 +880,7 @@ class CDService(SourceBase):
     async def _on_disc_end(self):
         """Called when disc playback reaches the end."""
         log.info("Disc ended — deactivating CD source")
+        self.cdplayer.current_track = 0  # next play() starts from track 1
         await self.register('available')
         await self._broadcast_cd_update()
 
@@ -877,13 +890,13 @@ class CDService(SourceBase):
         await self.register('available')
         await self._broadcast_cd_update()
 
-    async def _fetch_and_update_metadata(self, autoplay=True):
+    async def _fetch_and_update_metadata(self, autoplay=True, navigate=True):
         self.metadata = await self.metadata_lookup.lookup()
         # Save track offsets from disc TOC for chapter-based seeking
         disc = self.metadata_lookup.last_disc
         if disc:
-            self.player.track_offsets = [t.offset / 75.0 for t in disc.tracks]
-            self.player.total_tracks = len(disc.tracks)
+            self.cdplayer.track_offsets = [t.offset / 75.0 for t in disc.tracks]
+            self.cdplayer.total_tracks = len(disc.tracks)
             log.info(f"TOC offsets saved: {len(disc.tracks)} tracks")
             # If metadata lookup failed entirely, create minimal fallback
             if not self.metadata:
@@ -901,11 +914,11 @@ class CDService(SourceBase):
                     'alternatives': []
                 }
         if self.metadata:
-            self.player.total_tracks = self.metadata.get('track_count', 0)
-            await self._broadcast_cd_update()
-            if autoplay:
-                await self.player.play_track(1)
-                await self.register('playing', navigate=True, auto_power=True)
+            self.cdplayer.total_tracks = self.metadata.get('track_count', 0)
+            if autoplay and self.drive.disc_inserted:
+                await self.cdplayer.play_track(1)
+                await self.register('playing', navigate=navigate, auto_power=True)
+                await self._broadcast_cd_update()
                 artist = self.metadata.get('artist', '')
                 album = self.metadata.get('title', '')
                 if album and album != 'Unknown Album':
@@ -913,6 +926,7 @@ class CDService(SourceBase):
                 else:
                     tts = "Playing a CD"
                 await self._announce_track(volume=70, text=tts)
+            else:
                 await self._broadcast_cd_update()
 
     async def _broadcast_cd_update(self):
@@ -927,11 +941,11 @@ class CDService(SourceBase):
             'back_artwork': self.metadata.get('back_artwork'),
             'tracks': self.metadata.get('tracks', []),
             'track_count': self.metadata.get('track_count', 0),
-            'current_track': self.player.current_track,
-            'state': self.player.state,
+            'current_track': self.cdplayer.current_track,
+            'state': self.cdplayer.state,
             'alternatives': self.metadata.get('alternatives', []),
-            'shuffle': self.player.shuffle,
-            'repeat': self.player.repeat,
+            'shuffle': self.cdplayer.shuffle,
+            'repeat': self.cdplayer.repeat,
             'has_external_drive': self._detect_external_drive()
         })
 
@@ -941,12 +955,12 @@ class CDService(SourceBase):
         Ducks the CD stream to 60% during TTS, then ramps back up.
         If text is None, announces the current track title + artist.
         """
-        if not self.metadata or self.player.state != 'playing':
+        if not self.metadata or self.cdplayer.state != 'playing':
             log.info("Announce skipped — no metadata or not playing")
             return
 
         if text is None:
-            track_num = self.player.current_track
+            track_num = self.cdplayer.current_track
             tracks = self.metadata.get('tracks', [])
             artist = self.metadata.get('artist', 'Unknown Artist')
 
@@ -963,7 +977,7 @@ class CDService(SourceBase):
         env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
 
         # Duck CD volume
-        await self.player.fade_volume(60, duration=0.5)
+        await self.cdplayer.fade_volume(60, duration=0.5)
 
         # Generate and play TTS
         tts_proc = None
@@ -994,8 +1008,8 @@ class CDService(SourceBase):
 
         # Wait for TTS to finish, then restore CD volume
         if tts_proc:
-            await asyncio.get_event_loop().run_in_executor(None, tts_proc.wait)
-        await self.player.fade_volume(100, duration=0.8)
+            await asyncio.get_running_loop().run_in_executor(None, tts_proc.wait)
+        await self.cdplayer.fade_volume(100, duration=0.8)
 
     def _detect_external_drive(self):
         """Check if an external USB drive is mounted (for ripping). Cached for 30s."""
@@ -1027,14 +1041,17 @@ class CDService(SourceBase):
         if not self.drive.disc_inserted:
             return {'message': 'no disc'}
 
-        if self.player.state == 'playing':
+        if self.cdplayer.total_tracks == 0:
+            return {'message': 'loading'}  # metadata task still fetching TOC
+
+        if self.cdplayer.state == 'playing':
             return {'message': 'already playing'}
 
         # Start playback
-        await self.player.play()
+        await self.cdplayer.play()
         await self.register('playing', navigate=True, auto_power=True)
         await self._broadcast_cd_update()
-        return {'command': 'cd', 'playback': self.player.get_status()}
+        return {'command': 'cd', 'playback': self.cdplayer.get_status()}
 
     async def _use_alternative_release(self, release_id):
         """Switch metadata to an alternative MusicBrainz release."""
@@ -1043,7 +1060,7 @@ class CDService(SourceBase):
         disc_id = self.metadata.get('disc_id', '')
 
         try:
-            result = await asyncio.get_event_loop().run_in_executor(
+            result = await asyncio.get_running_loop().run_in_executor(
                 None, lambda: musicbrainzngs.get_release_by_id(
                     release_id, includes=['artists', 'recordings']
                 )
@@ -1090,7 +1107,10 @@ class CDService(SourceBase):
                 'back_artwork': back_artwork_path,
                 'alternatives': new_alts
             }
-            self.player.total_tracks = len(tracks)
+            physical_tracks = len(self.cdplayer.track_offsets)
+            if physical_tracks and len(tracks) != physical_tracks:
+                log.warning(f"Release has {len(tracks)} tracks but disc has {physical_tracks} — clamping")
+            self.cdplayer.total_tracks = min(len(tracks), physical_tracks) if physical_tracks else len(tracks)
             log.info(f"Switched to: {artist} — {title}")
             await self._broadcast_cd_update()
 

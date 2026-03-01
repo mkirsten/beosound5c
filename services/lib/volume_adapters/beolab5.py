@@ -16,14 +16,10 @@ class BeoLab5Volume(VolumeAdapter):
     """Volume control via the BeoLab 5 controller REST API."""
 
     def __init__(self, host: str, max_volume: int, session: aiohttp.ClientSession):
+        super().__init__(max_volume, debounce_ms=50)
         self._host = host
-        self._max_volume = max_volume
         self._session = session
         self._base = f"http://{host}"
-        # Debounce state
-        self._pending_volume: float | None = None
-        self._debounce_handle: asyncio.TimerHandle | None = None
-        self._debounce_ms = 50  # coalesce rapid calls
         # Cached power state to avoid HTTP round-trip on every volume change
         self._power_cache: bool | None = None
         self._power_cache_time: float = 0
@@ -34,18 +30,20 @@ class BeoLab5Volume(VolumeAdapter):
     # -- public API --
 
     async def set_volume(self, volume: float) -> None:
-        capped = min(volume, self._max_volume)
-        if volume > self._max_volume:
-            logger.warning("Volume %.0f%% capped to %d%%", volume, self._max_volume)
-        self._last_volume = capped
-        self._pending_volume = capped
-        # Cancel any pending send and schedule a new one
-        if self._debounce_handle is not None:
-            self._debounce_handle.cancel()
-        loop = asyncio.get_running_loop()
-        self._debounce_handle = loop.call_later(
-            self._debounce_ms / 1000, lambda: asyncio.ensure_future(self._flush())
-        )
+        self._last_volume = min(volume, self._max_volume)
+        await super().set_volume(volume)
+
+    async def _apply_volume(self, volume: float) -> None:
+        try:
+            async with self._session.post(
+                f"{self._base}/number/volume/set",
+                params={"value": str(volume)},
+                timeout=aiohttp.ClientTimeout(total=2.0),
+            ) as resp:
+                self._last_volume = volume
+                logger.info("-> BeoLab 5 volume: %.0f%% (HTTP %d)", volume, resp.status)
+        except Exception as e:
+            logger.warning("BeoLab 5 controller unreachable: %s", e)
 
     async def get_volume(self) -> float | None:
         try:
@@ -94,7 +92,7 @@ class BeoLab5Volume(VolumeAdapter):
             ) as resp:
                 logger.info("BeoLab 5 power on: HTTP %d", resp.status)
                 self._power_cache = True
-                self._power_cache_time = asyncio.get_event_loop().time()
+                self._power_cache_time = asyncio.get_running_loop().time()
         except Exception as e:
             logger.warning("Could not power on BeoLab 5: %s", e)
             return
@@ -118,7 +116,7 @@ class BeoLab5Volume(VolumeAdapter):
             ) as resp:
                 logger.info("BeoLab 5 power off: HTTP %d", resp.status)
                 self._power_cache = False
-                self._power_cache_time = asyncio.get_event_loop().time()
+                self._power_cache_time = asyncio.get_running_loop().time()
         except Exception as e:
             logger.warning("Could not power off BeoLab 5: %s", e)
 
@@ -126,7 +124,7 @@ class BeoLab5Volume(VolumeAdapter):
         return self._power_cache
 
     async def is_on(self) -> bool:
-        now = asyncio.get_event_loop().time()
+        now = asyncio.get_running_loop().time()
         if self._power_cache is not None and (now - self._power_cache_time) < self._power_cache_ttl:
             return self._power_cache
         try:
@@ -141,23 +139,3 @@ class BeoLab5Volume(VolumeAdapter):
         except Exception as e:
             logger.warning("Could not check BeoLab 5 power state: %s", e)
             return self._power_cache if self._power_cache is not None else False
-
-    # -- internal --
-
-    async def _flush(self):
-        """Send the most recent pending volume value to the BeoLab 5 controller."""
-        vol = self._pending_volume
-        if vol is None:
-            return
-        self._pending_volume = None
-        self._debounce_handle = None
-        try:
-            async with self._session.post(
-                f"{self._base}/number/volume/set",
-                params={"value": str(vol)},
-                timeout=aiohttp.ClientTimeout(total=2.0),
-            ) as resp:
-                self._last_volume = vol
-                logger.info("-> BeoLab 5 volume: %.0f%% (HTTP %d)", vol, resp.status)
-        except Exception as e:
-            logger.warning("BeoLab 5 controller unreachable: %s", e)

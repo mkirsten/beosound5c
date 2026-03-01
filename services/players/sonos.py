@@ -246,7 +246,37 @@ class MediaServer(PlayerBase):
 
     # ── PlayerBase abstract methods (SoCo playback commands) ──
 
-    async def play(self, uri=None, url=None, track_uri=None) -> bool:
+    @staticmethod
+    def _build_didl(url, meta):
+        """Build a DIDL-Lite metadata string for Sonos play_uri.
+
+        Provides title, artist, album, artwork, and track number so the
+        Sonos controller app shows rich metadata instead of just the URL.
+        """
+        try:
+            from soco.data_structures import DidlMusicTrack, to_didl_string
+            kwargs = {}
+            if meta.get('artist'):
+                kwargs['creator'] = meta['artist']
+                kwargs['artist'] = meta['artist']
+            if meta.get('album'):
+                kwargs['album'] = meta['album']
+            if meta.get('artwork_url'):
+                kwargs['album_art_uri'] = meta['artwork_url']
+            if meta.get('track_number'):
+                kwargs['original_track_number'] = meta['track_number']
+            track = DidlMusicTrack(
+                title=meta.get('title', 'Unknown'),
+                parent_id='usb',
+                item_id=f"usb:{meta.get('id', '0')}",
+                **kwargs,
+            )
+            return to_didl_string(track)
+        except Exception as e:
+            logger.warning("Failed to build DIDL metadata: %s", e)
+            return ''
+
+    async def play(self, uri=None, url=None, track_uri=None, meta=None) -> bool:
         """Play content on the Sonos speaker.
 
         uri: Spotify share link (https://open.spotify.com/...) or spotify: URI
@@ -254,9 +284,11 @@ class MediaServer(PlayerBase):
         track_uri: Spotify track URI (spotify:track:xxx) to start at within
                    a playlist — the queue is searched by URI since ordering
                    may differ between Spotify Web API and Sonos SMAPI.
+        meta: optional dict with display metadata (title, artist, album,
+              artwork_url, track_number) — rendered in Sonos controller UI.
         """
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             coordinator = self.sonos_viewer.get_coordinator()
 
             # Suppress monitor broadcasts while the queue is being rebuilt
@@ -297,8 +329,15 @@ class MediaServer(PlayerBase):
                     return True
 
             if url:
-                await loop.run_in_executor(
-                    None, coordinator.play_uri, url)
+                didl_meta = ''
+                if meta:
+                    didl_meta = self._build_didl(url, meta)
+                if didl_meta:
+                    await loop.run_in_executor(
+                        None, lambda: coordinator.play_uri(url, meta=didl_meta))
+                else:
+                    await loop.run_in_executor(
+                        None, coordinator.play_uri, url)
                 logger.info("Playing URL: %s", url)
                 return True
 
@@ -325,7 +364,7 @@ class MediaServer(PlayerBase):
 
     async def pause(self) -> bool:
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             coordinator = self.sonos_viewer.get_coordinator()
             await loop.run_in_executor(None, coordinator.pause)
             logger.info("Paused")
@@ -336,7 +375,7 @@ class MediaServer(PlayerBase):
 
     async def resume(self) -> bool:
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             coordinator = self.sonos_viewer.get_coordinator()
             await loop.run_in_executor(None, coordinator.play)
             logger.info("Resumed")
@@ -347,7 +386,7 @@ class MediaServer(PlayerBase):
 
     async def next_track(self) -> bool:
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             coordinator = self.sonos_viewer.get_coordinator()
             await loop.run_in_executor(None, coordinator.next)
             logger.info("Next track")
@@ -358,7 +397,7 @@ class MediaServer(PlayerBase):
 
     async def prev_track(self) -> bool:
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             coordinator = self.sonos_viewer.get_coordinator()
             await loop.run_in_executor(None, coordinator.previous)
             logger.info("Previous track")
@@ -369,7 +408,7 @@ class MediaServer(PlayerBase):
 
     async def stop(self) -> bool:
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             coordinator = self.sonos_viewer.get_coordinator()
             await loop.run_in_executor(None, coordinator.pause)
             logger.info("Stopped (paused)")
@@ -380,6 +419,9 @@ class MediaServer(PlayerBase):
 
     async def get_capabilities(self) -> list:
         return ["spotify", "url_stream"]
+
+    async def get_track_uri(self) -> str:
+        return self._current_track_id or ""
 
     async def get_status(self) -> dict:
         """Rich cached status for the system panel."""
@@ -431,13 +473,7 @@ class MediaServer(PlayerBase):
         self._monitor_task = asyncio.create_task(self.monitor_sonos())
 
     async def on_ws_connect(self, ws):
-        """Send cached media data to new WebSocket client."""
-        if self._cached_media_data:
-            await self.send_media_update(ws, self._cached_media_data, 'client_connect')
-        else:
-            media_data = await self.fetch_media_data()
-            if media_data:
-                await self.send_media_update(ws, media_data, 'client_connect')
+        """Media updates now flow through the router — no-op."""
 
     # ── Monitoring ──
 
@@ -476,10 +512,21 @@ class MediaServer(PlayerBase):
                     else:
                         state = 'stopped'
 
-                    # Trigger wake if state changed to playing
+                    # Detect state transitions
                     if state == 'playing' and self._current_playback_state in ('paused', 'stopped', None):
                         logger.info(f"Playback started (was: {self._current_playback_state}), triggering wake")
                         await self.trigger_wake()
+                        # External playback? Clear any stale active source so
+                        # transport commands route directly to the player.
+                        if self.seconds_since_command() > 3.0:
+                            logger.info("External playback detected, clearing active source")
+                            asyncio.create_task(
+                                self.notify_router_playback_override(force=True))
+                    elif state == 'stopped' and self._current_playback_state == 'playing':
+                        if self.seconds_since_command() > 3.0:
+                            logger.info("External stop detected")
+                            asyncio.create_task(
+                                self.notify_router_playback_override(force=True))
 
                     self._current_playback_state = state
 
@@ -528,8 +575,8 @@ class MediaServer(PlayerBase):
                         else:
                             suppress = True
 
-                    # Only broadcast if there are actual changes AND we have connected clients
-                    if (track_changed or position_jumped) and self._ws_clients:
+                    # Only broadcast if there are actual changes
+                    if track_changed or position_jumped:
                         reason = 'track_change' if track_changed else 'external_control'
 
                         if suppress:
@@ -551,17 +598,11 @@ class MediaServer(PlayerBase):
                                 await self.fetch_media_data()
                             asyncio.create_task(self.sonos_viewer.prefetch_upcoming_artwork(count=PREFETCH_COUNT))
 
-                    # Notify router when Sonos media changes
-                    if track_changed:
-                        is_native_service = any(
-                            track_id.startswith(p) for p in (
-                                'x-sonos-spotify:', 'x-sonosapi', 'x-rincon-queue:',
-                                'x-rincon-playlist:', 'x-file-cifs:', 'x-sonos-http:',
-                                'aac:', 'x-rincon-mp3radio:',
-                            )
-                        )
+                    # External track change? Clear active source so transport
+                    # commands route directly to the player.
+                    if track_changed and self.seconds_since_command() > 3.0:
                         asyncio.create_task(
-                            self.notify_router_playback_override(force=is_native_service)
+                            self.notify_router_playback_override(force=True)
                         )
 
                     self._current_position = position

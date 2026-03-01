@@ -28,6 +28,7 @@ from tokens import load_tokens, save_tokens, delete_tokens
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from lib.config import cfg
 from lib.source_base import SourceBase
+from lib.digit_playlists import DigitPlaylistMixin
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger('beo-source-tidal')
@@ -63,7 +64,7 @@ def _find_token_file():
     return paths[-1]
 
 
-class TidalService(SourceBase):
+class TidalService(DigitPlaylistMixin, SourceBase):
     """Main TIDAL source service."""
 
     id = "tidal"
@@ -100,6 +101,10 @@ class TidalService(SourceBase):
         self._last_refresh_wall = None
         self._last_refresh_duration = None
         self._pending_login = None  # (session, future) during device login
+        # Source-managed track advancement (for players without ShareLink)
+        self._source_managed = False
+        self._current_playlist = None  # full playlist dict with tracks
+        self._current_index = 0
 
     async def on_start(self):
         has_creds = self.auth.load()
@@ -110,7 +115,11 @@ class TidalService(SourceBase):
 
             caps = await self.player_capabilities()
             if caps:
-                log.info("Player service available — using player API")
+                # "spotify" capability = ShareLink support (Sonos).
+                # Without it, use source-managed queue with stream URLs.
+                self._source_managed = "spotify" not in caps
+                mode = "source-managed queue" if self._source_managed else "ShareLink"
+                log.info("Player service available — using %s", mode)
             else:
                 log.warning("No player service available")
         else:
@@ -147,6 +156,7 @@ class TidalService(SourceBase):
         except (FileNotFoundError, json.JSONDecodeError) as e:
             log.warning("Could not load playlists: %s", e)
             self.playlists = []
+        self._reload_digit_playlists()
 
     # -- SourceBase hooks --
 
@@ -161,16 +171,6 @@ class TidalService(SourceBase):
         app.router.add_options('/logout', self._handle_cors)
 
     async def handle_status(self) -> dict:
-        digit_playlists = {}
-        try:
-            with open(DIGIT_PLAYLISTS_FILE) as f:
-                raw = json.load(f)
-            for d, info in raw.items():
-                if info and info.get('name'):
-                    digit_playlists[d] = info['name']
-        except Exception:
-            pass
-
         return {
             'state': self.state,
             'now_playing': self.now_playing,
@@ -180,8 +180,11 @@ class TidalService(SourceBase):
             'user_name': self.auth.user_name,
             'last_refresh': self._last_refresh_wall.isoformat() if self._last_refresh_wall else None,
             'last_refresh_duration': self._last_refresh_duration,
-            'digit_playlists': digit_playlists,
+            'digit_playlists': self._get_digit_names(),
             'fetching': self._fetching_playlists,
+            'source_managed': self._source_managed,
+            'current_playlist': self._current_playlist.get('name') if self._current_playlist else None,
+            'current_index': self._current_index,
         }
 
     async def handle_resync(self) -> dict:
@@ -239,46 +242,49 @@ class TidalService(SourceBase):
 
         return {'state': self.state}
 
-    # -- Digit playlist lookup --
-
-    def _get_digit_playlist(self, digit):
-        """Look up a digit playlist from the TIDAL digit mapping file."""
-        try:
-            with open(DIGIT_PLAYLISTS_FILE) as f:
-                mapping = json.load(f)
-            info = mapping.get(str(digit))
-            if info and info.get('id'):
-                return info
-        except Exception:
-            pass
-        return None
-
     # -- Playback control --
 
     async def _play_playlist(self, playlist_id, track_index=None):
-        """Start playing a playlist via its TIDAL URL."""
-        url = None
-        track_meta = None
+        """Start playing a playlist. Uses source-managed queue when player
+        lacks ShareLink (BlueSound), or ShareLink via URI otherwise (Sonos)."""
+        playlist = None
         for pl in self.playlists:
             if pl.get('id') == playlist_id:
-                url = pl.get('url')
-                if track_index is not None:
-                    tracks = pl.get('tracks', [])
-                    if 0 <= track_index < len(tracks):
-                        track_meta = tracks[track_index]
+                playlist = pl
                 break
+
+        if not playlist:
+            log.warning("Playlist %s not found", playlist_id)
+            return
+
+        url = playlist.get('url')
+        tracks = playlist.get('tracks', [])
+
+        # Source-managed mode: store playlist and play track directly
+        if self._source_managed:
+            if not tracks:
+                log.warning("Playlist %s has no tracks", playlist_id)
+                return
+            index = track_index if track_index is not None else 0
+            if index < 0 or index >= len(tracks):
+                index = 0
+            self._current_playlist = playlist
+            self._current_index = index
+            await self._play_current_track()
+            return
+
+        # ShareLink mode (Sonos): use browse URL
+        track_meta = None
+        if track_index is not None and 0 <= track_index < len(tracks):
+            track_meta = tracks[track_index]
 
         if not url:
             if track_meta and track_meta.get('url'):
                 log.info("No playlist URL — falling back to track URL")
                 return await self._play_track(track_meta['url'])
-            for pl in self.playlists:
-                if pl.get('id') == playlist_id:
-                    tracks = pl.get('tracks', [])
-                    if tracks and tracks[0].get('url'):
-                        log.info("No playlist URL — playing first track")
-                        return await self._play_track(tracks[0]['url'])
-                    break
+            if tracks and tracks[0].get('url'):
+                log.info("No playlist URL — playing first track")
+                return await self._play_track(tracks[0]['url'])
             log.warning("No URL for playlist %s — cannot play", playlist_id)
             return
 
@@ -305,12 +311,62 @@ class TidalService(SourceBase):
         else:
             log.error("Player service failed to start playlist")
 
+    async def _play_current_track(self):
+        """Play the track at _current_index in _current_playlist (source-managed)."""
+        if not self._current_playlist:
+            return
+
+        tracks = self._current_playlist.get('tracks', [])
+        if not tracks or self._current_index >= len(tracks):
+            log.info("End of playlist reached")
+            await self._stop()
+            return
+
+        track = tracks[self._current_index]
+        url = track.get('stream_url') or track.get('url')
+
+        if not url:
+            log.warning("Track %s has no stream URL, skipping",
+                        track.get('name', '?'))
+            if self._current_index + 1 < len(tracks):
+                self._current_index += 1
+                await self._play_current_track()
+            return
+
+        # Pre-broadcast metadata for instant artwork
+        await self.broadcast("media_update", {
+            "title": track.get("name", ""),
+            "artist": track.get("artist", ""),
+            "artwork": track.get("image", ""),
+            "state": "PLAYING",
+        })
+        log.info("Playing [%d/%d] %s - %s",
+                 self._current_index + 1, len(tracks),
+                 track.get('artist', '?'), track.get('name', '?'))
+
+        ok = await self.player_play(url=url)
+        if ok:
+            self.state = "playing"
+            self.now_playing = {
+                'title': track.get('name'),
+                'artist': track.get('artist'),
+                'image': track.get('image'),
+                'index': self._current_index,
+                'total': len(tracks),
+            }
+            await self.register("playing", auto_power=True)
+            self._start_polling()
+        else:
+            log.error("Player service failed to start track")
+
     async def _play_track(self, url):
-        """Play a specific track by TIDAL URL."""
+        """Play a specific track by TIDAL URL (ShareLink path)."""
         log.info("Play track %s", url)
         ok = await self.player_play(uri=url)
         if ok:
             self.state = "playing"
+            self._current_playlist = None
+            self._current_index = 0
             await self.register("playing", auto_power=True)
             self._start_polling()
 
@@ -321,7 +377,7 @@ class TidalService(SourceBase):
             await self._resume()
         elif self.state == "stopped" and self.playlists:
             first = self.playlists[0]
-            if first.get('url'):
+            if first.get('url') or first.get('tracks'):
                 await self._play_playlist(first['id'])
 
     async def _resume(self):
@@ -336,11 +392,26 @@ class TidalService(SourceBase):
             await self.register("paused")
 
     async def _next(self):
+        if self._source_managed and self._current_playlist:
+            tracks = self._current_playlist.get('tracks', [])
+            if self._current_index + 1 < len(tracks):
+                self._current_index += 1
+                await self._play_current_track()
+            else:
+                log.info("Already at last track")
+            return
         if await self.player_next():
             await asyncio.sleep(0.5)
             await self._poll_now_playing()
 
     async def _prev(self):
+        if self._source_managed and self._current_playlist:
+            if self._current_index > 0:
+                self._current_index -= 1
+                await self._play_current_track()
+            else:
+                log.info("Already at first track")
+            return
         if await self.player_prev():
             await asyncio.sleep(0.5)
             await self._poll_now_playing()
@@ -348,6 +419,9 @@ class TidalService(SourceBase):
     async def _stop(self):
         await self.player_stop()
         self.state = "stopped"
+        self.now_playing = None
+        self._current_playlist = None
+        self._current_index = 0
         self._stop_polling()
         await self.register("available")
 
@@ -442,6 +516,8 @@ class TidalService(SourceBase):
         self.now_playing = None
         self._fetching_playlists = False
         self._pending_login = None
+        self._current_playlist = None
+        self._current_index = 0
 
         try:
             path = delete_tokens()
@@ -486,6 +562,20 @@ class TidalService(SourceBase):
             if state == "playing" and self.state != "playing":
                 self.state = "playing"
                 await self.register("playing")
+            elif state == "stopped" and self.state == "playing":
+                # Track finished — auto-advance if source-managed
+                if self._source_managed and self._current_playlist:
+                    tracks = self._current_playlist.get('tracks', [])
+                    if self._current_index + 1 < len(tracks):
+                        log.info("Track finished, advancing to next")
+                        self._current_index += 1
+                        await self._play_current_track()
+                        return
+                    else:
+                        log.info("Playlist finished")
+                self.state = "stopped"
+                self.now_playing = None
+                await self.register("available")
             elif state != "playing" and self.state == "playing":
                 self.state = "paused"
                 await self.register("paused")

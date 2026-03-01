@@ -11,8 +11,12 @@ install_udev_rules() {
     log_info "Creating udev rules for BeoSound 5 hardware..."
     cat > "$udev_file" << 'EOF'
 # BeoSound 5 USB HID device (rotary encoder + buttons)
+# hidraw rule for hidapi-hidraw backend
 KERNEL=="hidraw*", SUBSYSTEM=="hidraw", \
   ATTRS{idVendor}=="0cd4", ATTRS{idProduct}=="1112", \
+  MODE="0666"
+# usb rule for hidapi-libusb backend
+SUBSYSTEM=="usb", ATTR{idVendor}=="0cd4", ATTR{idProduct}=="1112", \
   MODE="0666"
 
 # BeoSound 5 PC2/MasterLink interface

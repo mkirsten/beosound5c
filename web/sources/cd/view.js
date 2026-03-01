@@ -41,6 +41,7 @@ window.CDView = (() => {
 
     // Morph (loading → content transition)
     let morphing = false;
+    let pendingMorphData = null;  // queued cd_update during morph
 
     // Playing flip state (progressive, follows nav wheel)
     let flipProgress = 0;        // 0..1: how far through current flip gesture
@@ -68,6 +69,7 @@ window.CDView = (() => {
         flipIsFlipped = false;
         flipDirection = null;
         flipSnapTimer = null;
+        pendingMorphData = null;
     }
 
     // ── Lifecycle ──
@@ -92,7 +94,8 @@ window.CDView = (() => {
 
     function destroy() {
         resetState();
-        metadata = null; // Clear stale data so next disc shows loading spinner
+        // Keep metadata across navigation — next cd_update replaces it naturally.
+        // When disc is ejected, menu item is removed so stale data is unreachable.
     }
 
     // ── Arc Browser ──
@@ -459,7 +462,9 @@ window.CDView = (() => {
             } else {
                 revealArcBrowser(loadingEl);
             }
-        } else if (!morphing) {
+        } else if (morphing) {
+            pendingMorphData = data;  // apply after morph completes
+        } else {
             if (viewMode !== 'main') {
                 // In a submenu — rebuild submenu items (updates toggle labels) but keep position
                 const prevTarget = arcTargetIndex;
@@ -520,6 +525,11 @@ window.CDView = (() => {
                 arcContainer.style.opacity = '';
             }
             morphing = false;
+            if (pendingMorphData) {
+                const queued = pendingMorphData;
+                pendingMorphData = null;
+                updateMetadata(queued);
+            }
             renderArc();
             startAnimation();
         }, 1200);
@@ -739,6 +749,8 @@ window.CDView = (() => {
             if (resp.ok) {
                 const result = await resp.json();
                 console.log(`[CD] ${command}:`, result.playback?.state || 'ok');
+            } else {
+                console.error(`[CD] ${command} failed: HTTP ${resp.status}`);
             }
         } catch {
             console.warn(`[CD] ${command} failed (service not running?)`);

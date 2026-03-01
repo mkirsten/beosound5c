@@ -13,27 +13,9 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Define service files
-SERVICES=(
-    "beo-http.service"
-    "beo-player-sonos.service"
-    "beo-player-bluesound.service"
-    "beo-input.service"
-    "beo-router.service"
-    "beo-masterlink.service"
-    "beo-bluetooth.service"
-    "beo-source-cd.service"
-    "beo-source-spotify.service"
-    "beo-source-apple-music.service"
-    "beo-source-tidal.service"
-    "beo-source-plex.service"
-    "beo-source-usb.service"
-    "beo-source-news.service"
-    "beo-ui.service"
-    "beo-notify-failure@.service"
-    "beo-health.service"
-    "beo-health.timer"
-)
+# Load shared service registry
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/service-registry.sh"
+SERVICES=("${ALL_SERVICES[@]}")
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -240,61 +222,16 @@ start_service beo-bluetooth.service
 echo ""
 echo "  📋 Checking menu config for optional sources..."
 
-if menu_has "CD"; then
-    echo "  💿 Starting CD source..."
-    start_service beo-source-cd.service
-else
-    echo "  ⏭️  CD not in menu — skipping beo-source-cd"
-    disable_service beo-source-cd.service
-fi
-
-if menu_has "SPOTIFY"; then
-    echo "  🎵 Starting Spotify source..."
-    start_service beo-source-spotify.service
-else
-    echo "  ⏭️  SPOTIFY not in menu — skipping beo-source-spotify"
-    disable_service beo-source-spotify.service
-fi
-
-if menu_has "APPLE MUSIC"; then
-    echo "  🍎 Starting Apple Music source..."
-    start_service beo-source-apple-music.service
-else
-    echo "  ⏭️  APPLE MUSIC not in menu — skipping beo-source-apple-music"
-    disable_service beo-source-apple-music.service
-fi
-
-if menu_has "TIDAL"; then
-    echo "  🎵 Starting TIDAL source..."
-    start_service beo-source-tidal.service
-else
-    echo "  ⏭️  TIDAL not in menu — skipping beo-source-tidal"
-    disable_service beo-source-tidal.service
-fi
-
-if menu_has "PLEX"; then
-    echo "  🎵 Starting Plex source..."
-    start_service beo-source-plex.service
-else
-    echo "  ⏭️  PLEX not in menu — skipping beo-source-plex"
-    disable_service beo-source-plex.service
-fi
-
-if menu_has "USB"; then
-    echo "  💾 Starting USB source..."
-    start_service beo-source-usb.service
-else
-    echo "  ⏭️  USB not in menu — skipping beo-source-usb"
-    disable_service beo-source-usb.service
-fi
-
-if menu_has "NEWS"; then
-    echo "  📰 Starting News source..."
-    start_service beo-source-news.service
-else
-    echo "  ⏭️  NEWS not in menu — skipping beo-source-news"
-    disable_service beo-source-news.service
-fi
+for entry in "${OPTIONAL_SOURCES[@]}"; do
+    IFS='|' read -r menu_key service emoji label <<< "$entry"
+    if menu_has "$menu_key"; then
+        echo "  $emoji Starting $label..."
+        start_service "$service"
+    else
+        echo "  ⏭️  $menu_key not in menu — skipping $service"
+        disable_service "$service"
+    fi
+done
 
 # Start UI service last (depends on HTTP)
 echo "  🖥️  Starting UI service..."

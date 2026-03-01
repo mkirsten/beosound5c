@@ -49,7 +49,7 @@ Tested on [Raspberry Pi 5 8GB](https://www.raspberrypi.com/products/raspberry-pi
 ```bash
 git clone https://github.com/mkirsten/beosound5c.git ~/beosound5c
 cd ~/beosound5c
-sudo ./install.sh
+sudo ./install/install.sh
 ```
 
 The installer handles everything: packages, USB permissions, display config, service installation, configuration prompts, and optional BeoRemote One pairing. It will ask if you want to reboot when complete.
@@ -123,7 +123,7 @@ Credentials live separately in `/etc/beosound5c/secrets.env` (created by the ins
 | `beo-source-tidal` | [`services/sources/tidal/service.py`](services/sources/tidal/service.py) | TIDAL: tidalapi OAuth, playlist browsing and playback |
 | `beo-source-plex` | [`services/sources/plex/service.py`](services/sources/plex/service.py) | Plex: PIN-based OAuth, playlist/album browsing, source-managed playback |
 | `beo-source-cd` | [`services/sources/cd.py`](services/sources/cd.py) | CD player: disc detection, MusicBrainz metadata, mpv playback |
-| `beo-source-usb` | [`services/sources/usb.py`](services/sources/usb.py) | USB file playback from mounted drives |
+| `beo-source-usb` | [`services/sources/usb/service.py`](services/sources/usb/service.py) | USB file playback from mounted drives |
 | `beo-masterlink` | [`services/masterlink.py`](services/masterlink.py) | USB sniffer for B&O IR and MasterLink bus commands |
 | `beo-bluetooth` | [`services/bluetooth.py`](services/bluetooth.py) | HID service for BeoRemote One wireless control |
 | `beo-http` | — | Simple HTTP server for static files |
@@ -133,20 +133,45 @@ Service definitions: [`services/system/`](services/system/)
 
 ## Audio
 
-Each BS5c is configured with one audio output. The installer asks you to choose during setup.
+Each BS5c is configured with one **player** (Sonos or BlueSound) and one **volume adapter** (which controls the physical volume). The installer asks you to choose during setup.
 
-| Output | Requirements |
-|---|---|
-| Sonos | Any Sonos speaker (S1 or S2, any generation) |
-| PowerLink | B&O PowerLink speakers + PC2/MasterLink USB interface |
-| HDMI | Amplifier or device with HDMI audio input |
-| Optical / Toslink | S/PDIF HAT (e.g. HiFiBerry Digi) |
-| RCA | DAC HAT with RCA out |
-| AirPlay | Any AirPlay-compatible speaker |
+### Player Types
 
-Sources (Spotify, Apple Music, TIDAL, Plex, CD, USB) register with the router and appear in the menu. The remote's media keys are forwarded to whichever source is currently active. When no source is active, transport keys (play/pause/next/prev) are forwarded directly to the player.
+| Player | Capabilities | Requirements |
+|---|---|---|
+| Sonos | `spotify`, `url_stream` | Any Sonos speaker (S1 or S2, any generation) |
+| BlueSound | `url_stream` | Any BluOS player (e.g. Node, PowerNode, Vault) |
 
-For details on each output, playback modes, sources, and volume adapters, see **[Audio Setup Options](docs/audio-setup.md)**.
+### Source Compatibility
+
+Sources check the player's capabilities at startup to determine how to play content. Sources that play locally (CD, USB in local mode) don't need a player service at all.
+
+| Source | Sonos | BlueSound | No player (local outputs) |
+|---|---|---|---|
+| Spotify | Yes (ShareLink) | No | No |
+| Apple Music | Yes (ShareLink) | No | No |
+| TIDAL | Yes (ShareLink) | Yes (stream URL) | No |
+| Plex | Yes (stream URL) | Yes (stream URL) | No |
+| CD | Yes (plays locally) | Yes (plays locally) | Yes |
+| USB | Yes (streams URLs) | Yes (streams URLs) | Yes (mpv fallback) |
+
+Spotify and Apple Music send share links via `uri=` which only Sonos handles (via ShareLink). TIDAL and Plex send direct stream URLs via `url=` which both players support. On Sonos, TIDAL uses ShareLink for native queue management; on BlueSound, TIDAL resolves stream URLs and manages the queue itself (like Plex).
+
+### Volume Adapters
+
+| Adapter | Controls | Requirements |
+|---|---|---|
+| Sonos | Sonos speaker volume | Sonos player configured |
+| BlueSound | BluOS player volume | BlueSound player configured |
+| BeoLab 5 | BeoLab 5 via sync port | BeoLab 5 Controller (ESP32) |
+| PowerLink | B&O speakers via MasterLink bus | PC2/MasterLink USB interface |
+| HDMI | ALSA software volume on HDMI1 | Amplifier with HDMI audio input |
+| S/PDIF | ALSA software volume | S/PDIF HAT (e.g. HiFiBerry Digi) |
+| RCA | ALSA software volume | DAC HAT with RCA out |
+
+Sources register with the router and appear in the menu. The remote's media keys are forwarded to whichever source is currently active. When no source is active, transport keys (play/pause/next/prev) are forwarded directly to the player.
+
+For details on each output, playback modes, and volume adapter configuration, see **[Audio Setup Options](docs/audio-setup.md)**.
 
 ## Directory Structure
 
@@ -162,7 +187,7 @@ services/                   # Backend services
 │   ├── tidal/              #   TIDAL (tidalapi OAuth)
 │   ├── plex/               #   Plex (PIN-based OAuth, direct stream URLs)
 │   ├── cd.py               #   CD player (disc detect, MusicBrainz, mpv)
-│   └── usb.py              #   USB file playback
+│   └── usb/                #   USB file playback (BM5 library, file browser)
 ├── players/                # External playback backends
 │   ├── sonos.py            #   Sonos (SoCo, ShareLink, artwork)
 │   └── bluesound.py        #   BluOS (HTTP/XML, long-poll)
@@ -245,7 +270,9 @@ homeassistant:
 
 **Security note**: These settings allow the BeoSound 5c to embed Home Assistant pages without authentication. Only add IPs you trust to `trusted_networks` and `cors_allowed_origins`. This is intended for devices on your local network.
 
-See [`homeassistant/example-automation.yaml`](homeassistant/example-automation.yaml) for complete automation examples covering both MQTT and webhook transports.
+See [`config/homeassistant/example-automation.yaml`](config/homeassistant/example-automation.yaml) for complete automation examples covering both MQTT and webhook transports.
+
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for contribution guidelines.
 
 ## Development
 

@@ -9,13 +9,15 @@ Token source: --token-file <path> pointing to plex_tokens.json.
 
 import json
 import os
-import re
 import sys
 import time
 from datetime import datetime, timezone
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..', '..'))
+sys.path.insert(0, os.path.join(PROJECT_ROOT, 'services'))
+
+from lib.digit_playlists import detect_digit_playlist, build_digit_mapping
 
 DIGIT_PLAYLISTS_FILE = os.path.join(PROJECT_ROOT, 'web', 'json', 'plex_digit_playlists.json')
 DEFAULT_OUTPUT_FILE = os.path.join(PROJECT_ROOT, 'web', 'json', 'plex_playlists.json')
@@ -117,43 +119,6 @@ def fetch_album_tracks(album, server):
     return tracks
 
 
-def detect_digit_playlist(name):
-    """Check if playlist name starts with a digit pattern like '5:' or '5 -'.
-    Returns the digit (0-9) or None."""
-    match = re.match(r'^(\d)[\s]*[:\-]', name)
-    if match:
-        return match.group(1)
-    return None
-
-
-def build_digit_mapping(playlists):
-    """Build digit 0-9 mapping. Explicitly named playlists get pinned;
-    remaining slots filled alphabetically."""
-    pinned = {}
-    pinned_ids = set()
-    for pl in playlists:
-        digit = detect_digit_playlist(pl['name'])
-        if digit is not None and digit not in pinned:
-            pinned[digit] = pl
-            pinned_ids.add(pl['id'])
-
-    remaining = iter(pl for pl in playlists if pl['id'] not in pinned_ids)
-
-    mapping = {}
-    for slot in "0123456789":
-        if slot in pinned:
-            pl = pinned[slot]
-        else:
-            pl = next(remaining, None)
-            if not pl:
-                continue
-        mapping[slot] = {
-            'id': pl['id'],
-            'name': pl['name'],
-            'image': pl.get('image'),
-        }
-
-    return mapping
 
 
 def main():

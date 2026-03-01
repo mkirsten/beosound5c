@@ -6,7 +6,7 @@
 install_plymouth_theme() {
     log_section "Installing Plymouth Boot Theme"
 
-    local SPLASH_SOURCE="$INSTALL_DIR/assets/splashscreen-red.png"
+    local SPLASH_SOURCE="$INSTALL_DIR/plymouth/splashscreen-red.png"
     local PLYMOUTH_SOURCE="$INSTALL_DIR/plymouth"
 
     if [ -d "$PLYMOUTH_SOURCE" ] && [ -f "$SPLASH_SOURCE" ]; then

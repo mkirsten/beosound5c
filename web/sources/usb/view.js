@@ -11,8 +11,10 @@
  * 2. On the PLAYING page: handles media controls (prev/next/toggle) by
  *    sending commands directly to the USB service.
  *
- * It distinguishes the two by checking if the iframe is mounted — onMount
- * creates it, onRemove destroys it.
+ * Uses the preloaded iframe pattern: the iframe is created once at startup
+ * and moved between the preload container and the view container on navigation.
+ * This preserves ArcList state (scroll position, nested navigation) across
+ * view switches.
  */
 
 const _usbController = (() => {
@@ -65,60 +67,80 @@ window.SourcePresets.usb = {
     after: 'menu/playing',
     view: {
         title: 'USB',
-        content: '<div id="usb-container" style="width:100%;height:100%;"></div>'
+        content: '<div id="usb-container" style="width:100%;height:100%;"></div>',
+        preloadId: 'preload-usb',
+        iframeSrc: 'softarc/usb.html',
+        containerId: 'usb-container'
     },
 
     onAdd() {},
 
     onMount() {
-        const container = document.getElementById('usb-container');
-        if (!container || container.querySelector('iframe')) return;
-        const iframe = document.createElement('iframe');
-        iframe.id = 'preload-usb';
-        iframe.src = 'softarc/usb.html';
-        iframe.style.cssText = 'width:100%;height:100%;border:none;border-radius:8px;box-shadow:0 5px 15px rgba(0,0,0,0.3);';
-        container.appendChild(iframe);
         if (window.IframeMessenger) {
             IframeMessenger.registerIframe('menu/usb', 'preload-usb');
         }
+        // Revive ArcList if it was previously destroy()ed by rescue logic
+        try {
+            const iframe = document.getElementById('preload-usb');
+            const inst = iframe?.contentWindow?.arcListInstance;
+            if (inst?.revive) inst.revive();
+        } catch (e) { /* iframe not ready */ }
     },
 
     onRemove() {
         if (window.IframeMessenger) {
             IframeMessenger.unregisterIframe('menu/usb');
         }
-        const container = document.getElementById('usb-container');
-        if (container) container.innerHTML = '';
     },
 
     playing: {
         eventType: 'usb_update',
 
-        artworkSlot: `
-            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
-                <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:80px;height:80px;color:white;opacity:0.3;">
-                    <rect x="15" y="20" width="90" height="80" rx="8" stroke="currentColor" stroke-width="2.5"/>
-                    <circle cx="60" cy="55" r="22" stroke="currentColor" stroke-width="2"/>
-                    <circle cx="60" cy="55" r="4" fill="currentColor"/>
-                    <rect x="30" y="85" width="12" height="4" rx="2" fill="currentColor" opacity="0.5"/>
-                    <rect x="48" y="85" width="12" height="4" rx="2" fill="currentColor" opacity="0.5"/>
-                </svg>
-            </div>
-        `,
-
         onUpdate(container, data) {
             const titleEl = container.querySelector('.media-view-title');
             const artistEl = container.querySelector('.media-view-artist');
             const albumEl = container.querySelector('.media-view-album');
-            if (titleEl) titleEl.textContent = data.track_name || 'Unknown';
-            if (artistEl) artistEl.textContent = data.folder_name || '';
-            if (albumEl) albumEl.textContent = `Track ${(data.current_track || 0) + 1} of ${data.total_tracks || '?'}`;
+
+            const trackName = data.track_name || 'Unknown';
+            const artist = data.artist || data.folder_name || '';
+            const albumText = data.album
+                ? (data.year ? `${data.album} (${data.year})` : data.album)
+                : `Track ${(data.current_track || 0) + 1} of ${data.total_tracks || '?'}`;
+
+            if (window.crossfadeText) {
+                window.crossfadeText(titleEl, trackName);
+                window.crossfadeText(artistEl, artist);
+                window.crossfadeText(albumEl, albumText);
+            } else {
+                if (titleEl) titleEl.textContent = trackName;
+                if (artistEl) artistEl.textContent = artist;
+                if (albumEl) albumEl.textContent = albumText;
+            }
+
             // Artwork
             const front = container.querySelector('.playing-artwork');
-            if (front && data.artwork && data.artwork_url) front.src = data.artwork_url;
+            if (front) {
+                if (data.artwork && data.artwork_url) {
+                    if (window.ArtworkManager) {
+                        window.ArtworkManager.displayArtwork(front, data.artwork_url);
+                    } else {
+                        front.src = data.artwork_url;
+                    }
+                } else if (window.ArtworkManager) {
+                    window.ArtworkManager.displayArtwork(front, null, 'noArtwork');
+                }
+            }
         },
 
-        onMount(container) {},
+        onMount(container) {
+            // Fetch current now-playing state so the view is populated immediately
+            const url = (window.AppConfig?.usbServiceUrl || 'http://localhost:8773') + '/now_playing';
+            fetch(url).then(r => r.json()).then(data => {
+                if (data.state === 'playing' || data.state === 'paused') {
+                    this.onUpdate(container, data);
+                }
+            }).catch(() => {});
+        },
         onRemove(container) {}
     }
 };

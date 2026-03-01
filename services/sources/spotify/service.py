@@ -35,6 +35,7 @@ from pkce import (
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from lib.config import cfg
 from lib.source_base import SourceBase
+from lib.digit_playlists import DigitPlaylistMixin
 from playlist_lookup import get_playlist_uri, DIGIT_PLAYLISTS_FILE
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
@@ -73,7 +74,7 @@ def _get_local_ip():
         return '127.0.0.1'
 
 
-class SpotifyService(SourceBase):
+class SpotifyService(DigitPlaylistMixin, SourceBase):
     """Main Spotify source service."""
 
     id = "spotify"
@@ -178,6 +179,7 @@ class SpotifyService(SourceBase):
         except (FileNotFoundError, json.JSONDecodeError) as e:
             log.warning("Could not load playlists: %s", e)
             self.playlists = []
+        self._reload_digit_playlists()
 
     async def _fetch_display_name(self):
         """Fetch Spotify display name from /v1/me."""
@@ -207,17 +209,6 @@ class SpotifyService(SourceBase):
         app.router.add_post('/logout', self._handle_logout)
 
     async def handle_status(self) -> dict:
-        # Load digit playlists mapping
-        digit_playlists = {}
-        try:
-            with open(DIGIT_PLAYLISTS_FILE) as f:
-                raw = json.load(f)
-            for d, info in raw.items():
-                if info and info.get('name'):
-                    digit_playlists[d] = info['name']
-        except Exception:
-            pass
-
         return {
             'state': self.state,
             'now_playing': self.now_playing,
@@ -227,7 +218,7 @@ class SpotifyService(SourceBase):
             'display_name': self._display_name,
             'last_refresh': self._last_refresh_wall.isoformat() if self._last_refresh_wall else None,
             'last_refresh_duration': self._last_refresh_duration,
-            'digit_playlists': digit_playlists,
+            'digit_playlists': self._get_digit_names(),
             'fetching': self._fetching_playlists,
         }
 

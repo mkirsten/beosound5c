@@ -1,2 +1,0 @@
-# Moved to ../requirements.txt — this file kept for backward compatibility
--r ../requirements.txt

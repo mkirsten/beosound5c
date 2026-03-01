@@ -5,20 +5,20 @@
 # Takes a vanilla Raspberry Pi 5 running Raspberry Pi OS to a fully
 # operational BeoSound 5c system with interactive configuration.
 #
-# Usage:
-#   sudo ./install.sh                      Full install (all steps)
-#   sudo ./install.sh system               System packages, boot, SD card, X11, Plymouth
-#   sudo ./install.sh configure            Full interactive configuration wizard
-#   sudo ./install.sh configure player     Reconfigure player only
-#   sudo ./install.sh configure ha         Reconfigure Home Assistant only
-#   sudo ./install.sh configure bluetooth  Pair/re-pair BT remote
-#   sudo ./install.sh configure transport  Reconfigure webhook/MQTT
-#   sudo ./install.sh configure audio      Reconfigure volume output
-#   sudo ./install.sh configure menu       Choose which menu items to show
-#   sudo ./install.sh services             Install/restart systemd services
-#   sudo ./install.sh verify               Run verification checks
-#        ./install.sh status               Show current config + service status
-#   sudo ./install.sh help                 Show this usage info
+# Usage (from repo root):
+#   sudo ./install/install.sh                      Full install (all steps)
+#   sudo ./install/install.sh system               System packages, boot, SD card, X11, Plymouth
+#   sudo ./install/install.sh configure            Full interactive configuration wizard
+#   sudo ./install/install.sh configure player     Reconfigure player only
+#   sudo ./install/install.sh configure ha         Reconfigure Home Assistant only
+#   sudo ./install/install.sh configure bluetooth  Pair/re-pair BT remote
+#   sudo ./install/install.sh configure transport  Reconfigure webhook/MQTT
+#   sudo ./install/install.sh configure audio      Reconfigure volume output
+#   sudo ./install/install.sh configure menu       Choose which menu items to show
+#   sudo ./install/install.sh services             Install/restart systemd services
+#   sudo ./install/install.sh verify               Run verification checks
+#        ./install/install.sh status               Show current config + service status
+#   sudo ./install/install.sh help                 Show this usage info
 #
 # Options:
 #   --user USERNAME    Install for specified user (default: $SUDO_USER)
@@ -26,8 +26,8 @@
 # =============================================================================
 set -e
 
-# Resolve the directory containing this script
-SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve the project root (parent of the install/ directory containing this script)
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Source shared definitions
 source "$SCRIPT_ROOT/install/lib/common.sh"
@@ -92,6 +92,7 @@ source "$SCRIPT_ROOT/install/modules/user-groups.sh"
 source "$SCRIPT_ROOT/install/modules/boot.sh"
 source "$SCRIPT_ROOT/install/modules/sd-hardening.sh"
 source "$SCRIPT_ROOT/install/modules/x11.sh"
+source "$SCRIPT_ROOT/install/modules/audio-hat.sh"
 source "$SCRIPT_ROOT/install/modules/plymouth.sh"
 source "$SCRIPT_ROOT/install/modules/verify.sh"
 
@@ -264,6 +265,7 @@ run_system_setup() {
     install_udev_rules
     configure_user_groups
     configure_boot
+    setup_audio_hat
     harden_sd_card
     configure_x11
     install_plymouth_theme

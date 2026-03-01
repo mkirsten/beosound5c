@@ -6,7 +6,7 @@ specific output type.  The factory function ``create_volume_adapter`` reads
 config.json and returns the correct adapter.
 
 Supported types:
-  - ``beolab5`` (or ``esphome`` for compat) – BeoLab 5 via controller REST API (default)
+  - ``beolab5``                 – BeoLab 5 via controller REST API (default)
   - ``sonos``                  – Sonos speaker via SoCo library
   - ``bluesound``              – BlueSound speaker via BluOS HTTP API
   - ``powerlink``              – B&O speakers via masterlink.py mixer HTTP API
@@ -26,6 +26,7 @@ from .beolab5 import BeoLab5Volume
 from .bluesound import BluesoundVolume
 from .c4amp import C4AmpVolume
 from .hdmi import HdmiVolume
+from .local import LocalVolume
 from .powerlink import PowerLinkVolume
 from .rca import RcaVolume
 from .sonos import SonosVolume
@@ -35,6 +36,7 @@ logger = logging.getLogger("beo-router.volume")
 
 __all__ = [
     "VolumeAdapter",
+    "LocalVolume",
     "BeoLab5Volume",
     "BluesoundVolume",
     "C4AmpVolume",
@@ -51,7 +53,7 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
     """Create the right volume adapter based on config.json.
 
     Reads from config.json "volume" section:
-      type        – "beolab5" (also accepts "esphome"), "sonos", "bluesound",
+      type        – "beolab5", "sonos", "bluesound",
                     "powerlink", "c4amp", "hdmi", "spdif", or "rca".
                     If omitted, defaults to player.type for sonos/bluesound,
                     "powerlink" for local/powerlink, otherwise "beolab5".
@@ -84,9 +86,10 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
     if vol_type == "powerlink":
         host = cfg("volume", "host", default="localhost")
         port = int(cfg("volume", "mixer_port", default=8768))
-        logger.info("Volume adapter: PowerLink via masterlink.py @ %s:%d (max %d%%)",
-                     host, port, vol_max)
-        return PowerLinkVolume(host, vol_max, session, port)
+        vol_default = int(cfg("volume", "default", default=30))
+        logger.info("Volume adapter: PowerLink via masterlink.py @ %s:%d (max %d, default %d)",
+                     host, port, vol_max, vol_default)
+        return PowerLinkVolume(host, vol_max, vol_default, session, port)
     elif vol_type == "c4amp":
         zone = str(cfg("volume", "zone", default="01"))
         input_id = str(cfg("volume", "input", default="01"))

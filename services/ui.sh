@@ -3,8 +3,11 @@
 # Runs Chromium in kiosk mode with crash recovery
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SPLASH_IMAGE="${SCRIPT_DIR}/../assets/splashscreen-red.png"
+SPLASH_IMAGE="${SCRIPT_DIR}/../plymouth/splashscreen-red.png"
 export SPLASH_IMAGE  # Export for xinit subshell
+
+# Clean shutdown on SIGTERM/SIGINT — kill entire process group
+trap 'kill 0; wait; exit 0' SIGTERM SIGINT
 
 # Kill potential conflicting X instances
 sudo pkill X || true
@@ -17,10 +20,14 @@ if [ -f "$SPLASH_IMAGE" ] && command -v fbi &>/dev/null && ! pidof plymouthd &>/
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] Splash screen displayed (fbi fallback)"
 fi
 
-# Chromium profile on persistent storage so cookies/logins survive reboots.
+# Chromium profile — may be a symlink to /tmp (tmpfs), so resolve and create target
 CHROMIUM_DATA_DIR="$HOME/.config/chromium"
 export CHROMIUM_DATA_DIR  # Export for xinit subshell
-mkdir -p "$CHROMIUM_DATA_DIR"
+if [ -L "$CHROMIUM_DATA_DIR" ]; then
+  mkdir -p "$(readlink -f "$CHROMIUM_DATA_DIR" 2>/dev/null || readlink "$CHROMIUM_DATA_DIR")"
+else
+  mkdir -p "$CHROMIUM_DATA_DIR"
+fi
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -69,6 +76,10 @@ xinit /bin/bash -c '
     echo "[$(date "+%Y-%m-%d %H:%M:%S")] $*"
   }
 
+  # Stop crash recovery loop on SIGTERM
+  STOPPING=0
+  trap "STOPPING=1; pkill -9 chromium 2>/dev/null; exit 0" SIGTERM SIGINT
+
   log "X session started, launching Chromium with crash recovery..."
 
   # Wait for HTTP server to be ready
@@ -96,8 +107,6 @@ xinit /bin/bash -c '
   CRASH_COUNT=0
   MAX_CRASHES=10
   CRASH_RESET_TIME=300  # Reset crash count after 5 minutes of stability
-  REBOOT_THRESHOLD=5    # Reboot system after this many consecutive window failures
-  WINDOW_FAIL_COUNT=0
 
   while true; do
     START_TIME=$(date +%s)
@@ -120,12 +129,14 @@ xinit /bin/bash -c '
         WINDOW_FAIL_COUNT=$((WINDOW_FAIL_COUNT + 1))
         echo "$WINDOW_FAIL_COUNT" > "$FAIL_FILE"
 
-        log "Window failure count: $WINDOW_FAIL_COUNT / 5"
+        log "Window failure count: $WINDOW_FAIL_COUNT"
 
         if [ "$WINDOW_FAIL_COUNT" -ge 5 ]; then
-          log "Too many window failures, rebooting system..."
+          log "Too many window failures, giving up (check journalctl -u beo-ui)"
           rm -f "$FAIL_FILE"
-          sudo reboot
+          # Show error on screen instead of rebooting
+          xmessage -center "beo-ui: Chromium failed to create a window after 5 attempts. Check logs." 2>/dev/null &
+          exit 1
         else
           pkill -9 chromium
         fi
@@ -185,6 +196,9 @@ xinit /bin/bash -c '
     RUN_TIME=$((END_TIME - START_TIME))
 
     log "Chromium exited with code $EXIT_CODE after ${RUN_TIME}s"
+
+    # Exit if we were told to stop
+    [ "$STOPPING" -eq 1 ] && exit 0
 
     # If it ran for more than CRASH_RESET_TIME, reset crash count
     if [ $RUN_TIME -gt $CRASH_RESET_TIME ]; then

@@ -40,6 +40,7 @@ import sys
 from aiohttp import web, ClientSession
 
 from .config import cfg
+from .http_utils import CORS_HEADERS
 
 log = logging.getLogger()
 
@@ -140,9 +141,11 @@ class SourceBase:
             log.warning("Player %s failed: %s", endpoint, e)
             return None
 
-    async def player_play(self, uri=None, url=None, track_uri=None) -> bool:
+    async def player_play(self, uri=None, url=None, track_uri=None, meta=None) -> bool:
         """Ask the player service to play a URI or URL.
-        track_uri: Spotify track URI to start at within a playlist/album."""
+        track_uri: Spotify track URI to start at within a playlist/album.
+        meta: optional dict with display metadata (title, artist, album,
+              artwork_url, track_number) — shown on Sonos/BlueSound controllers."""
         body = {}
         if uri:
             body["uri"] = uri
@@ -150,6 +153,8 @@ class SourceBase:
             body["url"] = url
         if track_uri:
             body["track_uri"] = track_uri
+        if meta:
+            body["meta"] = meta
         return await self._player_post("play", body)
 
     async def player_pause(self) -> bool:
@@ -185,6 +190,13 @@ class SourceBase:
         if data:
             return data.get("capabilities", [])
         return []
+
+    async def player_track_uri(self) -> str:
+        """Get the URI/URL of the track currently playing on the player."""
+        data = await self._player_get("track_uri")
+        if data:
+            return data.get("track_uri", "")
+        return ""
 
     # ── HTTP server ──
 
@@ -235,7 +247,7 @@ class SourceBase:
         """Convenience entry-point: start + wait for signal + stop."""
         await self.start()
         stop_event = asyncio.Event()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop_event.set)
         try:
@@ -246,11 +258,7 @@ class SourceBase:
     # ── CORS ──
 
     def _cors_headers(self):
-        return {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        }
+        return CORS_HEADERS
 
     async def _handle_cors(self, request):
         return web.Response(headers=self._cors_headers())

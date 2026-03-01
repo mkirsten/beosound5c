@@ -44,6 +44,7 @@ import json
 import logging
 import signal
 import sys
+import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
@@ -52,6 +53,7 @@ import aiohttp
 from aiohttp import web
 
 from .config import cfg
+from .http_utils import CORS_HEADERS
 from .watchdog import watchdog_loop
 
 try:
@@ -71,6 +73,7 @@ _artwork_executor = ThreadPoolExecutor(max_workers=2)
 
 # Common service URLs
 INPUT_WAKE_URL = "http://localhost:8767/webhook"
+ROUTER_MEDIA_URL = "http://localhost:8770/router/media"
 ROUTER_VOLUME_REPORT_URL = "http://localhost:8770/router/volume/report"
 ROUTER_PLAYBACK_OVERRIDE_URL = "http://localhost:8770/router/playback_override"
 
@@ -150,6 +153,7 @@ class PlayerBase:
         self._current_playback_state: str | None = None
         self._cached_media_data: dict | None = None
         self._last_reported_volume: int | None = None
+        self._last_internal_command: float = 0.0  # monotonic timestamp
 
     # ── Abstract methods (subclass must implement) ──
 
@@ -176,6 +180,10 @@ class PlayerBase:
     async def get_state(self) -> str:
         """Return "playing", "paused", or "stopped"."""
         return self._current_playback_state or "stopped"
+
+    async def get_track_uri(self) -> str:
+        """Return the URI/URL of the currently playing track, or empty string."""
+        return ""
 
     async def get_capabilities(self) -> list:
         """Return list of supported content types, e.g. ["spotify", "url_stream"]."""
@@ -208,7 +216,7 @@ class PlayerBase:
                 log.warning("Artwork URL returned 0 bytes")
                 return None
 
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 _artwork_executor, _process_image, image_bytes)
 
@@ -228,43 +236,24 @@ class PlayerBase:
             if close_session:
                 await session.close()
 
-    # ── WebSocket broadcasting ──
+    # ── Media broadcasting (via router) ──
 
     async def broadcast_media_update(self, media_data: dict, reason: str = "update"):
-        """Push a media_update to all connected WebSocket clients."""
-        if not self._ws_clients:
-            return
-
-        message = json.dumps({
-            "type": "media_update",
-            "reason": reason,
-            "data": media_data,
-        })
-
-        disconnected = set()
-        for ws in self._ws_clients:
-            try:
-                await ws.send_str(message)
-            except Exception:
-                disconnected.add(ws)
-
-        self._ws_clients -= disconnected
-
-        if self._ws_clients:
-            log.info("Broadcast media update to %d clients: %s",
-                     len(self._ws_clients), reason)
-
-    async def send_media_update(self, ws: web.WebSocketResponse,
-                                media_data: dict, reason: str):
-        """Send a media_update to a single client."""
+        """POST a media update to the router, which pushes to UI clients."""
+        self._cached_media_data = media_data
         try:
-            await ws.send_json({
-                "type": "media_update",
-                "reason": reason,
-                "data": media_data,
-            })
+            payload = dict(media_data)
+            payload["_reason"] = reason
+            async with self._http_session.post(
+                ROUTER_MEDIA_URL, json=payload,
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status == 200:
+                    log.info("Posted media update to router: %s", reason)
+                else:
+                    log.warning("Router media POST returned %d", resp.status)
         except Exception as e:
-            log.error("Error sending media update: %s", e)
+            log.warning("Could not post media to router: %s", e)
 
     # ── HTTP + WebSocket server ──
 
@@ -285,7 +274,18 @@ class PlayerBase:
         self.running = True
         self._http_session = aiohttp.ClientSession()
 
-        app = web.Application()
+        @web.middleware
+        async def cors_middleware(request, handler):
+            if request.method == "OPTIONS":
+                resp = web.Response()
+            else:
+                resp = await handler(request)
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            return resp
+
+        app = web.Application(middlewares=[cors_middleware])
 
         # WebSocket endpoint for UI media push
         app.router.add_get("/ws", self._handle_ws)
@@ -299,6 +299,7 @@ class PlayerBase:
         app.router.add_post("/player/stop", self._handle_stop)
         app.router.add_post("/player/toggle", self._handle_toggle)
         app.router.add_get("/player/state", self._handle_state)
+        app.router.add_get("/player/track_uri", self._handle_track_uri)
         app.router.add_get("/player/capabilities", self._handle_capabilities)
         app.router.add_get("/player/status", self._handle_status)
 
@@ -320,7 +321,7 @@ class PlayerBase:
         """Convenience entry-point: start + wait for signal + stop."""
         await self.start()
         stop_event = asyncio.Event()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop_event.set)
         try:
@@ -381,55 +382,68 @@ class PlayerBase:
     # ── HTTP route handlers ──
 
     def _cors_headers(self):
-        return {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        }
+        return CORS_HEADERS
+
+    def _stamp_command(self):
+        """Record that a command was received from a BS5c source/router."""
+        self._last_internal_command = time.monotonic()
+
+    def seconds_since_command(self) -> float:
+        """Seconds since the last internal command (play/next/prev/etc.)."""
+        if self._last_internal_command == 0.0:
+            return float("inf")
+        return time.monotonic() - self._last_internal_command
 
     async def _handle_play(self, request: web.Request) -> web.Response:
+        self._stamp_command()
         try:
             data = await request.json()
         except Exception:
             data = {}
         ok = await self.play(
             uri=data.get("uri"), url=data.get("url"),
-            track_uri=data.get("track_uri"))
+            track_uri=data.get("track_uri"), meta=data.get("meta"))
         return web.json_response(
             {"status": "ok" if ok else "error"},
             headers=self._cors_headers())
 
     async def _handle_pause(self, request: web.Request) -> web.Response:
+        self._stamp_command()
         ok = await self.pause()
         return web.json_response(
             {"status": "ok" if ok else "error"},
             headers=self._cors_headers())
 
     async def _handle_resume(self, request: web.Request) -> web.Response:
+        self._stamp_command()
         ok = await self.resume()
         return web.json_response(
             {"status": "ok" if ok else "error"},
             headers=self._cors_headers())
 
     async def _handle_next(self, request: web.Request) -> web.Response:
+        self._stamp_command()
         ok = await self.next_track()
         return web.json_response(
             {"status": "ok" if ok else "error"},
             headers=self._cors_headers())
 
     async def _handle_prev(self, request: web.Request) -> web.Response:
+        self._stamp_command()
         ok = await self.prev_track()
         return web.json_response(
             {"status": "ok" if ok else "error"},
             headers=self._cors_headers())
 
     async def _handle_stop(self, request: web.Request) -> web.Response:
+        self._stamp_command()
         ok = await self.stop()
         return web.json_response(
             {"status": "ok" if ok else "error"},
             headers=self._cors_headers())
 
     async def _handle_toggle(self, request: web.Request) -> web.Response:
+        self._stamp_command()
         if self._current_playback_state == "playing":
             ok = await self.pause()
         else:
@@ -442,6 +456,12 @@ class PlayerBase:
         state = await self.get_state()
         return web.json_response(
             {"state": state},
+            headers=self._cors_headers())
+
+    async def _handle_track_uri(self, request: web.Request) -> web.Response:
+        uri = await self.get_track_uri()
+        return web.json_response(
+            {"track_uri": uri},
             headers=self._cors_headers())
 
     async def _handle_capabilities(self, request: web.Request) -> web.Response:
@@ -471,13 +491,10 @@ class PlayerBase:
         """Called during shutdown."""
 
     async def on_ws_connect(self, ws: web.WebSocketResponse):
-        """Called when a new WebSocket client connects. Send initial state.
+        """Called when a new WebSocket client connects.
 
-        Default sends cached media data if available.  Override in subclass
-        for richer behaviour (e.g. fetch fresh data on connect).
+        Media updates now flow through the router — this is a no-op by default.
         """
-        if self._cached_media_data:
-            await self.send_media_update(ws, self._cached_media_data, "client_connect")
 
     def add_routes(self, app: web.Application):
         """Add extra aiohttp routes to the app."""

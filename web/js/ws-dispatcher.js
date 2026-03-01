@@ -20,10 +20,13 @@ function shouldLogWebSocket() {
 }
 
 // Connection state
-let mediaWebSocketConnecting = false;
 let mainWebSocketConnecting = false;
 let hwReconnectTimer = null;
+let mediaReconnectTimer = null;
 const HW_RECONNECT_INTERVAL = 3000;
+
+// Cache last source update data per source for replay on view mount
+const _lastSourceUpdate = {};
 
 // ── Message Dispatch ──
 
@@ -81,6 +84,7 @@ function processWebSocketEvent(message) {
             // Generic source update: "{sourceId}_update" → SourcePresets[sourceId].controller
             if (type.endsWith('_update')) {
                 const sourceId = type.slice(0, -'_update'.length);
+                _lastSourceUpdate[sourceId] = data;
                 const ctrl = window.SourcePresets?.[sourceId]?.controller;
                 if (ctrl?.updateMetadata) ctrl.updateMetadata(data);
                 routeToPlayingPreset(uiStore, type, data);
@@ -171,6 +175,11 @@ async function handleMenuItemEvent(uiStore, data) {
             setTimeout(() => {
                 if (preset.onAdd) preset.onAdd(document.getElementById('contentArea'));
             }, 50);
+            // Replay cached source update to newly loaded controller
+            const cached = data.preset && _lastSourceUpdate[data.preset];
+            if (cached && preset.controller?.updateMetadata) {
+                preset.controller.updateMetadata(cached);
+            }
         } else if (data.title && data.path) {
             // Non-preset: raw item definition
             uiStore.addMenuItem(
@@ -186,7 +195,12 @@ async function handleMenuItemEvent(uiStore, data) {
         if (path) {
             const preset = data.preset && window.SourcePresets?.[data.preset];
             if (preset?.onRemove) preset.onRemove();
+            if (data.preset) delete _lastSourceUpdate[data.preset];
             uiStore.removeMenuItem(path);
+            // Auto-navigate away if viewing the removed item
+            if (uiStore.currentRoute === path && uiStore.navigateToView) {
+                uiStore.navigateToView('menu/playing');
+            }
         } else {
             console.warn('[MENU_ITEM] remove requires path or preset');
         }
@@ -214,6 +228,22 @@ function routeToPlayingPreset(uiStore, eventType, eventData) {
         uiStore.updatePlaying(eventData);
     }
 }
+
+/**
+ * Replay the last cached source update to the playing preset.
+ * Called from updateNowPlayingView() when a local source is active
+ * and the view was just (re)built with no live event to populate it.
+ */
+function replayLastSourceUpdate(uiStore) {
+    const sourceId = uiStore?.activeSource;
+    if (!sourceId) return;
+    const cached = _lastSourceUpdate[sourceId];
+    if (!cached) return;
+    routeToPlayingPreset(uiStore, `${sourceId}_update`, cached);
+}
+
+// Expose for ui-store
+window.replayLastSourceUpdate = replayLastSourceUpdate;
 
 // ── WebSocket Connections ──
 
@@ -317,8 +347,13 @@ function initWebSocket() {
     initMediaWebSocket();
 }
 
-// Separate function for media server connection
+// Media WebSocket connection (router /router/ws)
 function initMediaWebSocket() {
+    if (mediaReconnectTimer) {
+        clearTimeout(mediaReconnectTimer);
+        mediaReconnectTimer = null;
+    }
+
     // Skip in demo mode - EmulatorModeManager handles mock media
     if (AppConfig.demo?.enabled) {
         console.log('[MEDIA] Demo mode - skipping media server connection');
@@ -328,22 +363,12 @@ function initMediaWebSocket() {
         return;
     }
 
-    if (window.mediaWebSocket && window.mediaWebSocket.readyState === WebSocket.OPEN) {
-        return;
-    }
-
-    if (mediaWebSocketConnecting) {
-        return;
-    }
-
-    mediaWebSocketConnecting = true;
-
     try {
         const mediaWs = new WebSocket(AppConfig.websocket.media);
         window.mediaWebSocket = mediaWs;
+        let wasConnected = false;
 
         mediaWs.onerror = () => {
-            mediaWebSocketConnecting = false;
             // Auto-activate demo mode on media server failure if autoDetect enabled
             if (window.AppConfig?.demo?.autoDetect && window.EmulatorModeManager && !window.EmulatorModeManager.isActive) {
                 window.EmulatorModeManager.activate('media server unavailable');
@@ -351,28 +376,24 @@ function initMediaWebSocket() {
         };
 
         mediaWs.onopen = () => {
-            console.log('[MEDIA] Media server connected');
-            mediaWebSocketConnecting = false;
+            wasConnected = true;
+            console.log('[MEDIA] Router media WS connected');
             if (window.uiStore && window.uiStore.logWebsocketMessage) {
                 window.uiStore.logWebsocketMessage('Media server connected');
             }
         };
 
         mediaWs.onclose = () => {
-            mediaWebSocketConnecting = false;
             window.mediaWebSocket = null;
-            const reconnectDelay = window.Constants?.timeouts?.websocketReconnect || 3000;
-            setTimeout(() => {
-                if (!window.mediaWebSocket) {
-                    initMediaWebSocket();
-                }
-            }, reconnectDelay);
+            if (wasConnected) {
+                console.log('[MEDIA] Router media WS disconnected - will reconnect');
+            }
+            mediaReconnectTimer = setTimeout(initMediaWebSocket, HW_RECONNECT_INTERVAL);
         };
 
         mediaWs.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-
                 if (data.type === 'media_update' && window.uiStore && window.uiStore.handleMediaUpdate) {
                     window.uiStore.handleMediaUpdate(data.data, data.reason);
                 }
@@ -381,7 +402,7 @@ function initMediaWebSocket() {
             }
         };
     } catch (error) {
-        mediaWebSocketConnecting = false;
+        mediaReconnectTimer = setTimeout(initMediaWebSocket, HW_RECONNECT_INTERVAL);
     }
 }
 

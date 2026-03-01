@@ -161,11 +161,11 @@ EOF
     # --- Disable unnecessary services ---
     log_info "Disabling unnecessary services..."
     for svc in cups cups-browsed cups.socket cups.path; do
-        systemctl disable --now "$svc" 2>/dev/null
-        systemctl mask "$svc" 2>/dev/null
+        timeout 10 systemctl disable --now "$svc" 2>/dev/null || true
+        timeout 10 systemctl mask "$svc" 2>/dev/null || true
     done
     for timer in apt-daily.timer apt-daily-upgrade.timer man-db.timer logrotate.timer dpkg-db-backup.timer; do
-        systemctl disable --now "$timer" 2>/dev/null
+        timeout 10 systemctl disable --now "$timer" 2>/dev/null || true
     done
     log_success "Disabled CUPS, apt-daily, logrotate, man-db, dpkg-db-backup"
 

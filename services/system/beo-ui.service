@@ -10,8 +10,12 @@ User=__USER__
 Group=__USER__
 WorkingDirectory=__HOME__/beosound5c/services
 ExecStart=__HOME__/beosound5c/services/ui.sh
-Restart=always
-RestartSec=5
+KillMode=mixed
+TimeoutStopSec=5
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=120
+StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
