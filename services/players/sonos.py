@@ -24,8 +24,9 @@ import time
 import logging
 import sys
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import aiohttp
+from aiohttp import web
 
 # Import Sonos libraries
 try:
@@ -63,7 +64,7 @@ POLL_INTERVAL = 0.5  # seconds between change checks (fast for responsive track 
 PREFETCH_COUNT = 5  # number of upcoming tracks to prefetch
 
 # Thread pool for blocking SoCo calls
-executor = ThreadPoolExecutor(max_workers=2)
+executor = ThreadPoolExecutor(max_workers=6)
 
 # Logging setup
 logging.basicConfig(
@@ -233,6 +234,8 @@ class MediaServer(PlayerBase):
     name = "Sonos"
     port = 8766
 
+    DEFAULT_PLAYER_POLL_INTERVAL = 15  # seconds between default-player checks
+
     def __init__(self):
         super().__init__()
         self.sonos_viewer = SonosArtworkViewer(SONOS_IP, player=self)
@@ -243,6 +246,10 @@ class MediaServer(PlayerBase):
         # Broadcast suppression during Spotify track switches
         self._suppress_until_track = None   # Spotify track ID to wait for
         self._suppress_set_time = 0.0       # monotonic time when suppression was set
+        # JOIN feature: one-time discovery map + default-player monitor
+        self._sonos_devices: dict[str, str] = {}   # player_name → ip
+        self._default_player_playing: bool = False
+        self._default_player_task: asyncio.Task | None = None
 
     # ── PlayerBase abstract methods (SoCo playback commands) ──
 
@@ -471,9 +478,243 @@ class MediaServer(PlayerBase):
     async def on_start(self):
         logger.info("Starting media server for Sonos at %s", SONOS_IP)
         self._monitor_task = asyncio.create_task(self.monitor_sonos())
+        # One-time network discovery, then start polling default player
+        asyncio.create_task(self._startup_and_monitor())
 
     async def on_ws_connect(self, ws):
         """Media updates now flow through the router — no-op."""
+
+    async def on_stop(self):
+        if self._default_player_task:
+            self._default_player_task.cancel()
+            try:
+                await self._default_player_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._default_player_task = None
+
+    def add_routes(self, app):
+        """Register JOIN-related endpoints."""
+        app.router.add_get("/player/network", self._handle_network)
+        app.router.add_post("/player/join", self._handle_join)
+        app.router.add_post("/player/unjoin", self._handle_unjoin)
+
+    # ── Network discovery (JOIN feature) ──
+
+    def _discover_all_sync(self) -> dict[str, str]:
+        """One-time multicast discovery — returns {player_name: ip}."""
+        try:
+            devices = soco.discover(timeout=5)
+        except Exception as e:
+            logger.warning("Sonos network discovery failed: %s", e)
+            return {}
+        if not devices:
+            return {}
+
+        local_ip = self.sonos_viewer.sonos.ip_address
+        result = {}
+        for d in devices:
+            try:
+                if d.ip_address != local_ip:
+                    result[d.player_name] = d.ip_address
+            except Exception:
+                pass
+        return result
+
+    def _check_device_playing_sync(self, ip: str) -> bool:
+        """Check if a single device (or its coordinator) is playing."""
+        try:
+            device = SoCo(ip)
+            coordinator = device.group.coordinator
+            transport = coordinator.get_current_transport_info()
+            state = transport.get("current_transport_state", "")
+            return state in ("PLAYING", "PAUSED_PLAYBACK")
+        except Exception:
+            return False
+
+    def _check_all_devices_sync(self) -> list[dict]:
+        """Check all cached devices for playback state — parallel queries."""
+        local_ip = self.sonos_viewer.sonos.ip_address
+        try:
+            own_coord_ip = self.sonos_viewer.sonos.group.coordinator.ip_address
+        except Exception:
+            own_coord_ip = local_ip
+
+        skip_ips = {local_ip, own_coord_ip}
+
+        def _check_one(name, ip):
+            """Check a single device — returns result dict or None."""
+            try:
+                device = SoCo(ip)
+                coordinator = device.group.coordinator
+                coord_ip = coordinator.ip_address
+                if coord_ip in skip_ips:
+                    return None
+
+                transport = coordinator.get_current_transport_info()
+                transport_state = transport.get("current_transport_state", "")
+                if transport_state not in ("PLAYING", "PAUSED_PLAYBACK"):
+                    return None
+
+                track = coordinator.get_current_track_info()
+                title = track.get("title", "")
+                if not title:
+                    return None
+
+                artwork_url = track.get("album_art", "")
+                if artwork_url and artwork_url.startswith("/"):
+                    artwork_url = f"http://{coord_ip}:1400{artwork_url}"
+
+                return {
+                    "name": coordinator.player_name,
+                    "ip": coord_ip,
+                    "state": "playing" if transport_state == "PLAYING" else "paused",
+                    "title": title,
+                    "artist": track.get("artist", ""),
+                    "album": track.get("album", ""),
+                    "artwork_url": artwork_url,
+                }
+            except Exception as e:
+                logger.debug("Skipping device %s during check: %s", name, e)
+                return None
+
+        # Query all devices in parallel
+        futures = {executor.submit(_check_one, n, ip): n
+                   for n, ip in self._sonos_devices.items()}
+
+        seen_coordinators = set()
+        results = []
+        for future in as_completed(futures):
+            result = future.result()
+            if result and result["ip"] not in seen_coordinators:
+                seen_coordinators.add(result["ip"])
+                results.append(result)
+
+        return results
+
+    async def _startup_and_monitor(self):
+        """One-time discovery, then start the default-player polling loop."""
+        loop = asyncio.get_running_loop()
+        self._sonos_devices = await loop.run_in_executor(
+            executor, self._discover_all_sync)
+        logger.info("Discovered %d Sonos devices: %s",
+                     len(self._sonos_devices), list(self._sonos_devices.keys()))
+
+        default_player = cfg("join", "default_player", default="")
+        if default_player and default_player in self._sonos_devices:
+            self._default_player_task = asyncio.create_task(
+                self._monitor_default_player(default_player))
+        elif default_player:
+            logger.warning("JOIN default_player '%s' not found on network",
+                           default_player)
+
+    async def _monitor_default_player(self, player_name: str):
+        """Poll a single device to drive JOIN menu visibility."""
+        ip = self._sonos_devices[player_name]
+        logger.info("Monitoring default JOIN player: %s (%s)", player_name, ip)
+
+        while self.running:
+            try:
+                loop = asyncio.get_running_loop()
+                is_playing = await loop.run_in_executor(
+                    executor, self._check_device_playing_sync, ip)
+
+                if is_playing != self._default_player_playing:
+                    self._default_player_playing = is_playing
+                    state = "available" if is_playing else "gone"
+                    logger.info("JOIN visibility: %s (%s)", state, player_name)
+                    try:
+                        async with self._http_session.post(
+                            "http://localhost:8770/router/source",
+                            json={"id": "join", "state": state, "name": "Join"},
+                            timeout=aiohttp.ClientTimeout(total=3.0),
+                        ) as resp:
+                            logger.debug("Router JOIN source update: HTTP %d",
+                                         resp.status)
+                    except Exception as e:
+                        logger.debug("Could not notify router of JOIN state: %s", e)
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.warning("Default player monitor error: %s", e)
+            await asyncio.sleep(self.DEFAULT_PLAYER_POLL_INTERVAL)
+
+    async def _handle_network(self, request) -> web.Response:
+        """GET /player/network — check all known devices on demand."""
+        loop = asyncio.get_running_loop()
+        devices = await loop.run_in_executor(executor, self._check_all_devices_sync)
+        return web.json_response(devices, headers=self._cors_headers())
+
+    async def _handle_join(self, request) -> web.Response:
+        """POST /player/join — join this speaker to another group.
+
+        Accepts {"ip": "..."} or {"name": "..."} (resolved from device map).
+        Optional media fields (title, artist, album, artwork_url) are forwarded
+        to the router as an immediate media update so PLAYING shows content
+        without waiting for the next poll cycle.
+        """
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json"}, status=400,
+                                     headers=self._cors_headers())
+
+        target_ip = data.get("ip")
+        target_name = data.get("name")
+        if not target_ip and target_name:
+            target_ip = self._sonos_devices.get(target_name)
+            if not target_ip:
+                return web.json_response(
+                    {"error": f"unknown device: {target_name}"}, status=404,
+                    headers=self._cors_headers())
+        if not target_ip:
+            return web.json_response({"error": "ip or name required"}, status=400,
+                                     headers=self._cors_headers())
+
+        loop = asyncio.get_running_loop()
+        try:
+            def _join():
+                target = SoCo(target_ip)
+                coordinator = target.group.coordinator
+                self.sonos_viewer.sonos.join(coordinator)
+                # Invalidate coordinator cache so monitor picks up group change
+                self.sonos_viewer._cached_coordinator = None
+                self.sonos_viewer._coordinator_check_time = 0
+                return coordinator.player_name
+
+            joined_name = await loop.run_in_executor(executor, _join)
+            logger.info("Joined group: %s (%s)", joined_name, target_ip)
+
+            # Pre-broadcast full media data (with artwork) from the new
+            # coordinator so PLAYING shows content immediately — works for
+            # both the UI path and the BLUE-button shortcut.
+            media_data = await self.fetch_media_data()
+            if media_data:
+                await self.broadcast_media_update(media_data, reason="join")
+
+            return web.json_response({"status": "ok", "joined": joined_name},
+                                     headers=self._cors_headers())
+        except Exception as e:
+            logger.error("Join failed: %s", e)
+            return web.json_response({"error": str(e)}, status=500,
+                                     headers=self._cors_headers())
+
+    async def _handle_unjoin(self, request) -> web.Response:
+        """POST /player/unjoin — leave the current group."""
+        loop = asyncio.get_running_loop()
+        try:
+            def _unjoin():
+                self.sonos_viewer.sonos.unjoin()
+                self.sonos_viewer._cached_coordinator = None
+                self.sonos_viewer._coordinator_check_time = 0
+
+            await loop.run_in_executor(executor, _unjoin)
+            logger.info("Left group (unjoined)")
+            return web.json_response({"status": "ok"}, headers=self._cors_headers())
+        except Exception as e:
+            logger.error("Unjoin failed: %s", e)
+            return web.json_response({"error": str(e)}, status=500,
+                                     headers=self._cors_headers())
 
     # ── Monitoring ──
 
@@ -531,9 +772,11 @@ class MediaServer(PlayerBase):
                     self._current_playback_state = state
 
                     # Report volume changes to the router (base deduplicates)
+                    # Always read from the local speaker, never the coordinator
                     try:
+                        local = self.sonos_viewer.sonos
                         vol = await loop.run_in_executor(
-                            executor, lambda: coordinator.volume) if coordinator else None
+                            executor, lambda: local.volume) if local else None
                         if vol is not None:
                             await self.report_volume_to_router(vol)
                     except Exception as e:
@@ -663,8 +906,9 @@ class MediaServer(PlayerBase):
                 state = 'unknown'
 
             try:
+                local = self.sonos_viewer.sonos
                 volume = await loop.run_in_executor(
-                    executor, lambda: coordinator.volume) if coordinator else 0
+                    executor, lambda: local.volume) if local else 0
             except Exception:
                 volume = 0
 

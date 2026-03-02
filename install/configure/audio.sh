@@ -158,13 +158,8 @@ configure_audio() {
             log_info "Using player IP ($player_ip) for volume control"
             ;;
         powerlink)
-            local DEFAULT_VOLUME_HOST="${current_vol_host:-localhost}"
-            read -p "MasterLink mixer host [$DEFAULT_VOLUME_HOST]: " VOLUME_HOST
-            VOLUME_HOST="${VOLUME_HOST:-$DEFAULT_VOLUME_HOST}"
-            local current_mixer_port
-            current_mixer_port=$(cfg_read '.volume.mixer_port // 8768')
-            read -p "Mixer HTTP port [${current_mixer_port:-8768}]: " VOLUME_MIXER_PORT
-            VOLUME_MIXER_PORT="${VOLUME_MIXER_PORT:-${current_mixer_port:-8768}}"
+            VOLUME_HOST="localhost"
+            VOLUME_MIXER_PORT="8768"
             ;;
         c4amp)
             local DEFAULT_C4_HOST="${current_vol_host:-192.168.1.100}"

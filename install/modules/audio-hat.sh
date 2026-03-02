@@ -127,12 +127,12 @@ setup_audio_hat() {
     # Install i2c-tools if missing (needed for chip detection)
     if ! command -v i2cdetect &>/dev/null; then
         log_info "Installing i2c-tools..."
-        apt-get install -y -qq i2c-tools > /dev/null 2>&1
+        apt-get install -y -qq i2c-tools > /dev/null 2>&1 || true
     fi
 
     # WirePlumber: always set volume to 100% (external adapters handle actual level)
     mkdir -p /etc/wireplumber/wireplumber.conf.d
-    cp "$INSTALL_DIR/configs/51-beosound5c-volume.conf" /etc/wireplumber/wireplumber.conf.d/
+    cp "$INSTALL_DIR/install/configs/51-beosound5c-volume.conf" /etc/wireplumber/wireplumber.conf.d/
     log_info "WirePlumber default volume set to 100%"
 
     # Try to detect the HAT
@@ -178,7 +178,7 @@ EOF
         log_info "USB audio info saved to $AUDIO_HAT_STATE_FILE"
 
         # Give USB audio sink priority over HDMI in WirePlumber
-        cp "$INSTALL_DIR/configs/52-beosound5c-usb-audio.conf" /etc/wireplumber/wireplumber.conf.d/
+        cp "$INSTALL_DIR/install/configs/52-beosound5c-usb-audio.conf" /etc/wireplumber/wireplumber.conf.d/
         log_info "WirePlumber USB audio priority rule installed"
 
     else

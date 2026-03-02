@@ -12,9 +12,9 @@ harden_sd_card() {
     # --- Disable swap ---
     log_info "Disabling swap..."
     if command -v dphys-swapfile &>/dev/null; then
-        dphys-swapfile swapoff 2>/dev/null
-        dphys-swapfile uninstall 2>/dev/null
-        systemctl disable dphys-swapfile 2>/dev/null
+        dphys-swapfile swapoff 2>/dev/null || true
+        dphys-swapfile uninstall 2>/dev/null || true
+        systemctl disable dphys-swapfile 2>/dev/null || true
         echo "CONF_SWAPSIZE=0" > /etc/dphys-swapfile
         rm -f /var/swap
         log_success "Swap disabled and swap file removed"
@@ -85,18 +85,18 @@ EOF
     log_success "tmpfiles.d config created"
 
     # --- Redirect Xorg logs to tmpfs ---
-    local XORG_LOG_DIR="/home/$INSTALL_USER/.local/share/xorg"
+    local XORG_LOG_DIR="$INSTALL_HOME/.local/share/xorg"
     if [ -L "$XORG_LOG_DIR" ]; then
         log_info "Xorg log directory already symlinked"
     else
         rm -rf "$XORG_LOG_DIR"
-        sudo -u "$INSTALL_USER" mkdir -p "/home/$INSTALL_USER/.local/share"
+        sudo -u "$INSTALL_USER" mkdir -p "$INSTALL_HOME/.local/share"
         sudo -u "$INSTALL_USER" ln -s /tmp "$XORG_LOG_DIR"
         log_success "Xorg logs redirected to tmpfs (/tmp)"
     fi
 
     # --- Mount ~/.cache as tmpfs ---
-    local USER_CACHE="/home/$INSTALL_USER/.cache"
+    local USER_CACHE="$INSTALL_HOME/.cache"
     local USER_UID
     local USER_GID
     USER_UID=$(id -u "$INSTALL_USER")
@@ -109,7 +109,7 @@ EOF
     fi
 
     # --- Redirect ~/.fehbg to tmpfs ---
-    local FEHBG="/home/$INSTALL_USER/.fehbg"
+    local FEHBG="$INSTALL_HOME/.fehbg"
     if [ -L "$FEHBG" ]; then
         log_info "~/.fehbg already symlinked"
     else
@@ -119,18 +119,18 @@ EOF
     fi
 
     # --- Redirect WirePlumber state to tmpfs ---
-    local WIREPLUMBER_DIR="/home/$INSTALL_USER/.local/state/wireplumber"
+    local WIREPLUMBER_DIR="$INSTALL_HOME/.local/state/wireplumber"
     if [ -L "$WIREPLUMBER_DIR" ]; then
         log_info "WirePlumber state already symlinked"
     else
         rm -rf "$WIREPLUMBER_DIR"
-        sudo -u "$INSTALL_USER" mkdir -p "/home/$INSTALL_USER/.local/state"
+        sudo -u "$INSTALL_USER" mkdir -p "$INSTALL_HOME/.local/state"
         sudo -u "$INSTALL_USER" ln -s /tmp "$WIREPLUMBER_DIR"
         log_success "WirePlumber state redirected to tmpfs"
     fi
 
     # --- Disable WirePlumber Bluetooth audio monitor ---
-    local WP_BT_OVERRIDE="/home/$INSTALL_USER/.config/wireplumber/bluetooth.lua.d"
+    local WP_BT_OVERRIDE="$INSTALL_HOME/.config/wireplumber/bluetooth.lua.d"
     local WP_BT_SYSTEM="/usr/share/wireplumber/bluetooth.lua.d"
     if [ -d "$WP_BT_SYSTEM" ]; then
         if [ -f "$WP_BT_OVERRIDE/90-enable-all.lua" ] && grep -q "disabled" "$WP_BT_OVERRIDE/90-enable-all.lua" 2>/dev/null; then
@@ -148,12 +148,12 @@ EOF
     fi
 
     # --- Symlink ~/.config/chromium to tmpfs ---
-    local CHROMIUM_CFG="/home/$INSTALL_USER/.config/chromium"
+    local CHROMIUM_CFG="$INSTALL_HOME/.config/chromium"
     if [ -L "$CHROMIUM_CFG" ]; then
         log_info "~/.config/chromium already symlinked"
     else
         rm -rf "$CHROMIUM_CFG"
-        sudo -u "$INSTALL_USER" mkdir -p "/home/$INSTALL_USER/.config"
+        sudo -u "$INSTALL_USER" mkdir -p "$INSTALL_HOME/.config"
         sudo -u "$INSTALL_USER" ln -s /tmp/chromium-profile "$CHROMIUM_CFG"
         log_success "~/.config/chromium redirected to tmpfs"
     fi

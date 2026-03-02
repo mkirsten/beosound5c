@@ -121,6 +121,9 @@ window.JoinView = (() => {
             ip: d.ip,
             state: d.state,
             artworkUrl: d.artwork_url || '',
+            title: d.title || '',
+            artist: d.artist || '',
+            album: d.album || '',
         }));
     }
 
@@ -331,44 +334,38 @@ window.JoinView = (() => {
             snapToNearest();
             const item = arcItems[arcTargetIndex];
             if (!item) return true;
-            joinDevice(item.ip, item.label);
+            joinDevice(item);
             return true;
         }
 
         return false;
     }
 
-    async function joinDevice(ip, name) {
-        console.log(`[JOIN] Joining ${name} (${ip})`);
+    async function joinDevice(item) {
+        console.log(`[JOIN] Joining ${item.label} (${item.ip})`);
         try {
             const resp = await fetch(`${PLAYER_URL}/player/join`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ip }),
+                body: JSON.stringify({
+                    ip: item.ip,
+                    title: item.title,
+                    artist: item.artist,
+                    album: item.album,
+                    artwork_url: item.artworkUrl,
+                }),
             });
             if (resp.ok) {
-                console.log(`[JOIN] Joined ${name}`);
+                console.log(`[JOIN] Joined ${item.label}`);
+                // Navigate to PLAYING view after successful join
+                if (window.uiStore?.navigateToView) {
+                    window.uiStore.navigateToView('menu/playing');
+                }
             } else {
                 console.error(`[JOIN] Join failed: HTTP ${resp.status}`);
             }
         } catch (e) {
             console.warn(`[JOIN] Join failed:`, e);
-        }
-    }
-
-    // ── Metadata (called on join_update broadcasts from router) ──
-
-    function updateMetadata(data) {
-        if (!menuActive) return;
-        if (Array.isArray(data)) {
-            devices = data;
-            buildArcItems();
-            if (arcItems.length === 0) {
-                renderEmpty();
-            } else {
-                renderArc();
-                startAnimation();
-            }
         }
     }
 
@@ -378,7 +375,6 @@ window.JoinView = (() => {
         destroy,
         handleNavEvent,
         handleButton,
-        updateMetadata,
         get isActive() { return menuActive; },
     };
 })();

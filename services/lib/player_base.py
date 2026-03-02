@@ -312,10 +312,11 @@ class PlayerBase:
         await site.start()
         log.info("Player %s: HTTP + WebSocket on port %d", self.name, self.port)
 
-        await self.on_start()
-
-        # Start systemd watchdog heartbeat (after on_start so subclass is ready)
+        # Start systemd watchdog heartbeat before on_start — sends READY=1
+        # immediately so Type=notify doesn't fail if on_start blocks/crashes
         asyncio.create_task(watchdog_loop())
+
+        await self.on_start()
 
     async def run(self):
         """Convenience entry-point: start + wait for signal + stop."""

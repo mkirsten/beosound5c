@@ -42,7 +42,7 @@ EOF
     log_success "DPMS disable config installed"
 
     # Remove any conflicting .xinitrc files that might interfere with beo-ui
-    local XINITRC_FILE="/home/$INSTALL_USER/.xinitrc"
+    local XINITRC_FILE="$INSTALL_HOME/.xinitrc"
     if [ -f "$XINITRC_FILE" ]; then
         log_info "Found existing .xinitrc - backing up to .xinitrc.bak"
         mv "$XINITRC_FILE" "${XINITRC_FILE}.bak"

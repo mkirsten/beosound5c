@@ -3,6 +3,7 @@
 
   "menu": {
     "PLAYING": "playing",
+    "JOIN": { "id": "join", "hidden": true },
     "CD": { "id": "cd", "hidden": true },
     "USB": { "id": "usb", "mounts": [{ "name": "USB", "path": "/mnt/usb-music" }] },
     "SPOTIFY": "spotify",
@@ -38,6 +39,7 @@
     "output_name": "Sonos"
   },
   "cd": { "device": "/dev/sr0" },
+  "join": {},
   "spotify": { "client_id": "" },
   "news": { "guardian_api_key": "test" }
 }

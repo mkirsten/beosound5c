@@ -764,6 +764,10 @@ class PC2Device:
 if __name__ == "__main__":
     audio_test = '--audio-test' in sys.argv
 
+    # Notify systemd early so Type=notify doesn't fail if USB device is missing
+    from lib.watchdog import sd_notify
+    sd_notify("READY=1")
+
     try:
         pc2 = PC2Device()
         pc2.open()

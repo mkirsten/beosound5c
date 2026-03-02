@@ -881,3 +881,20 @@ html, body {
   font-weight: 300;
   line-height: 2;
 }
+
+/* ── JOIN Source ── */
+
+.join-playing .cd-arc-item-name { color: rgba(102, 153, 255, 1); }
+.join-paused .cd-arc-item-name { color: rgba(255, 255, 255, 0.4); }
+
+.join-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: #666;
+  font-size: 16px;
+  font-weight: 300;
+  line-height: 2;
+}

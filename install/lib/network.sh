@@ -6,7 +6,8 @@
 
 # Scan for Sonos devices on the network
 scan_sonos_devices() {
-    log_info "Scanning for Sonos devices on the network..."
+    # NOTE: stdout is captured by mapfile — log messages must go to stderr.
+    log_info "Scanning for Sonos devices on the network..." >&2
     local sonos_devices=()
     local timeout=2
 
@@ -31,7 +32,7 @@ scan_sonos_devices() {
     if [ ${#sonos_devices[@]} -eq 0 ]; then
         local network=$(ip route | grep -oP 'src \K[0-9.]+' | head -1 | sed 's/\.[0-9]*$/./')
         if [ -n "$network" ]; then
-            log_info "Scanning network ${network}0/24 for Sonos devices (port 1400)..."
+            log_info "Scanning network ${network}0/24 for Sonos devices (port 1400)..." >&2
             local tmpfile
             tmpfile=$(mktemp)
             (
@@ -63,7 +64,8 @@ scan_sonos_devices() {
 
 # Scan for Bluesound devices on the network
 scan_bluesound_devices() {
-    log_info "Scanning for Bluesound devices on the network..."
+    # NOTE: stdout is captured by mapfile — log messages must go to stderr.
+    log_info "Scanning for Bluesound devices on the network..." >&2
     local bluesound_devices=()
     local timeout=2
 
@@ -91,7 +93,7 @@ scan_bluesound_devices() {
     if [ ${#bluesound_devices[@]} -eq 0 ]; then
         local network=$(ip route | grep -oP 'src \K[0-9.]+' | head -1 | sed 's/\.[0-9]*$/./')
         if [ -n "$network" ]; then
-            log_info "Scanning network ${network}0/24 for Bluesound devices (port 11000)..."
+            log_info "Scanning network ${network}0/24 for Bluesound devices (port 11000)..." >&2
             local tmpfile
             tmpfile=$(mktemp)
             (
@@ -123,14 +125,16 @@ scan_bluesound_devices() {
 
 # Detect Home Assistant on the network
 detect_home_assistant() {
-    log_info "Looking for Home Assistant..."
+    # NOTE: This function's stdout is captured by mapfile — all log
+    # messages MUST go to stderr so only URLs appear on stdout.
+    log_info "Looking for Home Assistant..." >&2
     local ha_urls=()
     local timeout=3
 
     # Method 1: Try homeassistant.local first (most common)
     if curl -s --connect-timeout $timeout -o /dev/null -w "%{http_code}" "http://homeassistant.local:8123/api/" 2>/dev/null | grep -qE "^(200|401|403)$"; then
         ha_urls+=("http://homeassistant.local:8123")
-        log_success "Found Home Assistant at homeassistant.local:8123"
+        log_success "Found Home Assistant at homeassistant.local:8123" >&2
     fi
 
     # Method 2: Try common hostnames
@@ -138,7 +142,7 @@ detect_home_assistant() {
         if [ ${#ha_urls[@]} -eq 0 ]; then
             if curl -s --connect-timeout $timeout -o /dev/null -w "%{http_code}" "http://${hostname}:8123/api/" 2>/dev/null | grep -qE "^(200|401|403)$"; then
                 ha_urls+=("http://${hostname}:8123")
-                log_success "Found Home Assistant at ${hostname}:8123"
+                log_success "Found Home Assistant at ${hostname}:8123" >&2
             fi
         fi
     done
@@ -147,13 +151,13 @@ detect_home_assistant() {
     if [ ${#ha_urls[@]} -eq 0 ]; then
         local network=$(ip route | grep -oP 'src \K[0-9.]+' | head -1 | sed 's/\.[0-9]*$/./')
         if [ -n "$network" ]; then
-            log_info "Scanning network ${network}0/24 for Home Assistant (port 8123)..."
+            log_info "Scanning network ${network}0/24 for Home Assistant (port 8123)..." >&2
             for i in $(seq 1 254); do
                 local ip="${network}${i}"
                 if timeout $timeout bash -c "echo >/dev/tcp/$ip/8123" 2>/dev/null; then
                     if curl -s --connect-timeout $timeout "http://$ip:8123/api/" 2>/dev/null | grep -q "API running"; then
                         ha_urls+=("http://$ip:8123")
-                        log_success "Found Home Assistant at $ip:8123"
+                        log_success "Found Home Assistant at $ip:8123" >&2
                         break
                     fi
                 fi

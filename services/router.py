@@ -586,6 +586,23 @@ class EventRouter:
             asyncio.ensure_future(self._screen_off())
             # Still forward to HA (below) so it can handle automations
 
+        # 4d. BLUE → JOIN default player
+        if action == "blue" and is_audio:
+            join_cfg = cfg("join")
+            default_player = join_cfg.get("default_player") if join_cfg else None
+            if default_player:
+                try:
+                    async with self._session.post(
+                        "http://localhost:8766/player/join",
+                        json={"name": default_player},
+                        timeout=aiohttp.ClientTimeout(total=5.0),
+                    ) as resp:
+                        logger.info("BLUE→JOIN %s: HTTP %d",
+                                    default_player, resp.status)
+                except Exception as e:
+                    logger.warning("BLUE→JOIN failed: %s", e)
+                return  # consumed even on failure
+
         # 5. Views that handle buttons locally (iframes) — suppress HA forwarding
         if self.active_view in self._local_button_views and action in (
             "go", "left", "right", "up", "down",

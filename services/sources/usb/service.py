@@ -28,7 +28,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from lib.audio_outputs import AudioOutputs
 from lib.config import cfg
 from lib.source_base import SourceBase
-from lib.watchdog import watchdog_loop
 from lib.file_playback import TranscodeCache, FilePlayer, RemotePlayer, AUDIO_EXTENSIONS
 
 from bm5_library import BM5Library
@@ -139,8 +138,6 @@ class USBService(SourceBase):
 
         if self._playback_mode == "local":
             asyncio.create_task(self._set_default_airplay())
-
-        asyncio.create_task(watchdog_loop())
 
     async def on_stop(self):
         await self.file_player.stop()

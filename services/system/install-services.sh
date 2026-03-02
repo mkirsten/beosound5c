@@ -187,19 +187,32 @@ echo "  ℹ️  Configured player type: $PLAYER_TYPE"
 if [ "$PLAYER_TYPE" = "sonos" ]; then
     echo "  📡 Starting Sonos player..."
     start_service beo-player-sonos.service
-    echo "  📡 Disabling BlueSound player (not configured)..."
+    echo "  📡 Disabling other players (not configured)..."
     systemctl disable beo-player-bluesound.service 2>/dev/null || true
     systemctl stop beo-player-bluesound.service 2>/dev/null || true
+    systemctl disable beo-player-local.service 2>/dev/null || true
+    systemctl stop beo-player-local.service 2>/dev/null || true
 elif [ "$PLAYER_TYPE" = "bluesound" ]; then
     echo "  📡 Starting BlueSound player..."
     start_service beo-player-bluesound.service
-    echo "  📡 Disabling Sonos player (not configured)..."
+    echo "  📡 Disabling other players (not configured)..."
     systemctl disable beo-player-sonos.service 2>/dev/null || true
     systemctl stop beo-player-sonos.service 2>/dev/null || true
+    systemctl disable beo-player-local.service 2>/dev/null || true
+    systemctl stop beo-player-local.service 2>/dev/null || true
+elif [ "$PLAYER_TYPE" = "local" ]; then
+    echo "  📡 Starting Local player..."
+    start_service beo-player-local.service
+    echo "  📡 Disabling network players (not configured)..."
+    systemctl disable beo-player-sonos.service 2>/dev/null || true
+    systemctl stop beo-player-sonos.service 2>/dev/null || true
+    systemctl disable beo-player-bluesound.service 2>/dev/null || true
+    systemctl stop beo-player-bluesound.service 2>/dev/null || true
 elif [ "$PLAYER_TYPE" = "none" ]; then
     echo "  ℹ️  No network player configured — skipping player services"
     disable_service beo-player-sonos.service
     disable_service beo-player-bluesound.service
+    disable_service beo-player-local.service
 else
     echo "  ⚠️  Unknown player type '$PLAYER_TYPE', starting both..."
     start_service beo-player-sonos.service || true

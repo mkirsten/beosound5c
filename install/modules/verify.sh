@@ -19,7 +19,7 @@ run_verification() {
             log_success "Package installed: $pkg"
         else
             log_error "Package missing: $pkg"
-            ((FAILED_CHECKS++))
+            ((++FAILED_CHECKS))
         fi
     done
 
@@ -28,7 +28,7 @@ run_verification() {
         log_success "udev rules installed"
     else
         log_error "udev rules missing"
-        ((FAILED_CHECKS++))
+        ((++FAILED_CHECKS))
     fi
 
     # Check user groups
@@ -39,15 +39,22 @@ run_verification() {
             log_success "User in group: $grp"
         else
             log_error "User not in group: $grp"
-            ((FAILED_CHECKS++))
+            ((++FAILED_CHECKS))
         fi
     done
 
-    # Check X11 wrapper config
-    if [ -f "/etc/X11/Xwrapper.config" ]; then
-        log_success "X11 wrapper config exists"
+    # Check X11 wrapper config and xserver-xorg-legacy (required for Xwrapper.config to work)
+    if dpkg -l xserver-xorg-legacy &>/dev/null; then
+        log_success "Package installed: xserver-xorg-legacy"
     else
-        log_warn "X11 wrapper config missing"
+        log_error "Package missing: xserver-xorg-legacy (X won't start without it)"
+        ((++FAILED_CHECKS))
+    fi
+    if [ -f "/etc/X11/Xwrapper.config" ] && grep -q "allowed_users=anybody" /etc/X11/Xwrapper.config 2>/dev/null; then
+        log_success "X11 wrapper config exists with allowed_users=anybody"
+    else
+        log_error "X11 wrapper config missing or misconfigured"
+        ((++FAILED_CHECKS))
     fi
 
     # Check Plymouth theme
@@ -62,14 +69,14 @@ run_verification() {
         log_success "Configuration file exists: $CONFIG_FILE"
     else
         log_error "Configuration file missing"
-        ((FAILED_CHECKS++))
+        ((++FAILED_CHECKS))
     fi
 
     # Check service files have no unresolved placeholders
     if grep -rl '__USER__\|__HOME__' /etc/systemd/system/beo-*.service &>/dev/null; then
         log_error "Service files contain unresolved placeholders (__USER__/__HOME__)"
         log_error "Re-run: sudo ./install.sh services"
-        ((FAILED_CHECKS++))
+        ((++FAILED_CHECKS))
     else
         log_success "Service files configured for user: $INSTALL_USER"
     fi

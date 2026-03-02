@@ -18,6 +18,7 @@ install_system_packages() {
     fi
     apt-get install -y --no-install-recommends \
         xserver-xorg \
+        xserver-xorg-legacy \
         x11-xserver-utils \
         x11-utils \
         xdotool \
@@ -82,7 +83,7 @@ install_system_packages() {
         if [ ! -f "$BACKPORTS_LIST" ] || ! grep -q "${CODENAME}-backports" "$BACKPORTS_LIST" 2>/dev/null; then
             log_info "Enabling Debian ${CODENAME}-backports..."
             echo "$BACKPORTS_LINE" > "$BACKPORTS_LIST"
-            apt-get update -qq
+            apt-get update -qq || log_warn "Failed to update backports repository"
         fi
         log_info "Upgrading PipeWire from backports..."
         apt-get install -y -qq -t "${CODENAME}-backports" \

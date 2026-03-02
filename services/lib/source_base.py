@@ -41,6 +41,7 @@ from aiohttp import web, ClientSession
 
 from .config import cfg
 from .http_utils import CORS_HEADERS
+from .watchdog import watchdog_loop
 
 log = logging.getLogger()
 
@@ -233,6 +234,10 @@ class SourceBase:
         log.info("HTTP API on port %d", self.port)
 
         self._http_session = ClientSession()
+
+        # Start systemd watchdog heartbeat before on_start — sends READY=1
+        # immediately so Type=notify doesn't fail if on_start blocks/crashes
+        asyncio.create_task(watchdog_loop())
 
         await self.on_start()
 
