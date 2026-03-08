@@ -43,7 +43,7 @@ DIGIT_PLAYLISTS_FILE = os.path.join(
     os.getenv('BS5C_BASE_PATH', PROJECT_ROOT),
     'web', 'json', 'plex_digit_playlists.json')
 
-POLL_INTERVAL = 3
+POLL_INTERVAL = 1  # fast poll for responsive track advancement (local HTTP)
 PLAYLIST_REFRESH_COOLDOWN = 5 * 60
 NIGHTLY_REFRESH_HOUR = 4  # offset from TIDAL (3am) and Apple Music (2am)
 FETCH_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fetch.py')
@@ -186,8 +186,19 @@ class PlexService(DigitPlaylistMixin, SourceBase):
         if self.auth.is_configured:
             state = self.state if self.state in ('playing', 'paused') else 'available'
             await self.register(state)
+            await self._resync_media()
             return {'status': 'ok', 'resynced': True}
         return {'status': 'ok', 'resynced': False}
+
+    async def activate_playback(self):
+        """Resume or start playback on source button press.
+        Always re-sends content to the player — the shared player may have
+        been taken over by another source since we last played."""
+        if self._current_playlist:
+            # Resume from current position in the last playlist
+            await self._play_current_track()
+        elif self.playlists:
+            await self._play_playlist(self.playlists[0]['id'])
 
     async def handle_command(self, cmd, data) -> dict:
         if cmd == 'digit':
@@ -288,13 +299,14 @@ class PlexService(DigitPlaylistMixin, SourceBase):
                 await self._play_current_track()
             return
 
-        # Pre-broadcast metadata for instant artwork
-        await self.broadcast("media_update", {
-            "title": track.get("name", ""),
-            "artist": track.get("artist", ""),
-            "artwork": track.get("image", ""),
-            "state": "PLAYING",
-        })
+        # Pre-broadcast metadata for instant PLAYING view update
+        await self.post_media_update(
+            title=track.get("name", ""),
+            artist=track.get("artist", ""),
+            artwork=track.get("image", ""),
+            state="playing",
+            reason="track_change",
+        )
         log.info("Playing [%d/%d] %s - %s",
                  self._current_index + 1, len(tracks),
                  track.get('artist', '?'), track.get('name', '?'))
@@ -526,7 +538,7 @@ class PlexService(DigitPlaylistMixin, SourceBase):
                 self.state = "stopped"
                 self.now_playing = None
                 await self.register("available")
-            elif state != "playing" and self.state == "playing":
+            elif state == "paused" and self.state == "playing":
                 self.state = "paused"
                 await self.register("paused")
         except Exception as e:
@@ -640,6 +652,11 @@ startBtn.addEventListener('click', async () => {
                     statusEl.textContent = 'Login expired. Please try again.';
                     startBtn.disabled = false;
                     loginUrlEl.style.display = 'none';
+                } else if (result.status === 'error') {
+                    clearInterval(pollInterval);
+                    statusEl.textContent = result.error || 'Login failed.';
+                    startBtn.disabled = false;
+                    loginUrlEl.style.display = 'none';
                 }
             } catch (e) { /* keep polling */ }
         }, 3000);
@@ -654,6 +671,13 @@ startBtn.addEventListener('click', async () => {
 
     async def _handle_start_login(self, request):
         """Start the Plex PIN-based OAuth flow."""
+        if self._pending_login:
+            try:
+                self._pending_login.stop()
+            except Exception:
+                pass
+            self._pending_login = None
+
         try:
             loop = asyncio.get_running_loop()
             pinlogin, oauth_url = await loop.run_in_executor(
@@ -683,6 +707,18 @@ startBtn.addEventListener('click', async () => {
             loop = asyncio.get_running_loop()
             success = await loop.run_in_executor(
                 None, self.auth.check_login, pinlogin)
+        except TimeoutError:
+            self._pending_login = None
+            log.warning("Plex PIN login expired")
+            return web.json_response(
+                {'status': 'expired'},
+                headers=self._cors_headers())
+        except ValueError as e:
+            self._pending_login = None
+            log.error("Plex login error: %s", e)
+            return web.json_response(
+                {'status': 'error', 'error': str(e)},
+                headers=self._cors_headers())
         except Exception as e:
             self._pending_login = None
             log.error("Plex login check failed: %s", e)

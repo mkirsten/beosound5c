@@ -93,54 +93,6 @@ window.SourcePresets.usb = {
         }
     },
 
-    playing: {
-        eventType: 'usb_update',
-
-        onUpdate(container, data) {
-            const titleEl = container.querySelector('.media-view-title');
-            const artistEl = container.querySelector('.media-view-artist');
-            const albumEl = container.querySelector('.media-view-album');
-
-            const trackName = data.track_name || 'Unknown';
-            const artist = data.artist || data.folder_name || '';
-            const albumText = data.album
-                ? (data.year ? `${data.album} (${data.year})` : data.album)
-                : `Track ${(data.current_track || 0) + 1} of ${data.total_tracks || '?'}`;
-
-            if (window.crossfadeText) {
-                window.crossfadeText(titleEl, trackName);
-                window.crossfadeText(artistEl, artist);
-                window.crossfadeText(albumEl, albumText);
-            } else {
-                if (titleEl) titleEl.textContent = trackName;
-                if (artistEl) artistEl.textContent = artist;
-                if (albumEl) albumEl.textContent = albumText;
-            }
-
-            // Artwork
-            const front = container.querySelector('.playing-artwork');
-            if (front) {
-                if (data.artwork && data.artwork_url) {
-                    if (window.ArtworkManager) {
-                        window.ArtworkManager.displayArtwork(front, data.artwork_url);
-                    } else {
-                        front.src = data.artwork_url;
-                    }
-                } else if (window.ArtworkManager) {
-                    window.ArtworkManager.displayArtwork(front, null, 'noArtwork');
-                }
-            }
-        },
-
-        onMount(container) {
-            // Fetch current now-playing state so the view is populated immediately
-            const url = (window.AppConfig?.usbServiceUrl || 'http://localhost:8773') + '/now_playing';
-            fetch(url).then(r => r.json()).then(data => {
-                if (data.state === 'playing' || data.state === 'paused') {
-                    this.onUpdate(container, data);
-                }
-            }).catch(() => {});
-        },
-        onRemove(container) {}
-    }
+    // No playing sub-preset needed — DEFAULT_PLAYING_PRESET handles media_update
+    // from the source via the unified router media path.
 };

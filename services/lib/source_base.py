@@ -36,6 +36,7 @@ import logging
 import os
 import signal
 import sys
+import time
 
 from aiohttp import web, ClientSession
 
@@ -61,12 +62,16 @@ class SourceBase:
     def __init__(self):
         self._http_session: ClientSession | None = None
         self._runner: web.AppRunner | None = None
+        self._last_media: dict | None = None  # cached by post_media_update()
+        self._registered_state: str | None = None  # last state sent to register()
+        self._action_ts: float = 0.0  # monotonic timestamp from router activation
 
     # ── Router registration ──
 
     async def register(self, state, navigate=False, auto_power=False, _retries=5):
         """Register / update source state in the router.
         auto_power: request speaker power-on (only for user-initiated playback)."""
+        self._registered_state = state
         payload = {"id": self.id, "state": state}
         if state not in ("gone",):
             payload.update({
@@ -80,6 +85,8 @@ class SourceBase:
             payload["navigate"] = True
         if auto_power:
             payload["auto_power"] = True
+        if self._action_ts:
+            payload["action_ts"] = self._action_ts
         for attempt in range(_retries):
             try:
                 async with self._http_session.post(
@@ -110,15 +117,64 @@ class SourceBase:
         except Exception as e:
             log.error("Failed to broadcast %s: %s", event_type, e)
 
+    # ── Media update (unified path: source → router → UI) ──
+
+    ROUTER_MEDIA_URL = "http://localhost:8770/router/media"
+
+    async def post_media_update(self, title="", artist="", album="",
+                                artwork="", state="playing",
+                                duration=0, position=0, reason="track_change",
+                                back_artwork=""):
+        """Push a media update to the router for unified PLAYING view rendering.
+        All sources should use this instead of source-specific _update broadcasts
+        for metadata that appears on the PLAYING view.
+        Automatically caches the payload for replay on activate."""
+        payload = {
+            "title": title,
+            "artist": artist,
+            "album": album,
+            "artwork": artwork,
+            "state": state,
+            "duration": duration,
+            "position": position,
+            "_reason": reason,
+            "_source_id": self.id,
+        }
+        if back_artwork:
+            payload["back_artwork"] = back_artwork
+        if self._action_ts:
+            payload["_action_ts"] = self._action_ts
+        # Cache for instant replay on source button activate
+        self._last_media = {
+            "title": title, "artist": artist, "album": album,
+            "artwork": artwork, "back_artwork": back_artwork,
+        }
+        try:
+            async with self._http_session.post(
+                self.ROUTER_MEDIA_URL, json=payload, timeout=5,
+            ) as resp:
+                log.info("Router media -> %s (HTTP %d)", reason, resp.status)
+        except Exception as e:
+            log.warning("Failed to post media update: %s", e)
+
+    async def _resync_media(self):
+        """Re-post cached metadata to the router if source is playing/paused.
+        Call this from handle_resync() after register() to restore PLAYING view."""
+        if self._last_media and self._registered_state in ("playing", "paused"):
+            await self.post_media_update(
+                **self._last_media, state=self._registered_state, reason="resync")
+
     # ── Player service client helpers ──
 
     async def _player_post(self, endpoint, json_data=None) -> bool:
         """POST to player service, return True on success."""
+        # play can take 5-10s on Sonos (SoCo play_uri is blocking)
+        timeout = 15 if endpoint == "play" else 5
         try:
             async with self._http_session.post(
                 f"{PLAYER_COMMAND_URL}/{endpoint}",
                 json=json_data or {},
-                timeout=5,
+                timeout=timeout,
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
@@ -142,11 +198,14 @@ class SourceBase:
             log.warning("Player %s failed: %s", endpoint, e)
             return None
 
-    async def player_play(self, uri=None, url=None, track_uri=None, meta=None) -> bool:
+    async def player_play(self, uri=None, url=None, track_uri=None, meta=None,
+                          radio=False) -> bool:
         """Ask the player service to play a URI or URL.
         track_uri: Spotify track URI to start at within a playlist/album.
         meta: optional dict with display metadata (title, artist, album,
-              artwork_url, track_number) — shown on Sonos/BlueSound controllers."""
+              artwork_url, track_number) — shown on Sonos/BlueSound controllers.
+        radio: if True, treat URL as a continuous radio stream (Sonos uses
+               x-rincon-mp3radio:// scheme instead of plain HTTP)."""
         body = {}
         if uri:
             body["uri"] = uri
@@ -156,6 +215,10 @@ class SourceBase:
             body["track_uri"] = track_uri
         if meta:
             body["meta"] = meta
+        if radio:
+            body["radio"] = True
+        if self._action_ts:
+            body["action_ts"] = self._action_ts
         return await self._player_post("play", body)
 
     async def player_pause(self) -> bool:
@@ -191,6 +254,11 @@ class SourceBase:
         if data:
             return data.get("capabilities", [])
         return []
+
+    async def player_spotify_status(self) -> dict:
+        """Get Spotify Connect status from the player service."""
+        data = await self._player_get("spotify-status")
+        return data or {"available": False}
 
     async def player_track_uri(self) -> str:
         """Get the URI/URL of the track currently playing on the player."""
@@ -285,6 +353,16 @@ class SourceBase:
             # Raw action from router (forwarded event)
             action = data.get("action")
             if action:
+                # Pick up fresh action_ts from router-forwarded events
+                if data.get("action_ts"):
+                    self._action_ts = data["action_ts"]
+                # Source button activation — resume or start playback
+                if action == "activate":
+                    result = await self.handle_activate(data)
+                    resp = {"status": "ok", "command": "activate"}
+                    if result:
+                        resp.update(result)
+                    return web.json_response(resp, headers=self._cors_headers())
                 # Let subclass intercept before action_map
                 override = await self.handle_raw_action(action, data)
                 if override is not None:
@@ -298,7 +376,8 @@ class SourceBase:
                             headers=self._cors_headers(),
                         )
             else:
-                # Direct command from UI JS
+                # Direct command from UI JS — stamp fresh action_ts
+                self._action_ts = time.monotonic()
                 cmd = data.get("command", "")
 
             result = await self.handle_command(cmd, data)
@@ -333,6 +412,27 @@ class SourceBase:
 
     def add_routes(self, app: web.Application):
         """Add extra aiohttp routes to the app."""
+
+    async def handle_activate(self, data: dict) -> dict | None:
+        """Source button pressed — resume or start playback.
+        Called only when the source is NOT already active+playing (the router
+        skips activate for sources that are already playing).
+        IMPORTANT: Must never pause — the shared player may be playing
+        another source's content.
+
+        Default: pre-broadcasts cached metadata (instant PLAYING view update),
+        registers as playing, then calls activate_playback() for source-specific
+        resume/start logic.  Override activate_playback() instead of this."""
+        self._action_ts = data.get("action_ts", 0) or 0
+        if self._last_media:
+            await self.post_media_update(
+                **self._last_media, state="playing", reason="activate")
+        await self.register("playing", auto_power=True)
+        await self.activate_playback()
+
+    async def activate_playback(self):
+        """Source-specific resume/start logic on source button press.
+        Called after pre-broadcast and register.  Override this."""
 
     async def handle_raw_action(self, action: str, data: dict):
         """

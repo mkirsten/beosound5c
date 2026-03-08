@@ -113,16 +113,17 @@ class SpotifyAuth:
                 self._mark_revoked(e)
             raise
 
-        self._access_token = result['access_token']
-        self._token_expiry = time.monotonic() + result.get('expires_in', 3600) - 300
-
-        # Persist rotated refresh token
+        # Persist rotated refresh token to disk FIRST — if the process is
+        # killed before we finish, the disk still has the valid token.
         new_rt = result.get('refresh_token')
         if new_rt and new_rt != self._refresh_token:
-            self._refresh_token = new_rt
             await loop.run_in_executor(
                 None, save_tokens, self._client_id, new_rt)
-            log.info("Refresh token rotated")
+            self._refresh_token = new_rt
+            log.info("Refresh token rotated and saved")
+
+        self._access_token = result['access_token']
+        self._token_expiry = time.monotonic() + result.get('expires_in', 3600) - 300
 
         log.info("Access token refreshed (expires in %ds)", result.get('expires_in', 0))
         return self._access_token

@@ -239,4 +239,4 @@ xinit /bin/bash -c '
 
     log "Restarting Chromium..."
   done
-' -- :0 vt1
+' -- :0

@@ -76,6 +76,7 @@ INPUT_WAKE_URL = "http://localhost:8767/webhook"
 ROUTER_MEDIA_URL = "http://localhost:8770/router/media"
 ROUTER_VOLUME_REPORT_URL = "http://localhost:8770/router/volume/report"
 ROUTER_PLAYBACK_OVERRIDE_URL = "http://localhost:8770/router/playback_override"
+ROUTER_OUTPUT_ON_URL = "http://localhost:8770/router/output/on"
 
 
 class ArtworkCache:
@@ -154,12 +155,15 @@ class PlayerBase:
         self._cached_media_data: dict | None = None
         self._last_reported_volume: int | None = None
         self._last_internal_command: float = 0.0  # monotonic timestamp
+        self._latest_action_ts: float = 0.0  # action timestamp for race prevention
 
     # ── Abstract methods (subclass must implement) ──
 
-    async def play(self, uri=None, url=None, track_uri=None) -> bool:
+    async def play(self, uri=None, url=None, track_uri=None, meta=None,
+                   radio=False) -> bool:
         """Start playback. uri = Spotify/share link, url = generic stream.
-        track_uri = Spotify track URI to start at within a playlist/album."""
+        track_uri = Spotify track URI to start at within a playlist/album.
+        radio = treat URL as continuous radio stream (affects Sonos URI scheme)."""
         raise NotImplementedError
 
     async def pause(self) -> bool:
@@ -244,6 +248,8 @@ class PlayerBase:
         try:
             payload = dict(media_data)
             payload["_reason"] = reason
+            if self._latest_action_ts:
+                payload["_action_ts"] = self._latest_action_ts
             async with self._http_session.post(
                 ROUTER_MEDIA_URL, json=payload,
                 timeout=aiohttp.ClientTimeout(total=5),
@@ -302,6 +308,9 @@ class PlayerBase:
         app.router.add_get("/player/track_uri", self._handle_track_uri)
         app.router.add_get("/player/capabilities", self._handle_capabilities)
         app.router.add_get("/player/status", self._handle_status)
+        app.router.add_get("/player/spotify-status", self._handle_spotify_status)
+        app.router.add_post("/player/announce", self._handle_announce)
+        app.router.add_get("/player/media", self._handle_media)
 
         # Let subclass add extra routes
         self.add_routes(app)
@@ -401,9 +410,23 @@ class PlayerBase:
             data = await request.json()
         except Exception:
             data = {}
+        # Timestamp gating: reject stale play commands
+        action_ts = data.get("action_ts", 0)
+        if action_ts and action_ts < self._latest_action_ts:
+            log.warning("Dropped stale play (ts=%.3f < latest=%.3f)",
+                        action_ts, self._latest_action_ts)
+            return web.json_response(
+                {"status": "dropped", "reason": "stale"},
+                headers=self._cors_headers())
+        if action_ts:
+            self._latest_action_ts = action_ts
         ok = await self.play(
             uri=data.get("uri"), url=data.get("url"),
-            track_uri=data.get("track_uri"), meta=data.get("meta"))
+            track_uri=data.get("track_uri"), meta=data.get("meta"),
+            radio=data.get("radio", False))
+        # Re-stamp after play completes — SoCo calls can take 5+ seconds,
+        # and the monitor suppression window starts from the last stamp.
+        self._stamp_command()
         return web.json_response(
             {"status": "ok" if ok else "error"},
             headers=self._cors_headers())
@@ -443,6 +466,39 @@ class PlayerBase:
             {"status": "ok" if ok else "error"},
             headers=self._cors_headers())
 
+    async def _handle_announce(self, request: web.Request) -> web.Response:
+        """TTS announce current track title + artist, with volume ducking."""
+        if not self._cached_media_data or self._current_playback_state != "playing":
+            return web.json_response(
+                {"status": "skipped", "reason": "not playing"},
+                headers=self._cors_headers())
+        title = self._cached_media_data.get("title", "")
+        artist = self._cached_media_data.get("artist", "")
+        if not title:
+            return web.json_response(
+                {"status": "skipped", "reason": "no title"},
+                headers=self._cors_headers())
+        text = f"{title}, by {artist}" if artist else title
+        asyncio.ensure_future(self._announce_with_duck(text))
+        return web.json_response({"status": "ok"}, headers=self._cors_headers())
+
+    async def _announce_with_duck(self, text: str):
+        """Duck playback volume, play TTS, restore volume."""
+        from lib.tts import tts_announce
+        await self.fade_volume(60, duration=0.5)
+        await tts_announce(text)
+        await self.fade_volume(100, duration=0.8)
+
+    async def fade_volume(self, target: float, duration: float = 0.5):
+        """Fade player volume to target (0-100). Override in subclass."""
+
+    async def _handle_media(self, request: web.Request) -> web.Response:
+        """GET /player/media — return cached media data (for router recovery)."""
+        if self._cached_media_data and self._current_playback_state == "playing":
+            return web.json_response(self._cached_media_data,
+                                     headers=self._cors_headers())
+        return web.json_response({}, headers=self._cors_headers())
+
     async def _handle_toggle(self, request: web.Request) -> web.Response:
         self._stamp_command()
         if self._current_playback_state == "playing":
@@ -474,6 +530,14 @@ class PlayerBase:
     async def _handle_status(self, request: web.Request) -> web.Response:
         status = await self.get_status()
         return web.json_response(status, headers=self._cors_headers())
+
+    async def _handle_spotify_status(self, request: web.Request) -> web.Response:
+        status = await self.get_spotify_status()
+        return web.json_response(status, headers=self._cors_headers())
+
+    async def get_spotify_status(self) -> dict:
+        """Return Spotify Connect status. Override in local player."""
+        return {"available": False}
 
     async def get_status(self) -> dict:
         """Return player status. Override in subclass for richer data."""
@@ -517,6 +581,20 @@ class PlayerBase:
         except Exception as e:
             log.warning("Could not trigger wake: %s", e)
 
+    async def trigger_output_on(self):
+        """Power on the audio output (speakers) via the router."""
+        try:
+            async with self._http_session.post(
+                ROUTER_OUTPUT_ON_URL,
+                timeout=aiohttp.ClientTimeout(total=2),
+            ) as resp:
+                if resp.status == 200:
+                    log.info("Triggered output power on")
+                else:
+                    log.warning("Output power on returned status %d", resp.status)
+        except Exception as e:
+            log.warning("Could not trigger output power on: %s", e)
+
     async def report_volume_to_router(self, volume: int):
         """Report a volume change to the router so the UI arc stays in sync.
 
@@ -540,10 +618,12 @@ class PlayerBase:
 
     async def notify_router_playback_override(self, force: bool = False):
         """Notify the router that media changed externally on the player."""
+        action_ts = time.monotonic()
+        self._latest_action_ts = action_ts
         try:
             async with self._http_session.post(
                 ROUTER_PLAYBACK_OVERRIDE_URL,
-                json={"force": force},
+                json={"force": force, "action_ts": action_ts},
                 timeout=aiohttp.ClientTimeout(total=2),
             ) as resp:
                 if resp.status == 200:

@@ -29,8 +29,12 @@ html, body {
   cursor: none;
 }
 
-.list-item {
+#menuItems {
+  position: relative;
   z-index: 1000;
+}
+
+.list-item {
   font-weight: 100;
   font-size: 14px;
   color: white;
@@ -292,7 +296,7 @@ html, body {
 
 .webpage-iframe {
   pointer-events: auto !important;
-  z-index: 1000 !important;
+  z-index: 99 !important;
 }
 
 /* Add styles for scrollable content */
@@ -624,6 +628,60 @@ html, body {
   transform: rotateY(180deg);
 }
 
+/* ── CD Back Face Track Listing ── */
+.cd-back-tracklist {
+  width: 100%;
+  height: 100%;
+  background: #111;
+  border-radius: 8px;
+  padding: 16px 20px;
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  color: #ccc;
+  font-size: 14px;
+}
+.cd-back-header {
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cd-back-track {
+  display: flex;
+  align-items: baseline;
+  padding: 2px 0;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.cd-back-track-playing {
+  color: #fff;
+  font-weight: 600;
+}
+.cd-back-num {
+  color: #666;
+  min-width: 22px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.cd-back-track-playing .cd-back-num {
+  color: #aaa;
+}
+.cd-back-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cd-back-dur {
+  color: #666;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
 /* ── CD Arc Track Browser (matches softarc layout exactly) ── */
 
 .cd-arc-container {
@@ -884,8 +942,56 @@ html, body {
 
 /* ── JOIN Source ── */
 
-.join-playing .cd-arc-item-name { color: rgba(102, 153, 255, 1); }
-.join-paused .cd-arc-item-name { color: rgba(255, 255, 255, 0.4); }
+#join-arc-container .cd-arc-item-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
+/* Players with no content — dimmed */
+.join-no-content .cd-arc-item-name { color: rgba(255, 255, 255, 0.35); }
+.join-no-content .cd-arc-item-sublabel { color: rgba(255, 255, 255, 0.15); }
+
+/* EQ bars — playing indicator */
+.join-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.join-eq span {
+  display: block;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 1px;
+  transform-origin: bottom;
+  animation: join-eq 0.8s ease-in-out infinite alternate;
+}
+.join-eq span:nth-child(1) { height: 4px; animation-delay: 0s; }
+.join-eq span:nth-child(2) { height: 8px; animation-delay: 0.2s; }
+.join-eq span:nth-child(3) { height: 6px; animation-delay: 0.4s; }
+@keyframes join-eq {
+  0% { transform: scaleY(0.3); }
+  100% { transform: scaleY(1); }
+}
+
+/* Unjoin badge — X icon */
+.join-unjoin-badge {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Group icon */
+.join-group-icon {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.4);
+  margin-left: 6px;
+  vertical-align: middle;
+  letter-spacing: 0.5px;
+}
 
 .join-empty {
   position: absolute;

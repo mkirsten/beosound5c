@@ -46,8 +46,23 @@ def _validate(config: dict, path: str) -> None:
     vol_type = vol.get("type", "beolab5")
     if vol_type not in ("beolab5", "sonos", "bluesound", "powerlink", "c4amp", "hdmi", "spdif", "rca"):
         logger.warning("Config %s: unknown volume.type '%s'", path, vol_type)
-    # News source requires a Guardian API key
+    # Check for duplicate source button mappings
     menu = config.get("menu") or {}
+    _STATIC = {"playing", "system", "scenes", "showing", "join"}
+    source_buttons: dict[str, str] = {}
+    for title, value in menu.items():
+        sid = value if isinstance(value, str) else (value.get("id", title.lower()) if isinstance(value, dict) else title.lower())
+        if sid in _STATIC:
+            continue
+        source_cfg = config.get(sid) or {}
+        source_btn = source_cfg.get("source") or (value.get("source") if isinstance(value, dict) else None)
+        if source_btn:
+            if source_btn in source_buttons:
+                logger.error("Config %s: source button '%s' mapped by both '%s' and '%s' — last one wins",
+                             path, source_btn, source_buttons[source_btn], sid)
+            source_buttons[source_btn] = sid
+
+    # News source requires a Guardian API key
     has_news = any(
         (v == "news") or (isinstance(v, dict) and v.get("id") == "news")
         for v in menu.values()

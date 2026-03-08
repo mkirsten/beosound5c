@@ -40,6 +40,9 @@ const AppConfig = {
     // News source (Guardian)
     newsServiceUrl: 'http://localhost:8776',
 
+    // Radio source (Radio Browser)
+    radioServiceUrl: 'http://localhost:8779',
+
     // Player service (Sonos/BlueSound — for direct transport commands)
     playerUrl: 'http://localhost:8766',
 

@@ -30,7 +30,8 @@ const DEFAULT_INFO_SLOT = `
     <div id="media-album" class="media-view-album">—</div>
 `;
 const DEFAULT_PLAYING_PRESET = {
-    eventType: 'media_update',
+    // All sources push metadata via the unified router media path.
+    // media_update events reach this preset via handleMediaUpdate() → updateNowPlayingView().
     onUpdate(container, data) {
         const titleEl = container.querySelector('.media-view-title');
         const artistEl = container.querySelector('.media-view-artist');
@@ -49,7 +50,8 @@ const DEFAULT_PLAYING_PRESET = {
             if (data.back_artwork) {
                 backImg.src = data.back_artwork;
                 backFace.style.display = '';
-            } else {
+            } else if (!backFace.querySelector('.cd-back-tracklist')) {
+                // No back artwork and no source-populated content — hide
                 backFace.style.display = 'none';
                 // Un-flip if back was removed while flipped
                 const flipper = container.querySelector('.playing-flipper');
@@ -244,6 +246,7 @@ class UIStore {
             artist: data.artist || '—',
             album: data.album || '—',
             artwork: data.artwork || '',
+            back_artwork: data.back_artwork || '',
             state: data.state || 'unknown',
             position: data.position || '0:00',
             duration: data.duration || '0:00'
@@ -255,17 +258,8 @@ class UIStore {
         }
     }
     
-    // Update the now playing view with current media info (Sonos/generic path)
+    // Update the now playing view with current media info
     updateNowPlayingView() {
-        // Local player sources push updates via routeToPlayingPreset.
-        // Replay cached data so the view is populated when first mounted.
-        if (this.activeSourcePlayer === 'local') {
-            if (window.replayLastSourceUpdate) {
-                window.replayLastSourceUpdate(this);
-            }
-            return;
-        }
-
         // Delegate to active playing preset if available
         if (this.activePlayingPreset?.onUpdate) {
             const container = document.getElementById('now-playing');
@@ -275,17 +269,15 @@ class UIStore {
             }
         }
 
-        // Fallback: direct DOM update
+        // Fallback: direct DOM update (artwork must not depend on text elements)
         const artworkEl = document.querySelector('#now-playing .playing-artwork');
         const titleEl = document.getElementById('media-title');
         const artistEl = document.getElementById('media-artist');
         const albumEl = document.getElementById('media-album');
 
-        if (!titleEl || !artistEl || !albumEl) return;
-
-        titleEl.textContent = this.mediaInfo.title;
-        artistEl.textContent = this.mediaInfo.artist;
-        albumEl.textContent = this.mediaInfo.album;
+        if (titleEl) titleEl.textContent = this.mediaInfo.title;
+        if (artistEl) artistEl.textContent = this.mediaInfo.artist;
+        if (albumEl) albumEl.textContent = this.mediaInfo.album;
 
         if (artworkEl && window.ArtworkManager) {
             window.ArtworkManager.displayArtwork(artworkEl, this.mediaInfo.artwork, 'noArtwork');
@@ -395,30 +387,29 @@ class UIStore {
                 }
                 // Dynamic sources: always register view from preset (even if menu item already exists)
                 else if (item.dynamic && item.preset) {
-                    // Load source script if not yet available (config sources with hidden:true
-                    // never get a menu_item "add" event, so their script won't load otherwise)
+                    // Load source script if not yet available
                     if (!window.SourcePresets?.[item.preset]) {
                         await this._loadSourceScript(item.preset);
                     }
                     const preset = window.SourcePresets?.[item.preset];
                     if (preset) {
-                        newItems.push({ title: item.title, path: preset.item.path, hidden: !!item.hidden });
+                        newItems.push({ title: item.title, path: preset.item.path });
                         if (preset.view) {
                             this.views[preset.item.path] = preset.view;
                         }
                     } else {
-                        newItems.push({ title: item.title, path, hidden: !!item.hidden });
+                        newItems.push({ title: item.title, path });
                     }
                 } else {
                     const existing = this.menuItems.find(m => m.path === path);
-                    newItems.push(existing || { title: item.title, path, hidden: !!item.hidden });
+                    newItems.push(existing || { title: item.title, path });
                 }
             }
             this.menuItems = newItems;
 
             // Sync to laser position mapper
             if (window.LaserPositionMapper?.updateMenuItems) {
-                window.LaserPositionMapper.updateMenuItems(this.menuItems.filter(m => !m.hidden));
+                window.LaserPositionMapper.updateMenuItems(this.menuItems);
             }
 
             // Restore active source and player type
@@ -722,7 +713,7 @@ class UIStore {
         const menuContainer = document.getElementById('menuItems');
         menuContainer.innerHTML = '';
 
-        const visibleItems = this.menuItems.filter(m => !m.hidden);
+        const visibleItems = this.menuItems;
         visibleItems.forEach((item, index) => {
             const itemElement = document.createElement('div');
             itemElement.className = 'list-item';
@@ -759,7 +750,7 @@ class UIStore {
     }
 
     getStartItemAngle() {
-        const visibleCount = this.menuItems.filter(m => !m.hidden).length;
+        const visibleCount = this.menuItems.length;
         const totalSpan = this.angleStep * (visibleCount - 1);
         return 180 - totalSpan / 2;
     }
@@ -1276,7 +1267,7 @@ class UIStore {
 
         // Sync to laser position mapper
         if (window.LaserPositionMapper?.updateMenuItems) {
-            window.LaserPositionMapper.updateMenuItems(this.menuItems.filter(m => !m.hidden));
+            window.LaserPositionMapper.updateMenuItems(this.menuItems);
         }
 
         console.log(`[MENU] Added "${item.title}" after ${afterPath} (now ${this.menuItems.length} items)`);
@@ -1305,38 +1296,11 @@ class UIStore {
 
         // Sync to laser position mapper
         if (window.LaserPositionMapper?.updateMenuItems) {
-            window.LaserPositionMapper.updateMenuItems(this.menuItems.filter(m => !m.hidden));
+            window.LaserPositionMapper.updateMenuItems(this.menuItems);
         }
 
         console.log(`[MENU] Removed "${path}" (now ${this.menuItems.length} items)`);
         this.renderMenuItemsAnimated();
-    }
-
-    /**
-     * Hide or show a menu item without removing it.
-     * @param {string} path - Path of the item (e.g. 'menu/playing')
-     * @param {boolean} hidden - true to hide, false to show
-     */
-    hideMenuItem(path, hidden) {
-        const item = this.menuItems.find(m => m.path === path);
-        if (!item) return;
-        item.hidden = hidden;
-
-        // If currently viewing hidden item, navigate away
-        if (hidden && this.currentRoute === path) {
-            const visible = this.menuItems.find(m => !m.hidden && m.path !== path);
-            if (visible) this.navigateToView(visible.path);
-        }
-
-        // Sync visible items to laser position mapper
-        if (window.LaserPositionMapper?.updateMenuItems) {
-            window.LaserPositionMapper.updateMenuItems(this.menuItems.filter(m => !m.hidden));
-        }
-
-        // Re-render the arc menu (skips hidden items)
-        this.renderMenuItemsAnimated();
-
-        console.log(`[MENU] ${hidden ? 'Hidden' : 'Shown'} "${path}"`);
     }
 
     /**
@@ -1356,7 +1320,7 @@ class UIStore {
 
         // --- Rebuild DOM (skip hidden items) ---
         menuContainer.innerHTML = '';
-        const visibleItems = this.menuItems.filter(m => !m.hidden);
+        const visibleItems = this.menuItems;
         visibleItems.forEach((item, index) => {
             const itemElement = document.createElement('div');
             itemElement.className = 'list-item';

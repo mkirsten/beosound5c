@@ -208,6 +208,20 @@
         }
       },
       "additionalProperties": false
+    },
+
+    "showing": {
+      "type": "object",
+      "description": "SHOWING view configuration. Displays what's playing on a media player (e.g. Apple TV) via Home Assistant.",
+      "required": ["entity_id"],
+      "properties": {
+        "entity_id": {
+          "type": "string",
+          "description": "Home Assistant media_player entity to monitor.",
+          "examples": ["media_player.living_room_apple_tv", "media_player.cinema_appletv"]
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,

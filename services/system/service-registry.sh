@@ -9,6 +9,7 @@ ALL_SERVICES=(
     "beo-player-sonos.service"
     "beo-player-bluesound.service"
     "beo-player-local.service"
+    "beo-librespot.service"
     "beo-input.service"
     "beo-router.service"
     "beo-masterlink.service"
@@ -20,6 +21,7 @@ ALL_SERVICES=(
     "beo-source-plex.service"
     "beo-source-usb.service"
     "beo-source-news.service"
+    "beo-source-radio.service"
     "beo-ui.service"
     "beo-notify-failure@.service"
     "beo-health.service"
@@ -32,6 +34,7 @@ STATUS_SERVICES=(
     "beo-player-sonos.service"
     "beo-player-bluesound.service"
     "beo-player-local.service"
+    "beo-librespot.service"
     "beo-input.service"
     "beo-router.service"
     "beo-masterlink.service"
@@ -43,6 +46,7 @@ STATUS_SERVICES=(
     "beo-source-plex.service"
     "beo-source-usb.service"
     "beo-source-news.service"
+    "beo-source-radio.service"
     "beo-ui.service"
 )
 
@@ -52,6 +56,7 @@ SERVICE_DESC["beo-http.service"]="HTTP Web Server (Port 8000)"
 SERVICE_DESC["beo-player-sonos.service"]="Sonos Player (Port 8766)"
 SERVICE_DESC["beo-player-bluesound.service"]="BlueSound Player (Port 8766)"
 SERVICE_DESC["beo-player-local.service"]="Local Player (Port 8766)"
+SERVICE_DESC["beo-librespot.service"]="go-librespot (Spotify Connect)"
 SERVICE_DESC["beo-input.service"]="Hardware Input Server (Port 8765)"
 SERVICE_DESC["beo-router.service"]="Event Router (Port 8770)"
 SERVICE_DESC["beo-masterlink.service"]="MasterLink Sniffer"
@@ -63,6 +68,7 @@ SERVICE_DESC["beo-source-apple-music.service"]="Apple Music Source (Port 8774)"
 SERVICE_DESC["beo-source-tidal.service"]="TIDAL Source (Port 8777)"
 SERVICE_DESC["beo-source-plex.service"]="Plex Source (Port 8778)"
 SERVICE_DESC["beo-source-news.service"]="News Source (Port 8776)"
+SERVICE_DESC["beo-source-radio.service"]="Radio Source (Port 8779)"
 SERVICE_DESC["beo-ui.service"]="Chromium UI Kiosk"
 
 # Optional sources: menu_key|service|emoji|label
@@ -75,4 +81,5 @@ OPTIONAL_SOURCES=(
     "PLEX|beo-source-plex.service|🎵|Plex source"
     "USB|beo-source-usb.service|💾|USB source"
     "NEWS|beo-source-news.service|📰|News source"
+    "RADIO|beo-source-radio.service|📻|Radio Browser source"
 )

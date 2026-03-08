@@ -2093,6 +2093,13 @@ class ArcList {
 
         this.snapToNearest();
 
+        // Blue flash on GO press
+        const goEl = this.container.querySelector('.arc-item.selected');
+        if (goEl) {
+            goEl.classList.add('go-flash');
+            setTimeout(() => goEl.classList.remove('go-flash'), 400);
+        }
+
         let id;
         let itemName;
         let webhookData;

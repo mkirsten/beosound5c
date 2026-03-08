@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radio - Beosound 5c</title>
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/x-icon" href="../assets/favicons/favicon.ico">
+    <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicons/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicons/favicon-32x32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="../assets/favicons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="../assets/favicons/android-chrome-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="../assets/favicons/android-chrome-512x512.png">
+    <link rel="manifest" href="../assets/favicons/site.webmanifest">
+    <meta name="theme-color" content="#000000">
+
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../assets/phosphor/phosphor.css">
+</head>
+<body>
+    <div id="app">
+        <div class="counter">
+            <div id="counter-path"></div>
+            <span id="current-item">1</span> / <span id="total-items">0</span>
+        </div>
+        <div class="hierarchy-depth-1" id="hierarchy-background"></div>
+        <div class="arc-container" id="arc-container"></div>
+    </div>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/arc-utils.js"></script>
+    <script src="../js/emulator-bridge.js"></script>
+    <script src="script-v2.js"></script>
+    <script>
+        const RADIO_URL = (typeof AppConfig !== 'undefined' && AppConfig.radioServiceUrl)
+            ? AppConfig.radioServiceUrl
+            : 'http://localhost:8779';
+
+        async function fetchBrowse(path) {
+            const resp = await fetch(`${RADIO_URL}/browse?path=${encodeURIComponent(path)}`);
+            if (!resp.ok) throw new Error(`Browse failed: ${resp.status}`);
+            return resp.json();
+        }
+
+        /** Map Radio browse items to ArcList items with proper icons/artwork. */
+        function mapRadioItem(item) {
+            const mapped = {
+                id: item.path || item.id || item.name,
+                name: item.name,
+                _radioPath: item.path,
+                _radioType: item.type,
+                _radioId: item.id,
+                _stationuuid: item.stationuuid,
+                _urlResolved: item.url_resolved,
+                _favicon: item.favicon,
+                _country: item.country,
+                _tags: item.tags,
+                _codec: item.codec,
+                _bitrate: item.bitrate,
+            };
+
+            if (item.type === 'category') {
+                if (item.image) {
+                    mapped.image = item.image;
+                } else {
+                    mapped.icon = item.icon || 'folder';
+                    mapped.color = item.color || '#F9CA24';
+                }
+                if (item.count) mapped.subtitle = `${item.count} stations`;
+            } else if (item.type === 'station') {
+                if (item.favicon) {
+                    mapped.image = `${RADIO_URL}/favicon?url=${encodeURIComponent(item.favicon)}`;
+                } else {
+                    mapped.icon = 'radio';
+                    mapped.color = '#74B9FF';
+                }
+                if (item.subtitle) mapped.subtitle = item.subtitle;
+            }
+
+            return mapped;
+        }
+
+        /** Check if an item is a container that can be drilled into. */
+        function isContainer(item) {
+            return item._radioType === 'category';
+        }
+
+        /** Send a command to the Radio service. */
+        async function sendRadioCommand(command, params = {}) {
+            try {
+                await fetch(`${RADIO_URL}/command`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command, ...params }),
+                });
+            } catch (e) {
+                console.error(`[Radio] ${command} failed:`, e.message);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const arcList = new ArcList({
+                rootLoader: async () => {
+                    const data = await fetchBrowse('');
+                    return data.items.map(mapRadioItem);
+                },
+                childrenLoader: async (item) => {
+                    if (!isContainer(item)) return null;
+                    const data = await fetchBrowse(item._radioPath || item._radioId || '');
+                    return data.items.map(mapRadioItem);
+                },
+                levels: [{
+                    isContainer,
+                }],
+                storagePrefix: 'radio_arclist',
+                context: 'radio',
+                webhookUrl: typeof AppConfig !== 'undefined' ? AppConfig.webhookUrl : null,
+                onGo: async (item) => {
+                    if (item._radioType === 'station') {
+                        await sendRadioCommand('play_station', {
+                            stationuuid: item._stationuuid,
+                        });
+                    } else {
+                        // Categories -> drill in
+                        arcList.drillDown();
+                    }
+                },
+            });
+            window.arcListInstance = arcList;
+        });
+    </script>
+</body>
+</html>

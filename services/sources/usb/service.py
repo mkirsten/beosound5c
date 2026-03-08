@@ -51,6 +51,8 @@ class USBService(SourceBase):
         "go": "toggle",
         "next": "next",
         "prev": "prev",
+        "up": "next",
+        "down": "prev",
         "right": "next",
         "left": "prev",
         "stop": "stop",
@@ -67,6 +69,9 @@ class USBService(SourceBase):
         self._current_track_meta = {}  # Rich metadata for current track
         self._device_ip = None
         self.audio = AudioOutputs()
+        self._mounts_config = []  # saved for hot-plug rescan
+        self._hotplug_task = None
+        self._rescan_task = None
 
     @property
     def _player(self):
@@ -100,8 +105,23 @@ class USBService(SourceBase):
                     if p:
                         mounts_config.append({"name": Path(p).name, "path": p})
 
+        # Auto-detect BM5 HDD if no mounts configured
+        if not mounts_config:
+            mounts_config.append({"name": "BeoMaster 5", "type": "bm5"})
+
+        self._mounts_config = mounts_config
         self.mount_manager = MountManager(mounts_config)
         await self.mount_manager.init()
+
+        # Retry mount detection — USB drives may not be ready at early boot
+        if not self.mount_manager.available and mounts_config:
+            for attempt in range(3):
+                await asyncio.sleep(5)
+                log.info("Retrying mount detection (attempt %d/3)...", attempt + 1)
+                self.mount_manager = MountManager(mounts_config)
+                await self.mount_manager.init()
+                if self.mount_manager.available:
+                    break
 
         # Transcode cache — lossless FLAC for Bluesound, MP3 for Sonos
         player_type = cfg("player", "type", default="sonos")
@@ -136,10 +156,17 @@ class USBService(SourceBase):
             log.warning("No mounts available — registering as gone")
             await self.register('gone')
 
+        # Watch for USB hot-plug events
+        self._hotplug_task = asyncio.create_task(self._watch_hotplug())
+
         if self._playback_mode == "local":
             asyncio.create_task(self._set_default_airplay())
 
     async def on_stop(self):
+        if self._hotplug_task:
+            self._hotplug_task.cancel()
+        if self._rescan_task:
+            self._rescan_task.cancel()
         await self.file_player.stop()
         if self.remote_player:
             await self.remote_player.stop()
@@ -179,6 +206,55 @@ class USBService(SourceBase):
                 return
         log.warning("Sonos AirPlay sink for %s not found", sonos_ip)
 
+    # -- USB hot-plug detection --
+
+    async def _watch_hotplug(self):
+        """Watch for USB block device add/remove events via udevadm."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                'udevadm', 'monitor', '--subsystem-match=block', '--udev',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            async for line in proc.stdout:
+                text = line.decode(errors='replace')
+                if ' add ' in text or ' remove ' in text:
+                    # Debounce — USB devices emit multiple events rapidly
+                    if self._rescan_task and not self._rescan_task.done():
+                        self._rescan_task.cancel()
+                    self._rescan_task = asyncio.create_task(
+                        self._rescan_after_delay())
+        except asyncio.CancelledError:
+            if proc.returncode is None:
+                proc.terminate()
+        except Exception as e:
+            log.warning("USB hotplug watcher failed: %s", e)
+
+    async def _rescan_after_delay(self):
+        """Wait for udev events to settle, then rescan mounts."""
+        await asyncio.sleep(3)
+        was_available = self.mount_manager.available if self.mount_manager else False
+
+        # Close existing BM5 databases before rescan
+        if self.mount_manager:
+            for _, browser in self.mount_manager.mounts:
+                if isinstance(browser, BM5Library):
+                    browser.close()
+
+        self.mount_manager = MountManager(self._mounts_config)
+        await self.mount_manager.init()
+        is_available = self.mount_manager.available
+
+        if is_available and not was_available:
+            log.info("USB drive connected — registering as available")
+            await self.register('available')
+        elif not is_available and was_available:
+            log.info("USB drive disconnected — registering as gone")
+            await self._player.stop()
+            await self.register('gone')
+        elif is_available:
+            log.info("USB rescan — mounts updated")
+
     def build_stream_url(self, track_meta):
         """Build an HTTP stream URL for a track.
         Extension matches transcode target so the player detects the MIME type."""
@@ -216,6 +292,22 @@ class USBService(SourceBase):
                 await self._broadcast_update()
             return {'status': 'ok', 'resynced': True}
         return {'status': 'ok', 'resynced': False}
+
+    async def activate_playback(self):
+        """Resume playback or start from scratch on source button press.
+        Always re-sends the track to the player — the shared player may have
+        been taken over by another source since we last played."""
+        if self._player.total_tracks > 0:
+            # Re-play current track (replaces whatever the shared player has)
+            await self._player.play_track(self._player.current_track)
+        else:
+            # Nothing loaded — play first BM5 album
+            bm5 = self._get_bm5(0)
+            if bm5:
+                result = bm5.browse("albums")
+                items = result.get("items", []) if result else []
+                if items:
+                    await self._play_bm5_album(items[0]["id"], 0)
 
     async def handle_command(self, cmd, data) -> dict:
         if cmd == 'toggle':
@@ -342,6 +434,21 @@ class USBService(SourceBase):
             if str(t['id']) == str(track_id):
                 start_index = i
 
+        # Pre-broadcast metadata BEFORE playback starts (transcoding may take seconds)
+        meta = tracks_meta[start_index] if tracks_meta else {}
+        self._current_track_meta = meta
+        if meta:
+            artwork_url = f"http://localhost:{self.port}/artwork?album_id={meta.get('album_id', '')}&mount={mount_idx}"
+            await self.register('playing', auto_power=True)
+            await self.post_media_update(
+                title=meta.get('title', ''),
+                artist=meta.get('artist', ''),
+                album=meta.get('album', ''),
+                artwork=artwork_url,
+                state="playing",
+                reason="track_change",
+            )
+
         if self._playback_mode == "remote":
             self.remote_player.load_tracks(
                 tracks_meta,
@@ -356,11 +463,9 @@ class USBService(SourceBase):
                 file_paths,
                 folder_name=album_tracks[0]['album_title'],
             )
-            # Store metadata for _update_current_track_meta on track changes
             self.file_player._tracks_meta = tracks_meta
             await self.file_player.play_track(start_index)
 
-        self._current_track_meta = tracks_meta[start_index] if tracks_meta else {}
         return True
 
     async def _play_bm5_album(self, album_id, mount_idx):
@@ -701,7 +806,18 @@ class USBService(SourceBase):
         return web.json_response(self._build_now_playing())
 
     async def _broadcast_update(self):
-        await self.broadcast('usb_update', self._build_now_playing())
+        np = self._build_now_playing()
+        await self.broadcast('usb_update', np)
+        # Unified PLAYING view metadata via router (only when we have active metadata)
+        state = np.get('state', 'stopped')
+        if state in ('playing', 'paused'):
+            await self.post_media_update(
+                title=np.get('track_name', ''),
+                artist=np.get('artist', ''),
+                album=np.get('album', ''),
+                artwork=np.get('artwork_url', ''),
+                state=state,
+            )
 
 
 if __name__ == '__main__':

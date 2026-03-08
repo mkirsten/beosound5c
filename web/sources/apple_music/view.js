@@ -30,9 +30,6 @@ window.SourcePresets.apple_music = {
 
     onRemove() {},
 
-    // PLAYING sub-preset: use media_update from beo-player-sonos (handles artwork perfectly)
-    // When Sonos is the output, beo-player-sonos polls and broadcasts artwork/metadata.
-    playing: {
-        eventType: 'media_update'
-    }
+    // No playing sub-preset needed — DEFAULT_PLAYING_PRESET handles media_update
+    // from beo-player-sonos perfectly.
 };

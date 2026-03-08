@@ -8,6 +8,9 @@ output audio to the Sonos speaker via AirPlay or the network.
 
 Current sources:
   cd.py       — CD/DVD playback via mpv, metadata from MusicBrainz
-  spotify.py  — (stub) Spotify Connect browsing and playback
-  usb.py      — (stub) USB file browsing and playback
+  spotify.py  — Spotify Connect browsing and playback (PKCE OAuth)
+  usb.py      — USB file browsing and playback via mpv
+  plex.py     — Plex music browsing and playback
+  news.py     — RSS/TTS news playback via local mpv
+  demo.py     — Demo mode with bundled media
 """

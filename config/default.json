@@ -3,14 +3,15 @@
 
   "menu": {
     "PLAYING": "playing",
-    "JOIN": { "id": "join", "hidden": true },
-    "CD": { "id": "cd", "hidden": true },
+    "JOIN": "join",
+    "CD": "cd",
     "USB": { "id": "usb", "mounts": [{ "name": "USB", "path": "/mnt/usb-music" }] },
     "SPOTIFY": "spotify",
     "APPLE MUSIC": "apple_music",
     "TIDAL": "tidal",
     "PLEX": "plex",
     "NEWS": "news",
+    "RADIO": "radio",
     "SCENES": "scenes",
     "SECURITY": { "url": "softarc/security.html" },
     "SYSTEM": "system",
@@ -40,6 +41,7 @@
   },
   "cd": { "device": "/dev/sr0" },
   "join": {},
-  "spotify": { "client_id": "" },
-  "news": { "guardian_api_key": "test" }
+  "spotify": { "client_id": "", "source": "radio" },
+  "news": { "guardian_api_key": "test" },
+  "showing": { "entity_id": "media_player.loft_apple_tv" }
 }

@@ -190,8 +190,23 @@ class AppleMusicService(DigitPlaylistMixin, SourceBase):
         if self.auth.is_configured:
             state = self.state if self.state in ('playing', 'paused') else 'available'
             await self.register(state)
+            await self._resync_media()
             return {'status': 'ok', 'resynced': True}
         return {'status': 'ok', 'resynced': False}
+
+    async def activate_playback(self):
+        """Resume or start playback on source button press.
+        Checks if the player still has our content before deciding to
+        resume (preserves queue position) or re-queue."""
+        track_uri = await self.player_track_uri()
+        if track_uri and "apple" in track_uri.lower():
+            log.info("Activate: player has Apple Music content, resuming")
+            await self.player_resume()
+            self.state = "playing"
+            self._start_polling()
+        elif self.playlists:
+            log.info("Activate: player taken over, re-queuing playlist")
+            await self._play_playlist(self.playlists[0]['id'])
 
     async def handle_command(self, cmd, data) -> dict:
         if cmd == 'digit':
@@ -273,14 +288,15 @@ class AppleMusicService(DigitPlaylistMixin, SourceBase):
             log.warning("No URL for playlist %s — cannot play", playlist_id)
             return
 
-        # Pre-broadcast selected track metadata for instant artwork
+        # Pre-broadcast metadata for instant PLAYING view update
         if track_meta:
-            await self.broadcast("media_update", {
-                "title": track_meta.get("name", ""),
-                "artist": track_meta.get("artist", ""),
-                "artwork": track_meta.get("image", ""),
-                "state": "PLAYING",
-            })
+            await self.post_media_update(
+                title=track_meta.get("name", ""),
+                artist=track_meta.get("artist", ""),
+                artwork=track_meta.get("image", ""),
+                state="playing",
+                reason="track_change",
+            )
             log.info("Pre-broadcast metadata for %s", track_meta.get("name", "?"))
 
         # Play individual track when a specific song is selected

@@ -111,7 +111,7 @@ const EmulatorModeManager = {
             album: data.album,
             artwork_url: data.artwork,
             artwork: data.artwork,
-            playback_state: 'PLAYING',
+            playback_state: 'playing',
             state: 'playing',
             position_ms: 0,
             duration_ms: 240000,

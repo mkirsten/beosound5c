@@ -246,6 +246,7 @@ class MediaServer(PlayerBase):
         # Broadcast suppression during Spotify track switches
         self._suppress_until_track = None   # Spotify track ID to wait for
         self._suppress_set_time = 0.0       # monotonic time when suppression was set
+        self._last_play_was_radio = False    # only suppress monitor for radio plays
         # JOIN feature: one-time discovery map + default-player monitor
         self._sonos_devices: dict[str, str] = {}   # player_name → ip
         self._default_player_playing: bool = False
@@ -283,7 +284,8 @@ class MediaServer(PlayerBase):
             logger.warning("Failed to build DIDL metadata: %s", e)
             return ''
 
-    async def play(self, uri=None, url=None, track_uri=None, meta=None) -> bool:
+    async def play(self, uri=None, url=None, track_uri=None, meta=None,
+                   radio=False) -> bool:
         """Play content on the Sonos speaker.
 
         uri: Spotify share link (https://open.spotify.com/...) or spotify: URI
@@ -293,7 +295,9 @@ class MediaServer(PlayerBase):
                    may differ between Spotify Web API and Sonos SMAPI.
         meta: optional dict with display metadata (title, artist, album,
               artwork_url, track_number) — rendered in Sonos controller UI.
+        radio: if True, use x-rincon-mp3radio:// scheme for Sonos streaming.
         """
+        self._last_play_was_radio = radio
         try:
             loop = asyncio.get_running_loop()
             coordinator = self.sonos_viewer.get_coordinator()
@@ -336,16 +340,27 @@ class MediaServer(PlayerBase):
                     return True
 
             if url:
+                play_url = url
+                if radio:
+                    # Sonos needs x-rincon-mp3radio:// for radio streams —
+                    # plain HTTP/HTTPS fails with UPnP 714 (Illegal MIME-Type).
+                    # Strip scheme and use the Sonos radio protocol instead.
+                    play_url = url.replace("https://", "x-rincon-mp3radio://")
+                    play_url = play_url.replace("http://", "x-rincon-mp3radio://")
                 didl_meta = ''
                 if meta:
-                    didl_meta = self._build_didl(url, meta)
+                    didl_meta = self._build_didl(play_url, meta)
+                title = meta.get("title", "") if meta else ""
                 if didl_meta:
                     await loop.run_in_executor(
-                        None, lambda: coordinator.play_uri(url, meta=didl_meta))
+                        None, lambda: coordinator.play_uri(
+                            play_url, meta=didl_meta, title=title))
                 else:
                     await loop.run_in_executor(
-                        None, coordinator.play_uri, url)
-                logger.info("Playing URL: %s", url)
+                        None, lambda: coordinator.play_uri(
+                            play_url, title=title))
+                logger.info("Playing URL: %s%s", url,
+                            " (radio)" if radio else "")
                 return True
 
             # No URI/URL — just resume
@@ -498,8 +513,35 @@ class MediaServer(PlayerBase):
         app.router.add_get("/player/network", self._handle_network)
         app.router.add_post("/player/join", self._handle_join)
         app.router.add_post("/player/unjoin", self._handle_unjoin)
+        app.router.add_get("/player/resync", self._handle_resync)
 
     # ── Network discovery (JOIN feature) ──
+
+    async def _register_join_source(self, state: str = "available"):
+        """Register or update the JOIN source on the router."""
+        try:
+            async with self._http_session.post(
+                "http://localhost:8770/router/source",
+                json={"id": "join", "state": state, "name": "Join"},
+                timeout=aiohttp.ClientTimeout(total=3.0),
+            ) as resp:
+                logger.debug("JOIN source %s: HTTP %d", state, resp.status)
+                return True
+        except Exception as e:
+            logger.debug("Could not register JOIN source: %s", e)
+            return False
+
+    async def _handle_resync(self, request) -> web.Response:
+        """GET /player/resync — re-register JOIN if speakers are known."""
+        if self._sonos_devices:
+            ok = await self._register_join_source("available")
+            if ok:
+                logger.info("JOIN resync: re-registered (%d speakers)",
+                            len(self._sonos_devices))
+            return web.json_response({"resynced": ok},
+                                     headers=self._cors_headers())
+        return web.json_response({"resynced": False},
+                                 headers=self._cors_headers())
 
     def _discover_all_sync(self) -> dict[str, str]:
         """One-time multicast discovery — returns {player_name: ip}."""
@@ -553,26 +595,32 @@ class MediaServer(PlayerBase):
 
                 transport = coordinator.get_current_transport_info()
                 transport_state = transport.get("current_transport_state", "")
-                if transport_state not in ("PLAYING", "PAUSED_PLAYBACK"):
-                    return None
+
+                state = "playing" if transport_state == "PLAYING" else "stopped"
 
                 track = coordinator.get_current_track_info()
-                title = track.get("title", "")
-                if not title:
-                    return None
-
                 artwork_url = track.get("album_art", "")
                 if artwork_url and artwork_url.startswith("/"):
                     artwork_url = f"http://{coord_ip}:1400{artwork_url}"
 
+                # Group members (excluding coordinator itself)
+                group_members = []
+                try:
+                    for m in device.group.members:
+                        if m.ip_address != coord_ip:
+                            group_members.append(m.player_name)
+                except Exception:
+                    pass
+
                 return {
                     "name": coordinator.player_name,
                     "ip": coord_ip,
-                    "state": "playing" if transport_state == "PLAYING" else "paused",
-                    "title": title,
+                    "state": state,
+                    "title": track.get("title", ""),
                     "artist": track.get("artist", ""),
                     "album": track.get("album", ""),
                     "artwork_url": artwork_url,
+                    "group": group_members,
                 }
             except Exception as e:
                 logger.debug("Skipping device %s during check: %s", name, e)
@@ -600,6 +648,19 @@ class MediaServer(PlayerBase):
         logger.info("Discovered %d Sonos devices: %s",
                      len(self._sonos_devices), list(self._sonos_devices.keys()))
 
+        # Show JOIN in menu when other speakers exist on the network
+        if len(self._sonos_devices) > 0:
+            for attempt in range(10):
+                ok = await self._register_join_source("available")
+                if ok:
+                    logger.info("JOIN source registered (found %d other speakers)",
+                                len(self._sonos_devices))
+                    break
+                if attempt < 9:
+                    await asyncio.sleep(3)
+                else:
+                    logger.warning("Failed to register JOIN source after retries")
+
         default_player = cfg("join", "default_player", default="")
         if default_player and default_player in self._sonos_devices:
             self._default_player_task = asyncio.create_task(
@@ -623,16 +684,7 @@ class MediaServer(PlayerBase):
                     self._default_player_playing = is_playing
                     state = "available" if is_playing else "gone"
                     logger.info("JOIN visibility: %s (%s)", state, player_name)
-                    try:
-                        async with self._http_session.post(
-                            "http://localhost:8770/router/source",
-                            json={"id": "join", "state": state, "name": "Join"},
-                            timeout=aiohttp.ClientTimeout(total=3.0),
-                        ) as resp:
-                            logger.debug("Router JOIN source update: HTTP %d",
-                                         resp.status)
-                    except Exception as e:
-                        logger.debug("Could not notify router of JOIN state: %s", e)
+                    await self._register_join_source(state)
             except asyncio.CancelledError:
                 return
             except Exception as e:
@@ -653,6 +705,7 @@ class MediaServer(PlayerBase):
         to the router as an immediate media update so PLAYING shows content
         without waiting for the next poll cycle.
         """
+        self._stamp_command()
         try:
             data = await request.json()
         except Exception:
@@ -677,9 +730,14 @@ class MediaServer(PlayerBase):
                 target = SoCo(target_ip)
                 coordinator = target.group.coordinator
                 self.sonos_viewer.sonos.join(coordinator)
-                # Invalidate coordinator cache so monitor picks up group change
-                self.sonos_viewer._cached_coordinator = None
-                self.sonos_viewer._coordinator_check_time = 0
+                # Start playback if coordinator isn't already playing
+                transport = coordinator.get_current_transport_info()
+                if transport.get("current_transport_state") != "PLAYING":
+                    coordinator.play()
+                # Force-set coordinator cache — SoCo's group state may
+                # not reflect the join yet, causing next/prev to fail
+                self.sonos_viewer._cached_coordinator = coordinator
+                self.sonos_viewer._coordinator_check_time = time.time()
                 return coordinator.player_name
 
             joined_name = await loop.run_in_executor(executor, _join)
@@ -818,6 +876,15 @@ class MediaServer(PlayerBase):
                         else:
                             suppress = True
 
+                    # Suppress monitor broadcasts when a radio source just
+                    # commanded playback — it pre-broadcasts its own metadata
+                    # (e.g. SR artwork) and the monitor's Sonos-sourced data
+                    # would overwrite it.  Only for radio — other sources
+                    # (Spotify, Plex) rely on the monitor for their metadata.
+                    if (not suppress and self._last_play_was_radio
+                            and self.seconds_since_command() <= 3.0):
+                        suppress = True
+
                     # Only broadcast if there are actual changes
                     if track_changed or position_jumped:
                         reason = 'track_change' if track_changed else 'external_control'
@@ -843,6 +910,11 @@ class MediaServer(PlayerBase):
 
                     # External track change? Clear active source so transport
                     # commands route directly to the player.
+                    # This also fires on Sonos auto-next-track when the queue
+                    # was built by a BS5c source (e.g. Plex) more than 3s ago.
+                    # That's intentional — once the queue is just running, the
+                    # player owns the metadata and the UI should show Sonos data
+                    # via DEFAULT_PLAYING_PRESET rather than stale source info.
                     if track_changed and self.seconds_since_command() > 3.0:
                         asyncio.create_task(
                             self.notify_router_playback_override(force=True)

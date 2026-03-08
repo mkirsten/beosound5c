@@ -36,7 +36,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from lib.config import cfg
 from lib.source_base import SourceBase
 from lib.digit_playlists import DigitPlaylistMixin
-from playlist_lookup import get_playlist_uri, DIGIT_PLAYLISTS_FILE
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger('beo-source-spotify')
@@ -80,6 +79,9 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
     id = "spotify"
     name = "Spotify"
     port = 8771
+    DIGIT_PLAYLISTS_FILE = os.path.join(
+        os.getenv('BS5C_BASE_PATH', PROJECT_ROOT),
+        'web', 'json', 'digit_playlists.json')
     action_map = {
         "play": "toggle",
         "pause": "toggle",
@@ -108,6 +110,8 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
         self._nightly_task = None
         self._pkce_state = {}  # Single dict, not per-session — fine for single-user device
         self._fetching_playlists = False  # True while initial fetch is running
+        self._last_playlist_id = None  # last playlist we queued on the player
+        self._last_track_uri = None   # last Spotify track URI seen on player
         self._last_refresh = 0  # monotonic timestamp of last completed refresh
         self._last_refresh_wall = None  # wall-clock datetime of last completed refresh
         self._last_refresh_duration = None  # seconds the last refresh took
@@ -124,13 +128,13 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
             # Fetch display name from Spotify profile
             asyncio.create_task(self._fetch_display_name())
 
-            # Check if a player service is available (Sonos, BlueSound, etc.)
+            # Check if a player service supports Spotify (Sonos natively,
+            # or local player with go-librespot)
             caps = await self.player_capabilities()
             if "spotify" in caps:
-                log.info("Player service available with Spotify support — using player API")
+                log.info("Player service available with Spotify support")
             else:
-                log.warning("No player service available — local playback will be "
-                            "supported via go-librespot in a future update")
+                log.warning("Player service does not support Spotify playback")
         else:
             log.info("No Spotify credentials — waiting for setup via /setup")
 
@@ -203,6 +207,7 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
 
     def add_routes(self, app):
         app.router.add_get('/playlists', self._handle_playlists)
+        app.router.add_get('/setup-status', self._handle_setup_status)
         app.router.add_get('/setup', self._handle_setup)
         app.router.add_get('/start-auth', self._handle_start_auth)
         app.router.add_get('/callback', self._handle_callback)
@@ -226,17 +231,63 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
         if self.auth.is_configured:
             state = self.state if self.state in ('playing', 'paused') else 'available'
             await self.register(state)
+            await self._resync_media()
             return {'status': 'ok', 'resynced': True}
         return {'status': 'ok', 'resynced': False}
+
+    async def handle_activate(self, data):
+        """Source button pressed — resume or start, never pause."""
+        if self.auth.revoked:
+            log.warning("Activate: Spotify needs re-authentication")
+            await self.register("available")
+            return
+        # Base: pre-broadcast cached metadata + register + activate_playback
+        await super().handle_activate(data)
+
+    async def activate_playback(self):
+        # Check if the player still has our Spotify content — if so, resume
+        # to preserve queue position (user may have skipped tracks).
+        # If another source took over, re-queue from last known track.
+        player_uri = await self.player_track_uri()
+        if player_uri and player_uri.startswith("spotify:"):
+            log.info("Activate: player has Spotify content, resuming")
+            self._last_track_uri = player_uri
+            if not self._last_playlist_id and self.playlists:
+                self._last_playlist_id = self.playlists[0]['id']
+            await self.player_resume()
+            self.state = "playing"
+            self._start_polling()
+        elif self._last_playlist_id:
+            # Player was taken over — resume from last known track position
+            track_index = self._find_track_index(
+                self._last_playlist_id, self._last_track_uri)
+            log.info("Activate: re-queuing %s from track %d (uri=%s)",
+                     self._last_playlist_id, track_index,
+                     self._last_track_uri or "none")
+            await self._play_playlist(self._last_playlist_id, track_index=track_index)
+        elif self.playlists:
+            log.info("Activate: no history, starting first playlist")
+            await self._play_playlist(self.playlists[0]['id'], track_index=0)
+
+    def _find_track_index(self, playlist_id, track_uri):
+        """Find the index of a track URI in a playlist. Returns 0 if not found."""
+        if not track_uri:
+            return 0
+        for pl in self.playlists:
+            if pl.get('id') == playlist_id:
+                for i, track in enumerate(pl.get('tracks', [])):
+                    if track.get('uri') == track_uri:
+                        return i
+                break
+        return 0
 
     async def handle_command(self, cmd, data) -> dict:
         if cmd == 'digit':
             digit = data.get('action', '0')
-            uri = get_playlist_uri(digit)
-            if uri:
-                playlist_id = uri.split(':')[-1]
-                log.info("Digit %s -> playlist %s", digit, playlist_id)
-                await self._play_playlist(playlist_id)
+            playlist = self._get_digit_playlist(digit)
+            if playlist:
+                log.info("Digit %s -> playlist %s", digit, playlist.get('id'))
+                await self._play_playlist(playlist['id'])
             else:
                 log.info("No playlist mapped to digit %s", digit)
 
@@ -302,22 +353,21 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
                         track_meta = tracks[track_index]
                         track_uri = track_meta.get('uri', '')
                     break
-        # Pre-broadcast the selected track's metadata so the UI shows
-        # correct artwork immediately, before the Sonos queue rebuilds.
-        if track_uri and track_meta:
-            await self.broadcast("media_update", {
-                "title": track_meta.get("name", ""),
-                "artist": track_meta.get("artist", ""),
-                "artwork": track_meta.get("image", ""),
-                "state": "PLAYING",
-            })
-            log.info("Pre-broadcast metadata for %s", track_meta.get("name", "?"))
-
         log.info("Play playlist %s (track_index=%s, track_uri=%s)",
                  playlist_id, track_index, track_uri)
+        # Pre-broadcast metadata BEFORE player call for instant PLAYING view
+        if track_meta:
+            await self.post_media_update(
+                title=track_meta.get("name", ""),
+                artist=track_meta.get("artist", ""),
+                artwork=track_meta.get("image", ""),
+                state="playing",
+                reason="track_change",
+            )
         ok = await self.player_play(uri=url, track_uri=track_uri)
         if ok:
             self.state = "playing"
+            self._last_playlist_id = playlist_id
             await self.register("playing", auto_power=True)
             self._start_polling()
         else:
@@ -396,7 +446,12 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
                 stderr=asyncio.subprocess.PIPE)
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
             if proc.returncode == 0:
+                old_playlists = self.playlists
                 self._load_playlists()
+                # Don't clobber a working cache with empty results (API/token error)
+                if not self.playlists and old_playlists:
+                    log.warning("Refresh returned 0 playlists — keeping %d cached", len(old_playlists))
+                    self.playlists = old_playlists
                 self._last_refresh = time.monotonic()
                 self._last_refresh_wall = datetime.now()
                 self._last_refresh_duration = round(time.monotonic() - t0, 1)
@@ -510,12 +565,18 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
 
         The player service handles artwork/metadata broadcasting to the UI —
         we only track play-state here so the router knows we're active.
+        Also caches the current Spotify track URI for resume-from-position.
         """
         try:
             state = await self.player_state()
-            if state == "playing" and self.state != "playing":
-                self.state = "playing"
-                await self.register("playing")
+            if state == "playing":
+                # Cache current track URI for resume-from-position on activate
+                uri = await self.player_track_uri()
+                if uri and uri.startswith("spotify:"):
+                    self._last_track_uri = uri
+                if self.state != "playing":
+                    self.state = "playing"
+                    await self.register("playing")
             elif state != "playing" and self.state == "playing":
                 # Maps "stopped" to "paused" intentionally — lets user resume
                 # without re-navigating to Spotify after queue ends
@@ -532,6 +593,23 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
         if os.path.isfile(SSL_CERT) and os.path.isfile(SSL_KEY):
             return f'https://{local_ip}:{SSL_PORT}/setup'
         return f'http://{local_ip}:{self.port}/setup'
+
+    async def _handle_setup_status(self, request):
+        """Return auth status for both Web API and Spotify Connect."""
+        spotify_status = await self.player_spotify_status()
+        # If the player doesn't have go-librespot (e.g. Sonos), it's "remote"
+        is_local = spotify_status.get("available", False)
+        player_type = "local" if is_local else "remote"
+        web_api_ready = self.auth.is_configured and not self.auth.revoked
+        spotify_connect_ready = spotify_status.get("authenticated", False) if is_local else True
+        return web.json_response({
+            "setup_status": {
+                "player_type": player_type,
+                "web_api_ready": web_api_ready,
+                "spotify_connect_ready": spotify_connect_ready,
+                "setup_url": self._build_setup_url(),
+            }
+        }, headers=self._cors_headers())
 
     async def _handle_playlists(self, request):
         if not self.auth.is_configured:

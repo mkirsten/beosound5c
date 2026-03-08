@@ -191,8 +191,32 @@ class TidalService(DigitPlaylistMixin, SourceBase):
         if self.auth.is_configured:
             state = self.state if self.state in ('playing', 'paused') else 'available'
             await self.register(state)
+            await self._resync_media()
             return {'status': 'ok', 'resynced': True}
         return {'status': 'ok', 'resynced': False}
+
+    async def activate_playback(self):
+        """Resume or start playback on source button press.
+        Checks if the player still has our content before deciding to
+        resume (preserves queue position) or re-queue."""
+        if self.auth.revoked:
+            log.warning("Activate: TIDAL needs re-authentication")
+            await self.register("available")
+            return
+        if self._source_managed and self._current_playlist:
+            # Source-managed: we track position, always re-send current track
+            await self._play_current_track()
+        else:
+            # ShareLink mode: check if player still has TIDAL content
+            track_uri = await self.player_track_uri()
+            if track_uri and "tidal" in track_uri.lower():
+                log.info("Activate: player has TIDAL content, resuming")
+                await self.player_resume()
+                self.state = "playing"
+                self._start_polling()
+            elif self.playlists:
+                log.info("Activate: player taken over, re-queuing playlist")
+                await self._play_playlist(self.playlists[0]['id'])
 
     async def handle_command(self, cmd, data) -> dict:
         if cmd == 'digit':
@@ -288,14 +312,15 @@ class TidalService(DigitPlaylistMixin, SourceBase):
             log.warning("No URL for playlist %s — cannot play", playlist_id)
             return
 
-        # Pre-broadcast selected track metadata for instant artwork
+        # Pre-broadcast metadata for instant PLAYING view update
         if track_meta:
-            await self.broadcast("media_update", {
-                "title": track_meta.get("name", ""),
-                "artist": track_meta.get("artist", ""),
-                "artwork": track_meta.get("image", ""),
-                "state": "PLAYING",
-            })
+            await self.post_media_update(
+                title=track_meta.get("name", ""),
+                artist=track_meta.get("artist", ""),
+                artwork=track_meta.get("image", ""),
+                state="playing",
+                reason="track_change",
+            )
             log.info("Pre-broadcast metadata for %s", track_meta.get("name", "?"))
 
         # Play individual track when a specific song is selected
@@ -333,13 +358,14 @@ class TidalService(DigitPlaylistMixin, SourceBase):
                 await self._play_current_track()
             return
 
-        # Pre-broadcast metadata for instant artwork
-        await self.broadcast("media_update", {
-            "title": track.get("name", ""),
-            "artist": track.get("artist", ""),
-            "artwork": track.get("image", ""),
-            "state": "PLAYING",
-        })
+        # Pre-broadcast metadata for instant PLAYING view update
+        await self.post_media_update(
+            title=track.get("name", ""),
+            artist=track.get("artist", ""),
+            artwork=track.get("image", ""),
+            state="playing",
+            reason="track_change",
+        )
         log.info("Playing [%d/%d] %s - %s",
                  self._current_index + 1, len(tracks),
                  track.get('artist', '?'), track.get('name', '?'))
@@ -702,6 +728,11 @@ startBtn.addEventListener('click', async () => {{
                     statusEl.textContent = 'Login expired. Please try again.';
                     startBtn.disabled = false;
                     loginUrlEl.style.display = 'none';
+                }} else if (result.status === 'error') {{
+                    clearInterval(pollInterval);
+                    statusEl.textContent = result.error || 'Login failed.';
+                    startBtn.disabled = false;
+                    loginUrlEl.style.display = 'none';
                 }}
             }} catch (e) {{ /* keep polling */ }}
         }}, 3000);
@@ -716,6 +747,9 @@ startBtn.addEventListener('click', async () => {{
 
     async def _handle_start_login(self, request):
         """Start the TIDAL device login flow."""
+        if self._pending_login:
+            self._pending_login = None
+
         try:
             loop = asyncio.get_running_loop()
             session, login, future = await loop.run_in_executor(

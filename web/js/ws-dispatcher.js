@@ -87,7 +87,6 @@ function processWebSocketEvent(message) {
                 _lastSourceUpdate[sourceId] = data;
                 const ctrl = window.SourcePresets?.[sourceId]?.controller;
                 if (ctrl?.updateMetadata) ctrl.updateMetadata(data);
-                routeToPlayingPreset(uiStore, type, data);
             } else {
                 console.log(`[EVENT] Unknown event type: ${type}`);
             }
@@ -106,8 +105,7 @@ function handleExternalNavigation(uiStore, data) {
 
     // Handle next/previous cycling through visible menu items only
     if (page === 'next' || page === 'previous') {
-        const visibleItems = uiStore.menuItems.filter(m => !m.hidden);
-        const menuOrder = visibleItems.map(m => m.path);
+        const menuOrder = uiStore.menuItems.map(m => m.path);
         const currentRoute = uiStore.currentRoute || 'menu/playing';
         let currentIndex = menuOrder.indexOf(currentRoute);
         if (currentIndex === -1) currentIndex = menuOrder.length - 1;
@@ -171,7 +169,8 @@ async function handleMenuItemEvent(uiStore, data) {
         }
         const preset = data.preset && window.SourcePresets?.[data.preset];
         if (preset) {
-            uiStore.addMenuItem(preset.item, preset.after, preset.view);
+            const item = data.title ? { ...preset.item, title: data.title } : preset.item;
+            uiStore.addMenuItem(item, preset.after, preset.view);
             setTimeout(() => {
                 if (preset.onAdd) preset.onAdd(document.getElementById('contentArea'));
             }, 50);
@@ -204,11 +203,6 @@ async function handleMenuItemEvent(uiStore, data) {
         } else {
             console.warn('[MENU_ITEM] remove requires path or preset');
         }
-    } else if (action === 'hide' || action === 'show') {
-        const path = data.path || (data.preset && window.SourcePresets?.[data.preset]?.item.path);
-        if (path && uiStore.hideMenuItem) {
-            uiStore.hideMenuItem(path, action === 'hide');
-        }
     }
 }
 
@@ -221,29 +215,26 @@ function handleSourceChange(uiStore, data) {
     uiStore.activeSource = sourceId;
     uiStore.activeSourcePlayer = player;
     uiStore.setActivePlayingPreset(sourceId);
-}
 
-function routeToPlayingPreset(uiStore, eventType, eventData) {
-    if (uiStore.activePlayingPreset?.eventType === eventType) {
-        uiStore.updatePlaying(eventData);
+    // Clean up CD track list back face when switching away from CD
+    if (sourceId !== 'cd') {
+        const backFace = document.querySelector('#now-playing .playing-back');
+        const trackList = backFace?.querySelector('.cd-back-tracklist');
+        if (trackList) {
+            trackList.remove();
+            backFace.style.display = 'none';
+            const flipper = backFace.closest('.playing-flipper');
+            if (flipper) {
+                flipper.classList.remove('flipped');
+                flipper.style.transform = '';
+            }
+        }
     }
 }
 
-/**
- * Replay the last cached source update to the playing preset.
- * Called from updateNowPlayingView() when a local source is active
- * and the view was just (re)built with no live event to populate it.
- */
-function replayLastSourceUpdate(uiStore) {
-    const sourceId = uiStore?.activeSource;
-    if (!sourceId) return;
-    const cached = _lastSourceUpdate[sourceId];
-    if (!cached) return;
-    routeToPlayingPreset(uiStore, `${sourceId}_update`, cached);
-}
-
-// Expose for ui-store
-window.replayLastSourceUpdate = replayLastSourceUpdate;
+// PLAYING view metadata is now handled entirely via the media WS
+// (handleMediaUpdate → DEFAULT_PLAYING_PRESET). Source-specific _update
+// events are only used by source controllers (e.g. USB browse state).
 
 // ── WebSocket Connections ──
 

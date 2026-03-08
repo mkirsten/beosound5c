@@ -95,6 +95,7 @@ source "$SCRIPT_ROOT/install/modules/sd-hardening.sh"
 source "$SCRIPT_ROOT/install/modules/x11.sh"
 source "$SCRIPT_ROOT/install/modules/audio-hat.sh"
 source "$SCRIPT_ROOT/install/modules/plymouth.sh"
+source "$SCRIPT_ROOT/install/modules/librespot.sh"
 source "$SCRIPT_ROOT/install/modules/verify.sh"
 
 source "$SCRIPT_ROOT/install/configure/device.sh"
@@ -270,6 +271,7 @@ run_system_setup() {
     harden_sd_card
     configure_x11
     install_plymouth_theme
+    install_librespot
     install_usb_music_support
 }
 

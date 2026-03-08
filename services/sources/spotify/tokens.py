@@ -49,30 +49,37 @@ def load_tokens():
 
 
 def save_tokens(client_id, refresh_token):
-    """Atomically save tokens to disk."""
+    """Save tokens to disk. Tries atomic (temp+rename), falls back to direct write."""
     path = _find_store_path()
     data = {
         "client_id": client_id,
         "refresh_token": refresh_token,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    content = json.dumps(data, indent=2) + "\n"
 
-    # Atomic write: temp file in same directory, then rename
     d = os.path.dirname(path)
     os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
+
+    # Try atomic write first (needs write permission on parent directory)
     try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, indent=2)
-            f.write("\n")
-        os.replace(tmp, path)
-    except Exception:
-        # Clean up temp file on failure
+        fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
         try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, "w") as f:
+                f.write(content)
+            os.replace(tmp, path)
+            return path
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    except OSError:
+        pass  # Can't create temp file in dir — fall through to direct write
+
+    # Direct write — file itself is writable even if directory isn't
+    with open(path, "w") as f:
+        f.write(content)
 
     return path
 

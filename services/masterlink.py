@@ -591,7 +591,7 @@ class PC2Device:
         """
         target = max(0, min(VOL_MAX, int(target)))
         with self._vol_lock:
-            current = self.mixer_state['volume']
+            current = self.mixer_state['volume_confirmed']
             diff = target - current
             if diff == 0:
                 return
@@ -600,7 +600,8 @@ class PC2Device:
                 self.send_message(direction)
                 time.sleep(0.02)
             self.mixer_state['volume'] = target
-        logger.info("Volume set to %d (%d steps)", target, abs(diff))
+        logger.info("Volume set to %d (%d steps from confirmed %d)",
+                     target, abs(diff), current)
 
     def set_routing(self, local=False, distribute=False, from_ml=False):
         """Set audio routing per libpc2 logic. All False = audio off."""

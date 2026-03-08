@@ -132,6 +132,48 @@ Credentials live separately in `/etc/beosound5c/secrets.env` (created by the ins
 
 Service definitions: [`services/system/`](services/system/)
 
+## Remote Source Buttons
+
+If a BeoRemote One or Beo4 IR remote is connected, its source buttons (RADIO, CD, TV, etc.) can be mapped to BS5c sources. When pressed, the mapped source activates and starts playback immediately.
+
+Add a `"source"` field to any source in `config.json`:
+
+```json
+{
+  "spotify": { "client_id": "...", "source": "radio" },
+  "usb": { "source": "amem" },
+  "cd": { "source": "cd" },
+  "plex": { "source": "tv" }
+}
+```
+
+If no source mappings are configured, the BS5c still handles volume, off, and power for audio commands — sources are just selected from the on-screen menu instead of the remote.
+
+### Available Sources
+
+In B&O systems, each source is classified as either Audio or Video. A device that handles a source type is called the **audio master** or **video master** for that room. The BS5c auto-detects which roles it fills based on your source mappings:
+
+- Only audio sources mapped → BS5c is the **audio master**. Video commands (volume, off) pass through to Home Assistant for an external video master (e.g., a BeoVision TV).
+- Any video source mapped → BS5c is also the **video master**. Volume, off, and transport work for all source buttons.
+
+| Audio sources | Video sources | Passthrough |
+|---|---|---|
+| `radio`, `amem`, `cd`, `n.radio`, `n.music`, `spotify` | `tv`, `dvd`, `dtv`, `v.aux`, `a.aux`, `vmem`, `pc`, `youtube`, `doorcam`, `photo`, `usb2` | `light` (always forwarded to HA) |
+
+### Example Setups
+
+**Audio master only** (video handled by a BeoVision):
+```json
+{ "spotify": { "source": "radio" }, "cd": { "source": "cd" } }
+```
+Volume/off on audio buttons controls BS5c. TV/DVD commands go to HA for the video master.
+
+**Audio + video master** (BS5c controls everything):
+```json
+{ "spotify": { "source": "radio" }, "plex": { "source": "tv" } }
+```
+Volume/off works for all source buttons regardless of type.
+
 ## Audio
 
 Each BS5c is configured with one **player** (Sonos, BlueSound, or Local) and one **volume adapter** (which controls the physical volume). The installer asks you to choose during setup.
@@ -148,28 +190,30 @@ Each BS5c is configured with one **player** (Sonos, BlueSound, or Local) and one
 
 Sources check the player's capabilities at startup to determine how to play content. Sources that play locally (CD, USB) work with any player type.
 
-| Source | Sonos | BlueSound | Local player |
+| Source | Sonos | BlueSound | Local (mpv) |
 |---|---|---|---|
-| Spotify | Yes (ShareLink) | No | Possible (needs librespot) |
-| Apple Music | Yes (ShareLink) | No | Not feasible (Apple DRM) |
-| TIDAL | Yes (ShareLink) | Yes (stream URL) | Possible (stream URLs exist) |
-| Plex | Yes (stream URL) | Yes (stream URL) | Yes (stream URL) |
-| CD | Yes (plays locally) | Yes (plays locally) | Yes |
-| USB | Yes (streams URLs) | Yes (streams URLs) | Yes |
+| Spotify | **Working** | No | No (under development) |
+| Apple Music | **Working** | No | No (DRM restrictions) |
+| TIDAL | **Working** | Untested (Stream URL) | Untested (Stream URL) |
+| Plex | **Working** (Stream URL) | Untested (Stream URL) | **Working** (Stream URL) |
+| CD | **Working** (AirPlay) | **Working** (AirPlay) | **Working** |
+| USB | **Working** (Stream URL) | Untested (Stream URL) | **Working** (Stream URL) |
 
-Spotify and Apple Music send share links via `uri=` which only Sonos handles (via ShareLink). TIDAL and Plex send direct stream URLs via `url=` which both players support. On Sonos, TIDAL uses ShareLink for native queue management; on BlueSound, TIDAL resolves stream URLs and manages the queue itself (like Plex).
+Spotify and Apple Music send share links via `uri=` which only Sonos handles natively. TIDAL and Plex send direct Stream URLs via `url=` which all players support. On Sonos, TIDAL uses ShareLink for native queue management; on BlueSound, TIDAL resolves Stream URLs and manages the queue itself (like Plex). CD plays locally via mpv and streams to Sonos/BlueSound over AirPlay (RAOP). The local player uses mpv to play URL streams through PipeWire/PulseAudio — sources manage their own track lists and advance tracks by issuing new play commands.
 
 ### Volume Adapters
 
-| Adapter | Controls | Requirements |
+| Adapter | Controls | Required Hardware |
 |---|---|---|
-| Sonos | Sonos speaker volume | Sonos player configured |
-| BlueSound | BluOS player volume | BlueSound player configured |
-| BeoLab 5 | BeoLab 5 via sync port | BeoLab 5 Controller |
-| PowerLink | B&O PowerLink speakers | S/PDIF HAT with COAX output |
+| Sonos | Sonos speaker volume | Sonos device (all supported) |
+| BlueSound | BluOS player volume | BlueSound device (all supported) |
+| BeoLab 5 | BeoLab 5 volume and power | BeoLab 5 Controller |
+| PowerLink | B&O PowerLink speakers | S/PDIF HAT with COAX output, or any Sonos device¹ |
 | HDMI | ALSA software volume on HDMI1 | Amplifier with HDMI audio input |
 | S/PDIF | ALSA software volume | S/PDIF HAT (e.g. HiFiBerry Digi) |
 | RCA | ALSA software volume | DAC HAT with RCA out |
+
+¹ You can use a standalone Sonos player and still output audio through PowerLink by connecting the Sonos digital out via an adapter to the PCB51 S/PDIF in. This means your player is Sonos instead of Local, which unlocks additional source support (see Source Compatibility table).
 
 Sources register with the router and appear in the menu. The remote's media keys are forwarded to whichever source is currently active. When no source is active, transport keys (play/pause/next/prev) are forwarded directly to the player.
 

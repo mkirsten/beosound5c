@@ -204,11 +204,21 @@ class DemoService(SourceBase):
         await self._stop()
 
     async def _broadcast_update(self):
-        await self.broadcast("demo_update", {
+        demo_data = {
             "state": self.state,
             "selected": self.selected,
             "sounds": [{"id": s["id"], "title": s["title"], "subtitle": s["subtitle"]} for s in SOUNDS],
-        })
+        }
+        await self.broadcast("demo_update", demo_data)
+        # Unified PLAYING view metadata via router (only when we have active metadata)
+        if self.state in ("playing", "paused"):
+            sound = SOUNDS[self.selected] if 0 <= self.selected < len(SOUNDS) else None
+            await self.post_media_update(
+                title=sound["title"] if sound else "Demo",
+                artist=sound["subtitle"] if sound else "",
+                album="Playing" if self.state == "playing" else "Ready",
+                state=self.state.upper(),
+            )
 
 
 if __name__ == "__main__":

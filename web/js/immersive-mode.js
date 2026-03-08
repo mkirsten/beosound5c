@@ -25,7 +25,7 @@
     // ── Playback state check ──
     function isPlaying() {
         const state = window.uiStore?.mediaInfo?.state;
-        return state === 'PLAYING' || state === 'TRANSITIONING';
+        return state === 'playing' || state === 'TRANSITIONING';
     }
 
     // ── DOM helpers ──

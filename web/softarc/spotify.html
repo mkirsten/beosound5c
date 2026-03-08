@@ -23,11 +23,51 @@
     <script src="../js/emulator-bridge.js"></script>
     <script src="../assets/qrcode.min.js"></script>
     <script src="script.js"></script>
+    <style>
+        .checklist-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: flex-start; justify-content: center; padding-top: 120px; background: #000; }
+        .checklist-card { font-family: 'Helvetica Neue', sans-serif; }
+        .checklist-card h2 { color: #fff; font-size: 22px; font-weight: 300; letter-spacing: 2px; text-align: center; margin-bottom: 28px; }
+        .checklist-subtitle { color: #666; font-size: 14px; text-align: center; margin-bottom: 20px; font-family: 'Helvetica Neue', sans-serif; }
+        .checklist-cols { display: flex; gap: 16px; align-items: stretch; }
+        .checklist-col { width: 280px; padding: 24px 20px; background: #111; border: 1px solid #222; border-radius: 8px; text-align: center; display: flex; flex-direction: column; }
+        .checklist-spacer { flex: 1; min-height: 14px; }
+        .checklist-icon { width: 40px; height: 40px; border-radius: 50%; border: 2px solid #444; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #444; margin-top: auto; align-self: center; transition: all 0.4s; }
+        .checklist-icon.done { border-color: #1ED760; color: #1ED760; }
+        .checklist-icon.waiting { border-color: #333; border-top-color: #888; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .checklist-label { font-size: 15px; color: #fff; font-weight: 500; margin-bottom: 6px; }
+        .checklist-desc { font-size: 13px; color: #666; line-height: 1.5; }
+        .checklist-qr-wrap { margin-top: 14px; display: flex; justify-content: center; }
+        .checklist-qr { background: #fff; padding: 8px; border-radius: 6px; line-height: 0; max-width: 126px; }
+        .checklist-qr img, .checklist-qr canvas { display: block; max-width: 110px; max-height: 110px; }
+        .checklist-qr table { width: 110px !important; height: 110px !important; }
+        .device-mock { margin-top: 14px; background: #282828; border-radius: 8px; padding: 12px; text-align: left; }
+        .device-mock-title { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; font-family: 'Helvetica Neue', sans-serif; }
+        .device-mock-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; }
+        .device-mock-item.selected { background: #333; }
+        .device-mock-icon { width: 28px; height: 28px; border-radius: 4px; background: #1ED760; display: flex; align-items: center; justify-content: center; }
+        .device-mock-icon svg { width: 16px; height: 16px; }
+        .device-mock-name { font-size: 13px; color: #fff; font-family: 'Helvetica Neue', sans-serif; }
+        .device-mock-type { font-size: 11px; color: #888; font-family: 'Helvetica Neue', sans-serif; }
+    </style>
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             const SPOTIFY_URL = getServiceUrl('spotifyServiceUrl', 8771);
 
-            // Check Spotify service state
+            // Check setup status for local player checklist
+            try {
+                const statusResp = await fetch(`${SPOTIFY_URL}/setup-status`);
+                if (statusResp.ok) {
+                    const { setup_status } = await statusResp.json();
+                    if (setup_status.player_type === 'local' &&
+                        (!setup_status.web_api_ready || !setup_status.spotify_connect_ready)) {
+                        showChecklist(setup_status);
+                        return;
+                    }
+                }
+            } catch (e) { /* fall through */ }
+
+            // Check Spotify service state (existing flow)
             try {
                 const resp = await fetch(`${SPOTIFY_URL}/playlists`);
                 if (resp.ok) {
@@ -52,6 +92,105 @@
             // Normal playlist browsing — load from API
             initArcList(SPOTIFY_URL + '/playlists');
         });
+
+        function showChecklist(status) {
+            const app = document.getElementById('app');
+            const webDone = status.web_api_ready;
+            const connectDone = status.spotify_connect_ready;
+            const check = '&#10003;';
+
+            app.innerHTML = `
+                <div class="checklist-screen">
+                    <div class="checklist-card">
+                        <h2>SPOTIFY SETUP</h2>
+                        <div class="checklist-subtitle">Complete both steps to start listening</div>
+                        <div class="checklist-cols">
+                            <div class="checklist-col" id="checklist-web">
+                                <div class="checklist-label">Spotify Account</div>
+                                <div class="checklist-desc">${webDone
+                                    ? 'Connected'
+                                    : 'Scan the QR code to connect your playlists'}</div>
+                                ${!webDone ? '<div class="checklist-qr-wrap"><div class="checklist-qr" id="web-qr"></div></div>' : ''}
+                                <div class="checklist-spacer"></div>
+                                <div class="checklist-icon ${webDone ? 'done' : 'waiting'}" id="web-icon">
+                                    ${webDone ? check : ''}
+                                </div>
+                            </div>
+                            <div class="checklist-col" id="checklist-connect">
+                                <div class="checklist-label">Spotify Connect</div>
+                                <div class="checklist-desc">${connectDone
+                                    ? 'Paired'
+                                    : 'In the Spotify app, tap the speaker icon and select:'}</div>
+                                ${!connectDone ? `<div class="device-mock">
+                                    <div class="device-mock-title">Select a device</div>
+                                    <div class="device-mock-item selected">
+                                        <div class="device-mock-icon">
+                                            <svg viewBox="0 0 24 24" fill="#000"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>
+                                        </div>
+                                        <div>
+                                            <div class="device-mock-name">BeoSound 5c</div>
+                                            <div class="device-mock-type">Spotify Connect</div>
+                                        </div>
+                                    </div>
+                                </div>` : ''}
+                                <div class="checklist-spacer"></div>
+                                <div class="checklist-icon ${connectDone ? 'done' : 'waiting'}" id="connect-icon">
+                                    ${connectDone ? check : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+
+            if (!webDone && status.setup_url && typeof QRCode !== 'undefined') {
+                new QRCode(document.getElementById('web-qr'), {
+                    text: status.setup_url,
+                    width: 110, height: 110,
+                    colorDark: '#000000', colorLight: '#ffffff',
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+            }
+
+            // Poll setup-status every 3s
+            const SPOTIFY_URL = getServiceUrl('spotifyServiceUrl', 8771);
+            const poll = setInterval(async () => {
+                try {
+                    const resp = await fetch(`${SPOTIFY_URL}/setup-status`);
+                    if (!resp.ok) return;
+                    const { setup_status } = await resp.json();
+
+                    // Update Web API checkmark
+                    const webIcon = document.getElementById('web-icon');
+                    if (setup_status.web_api_ready && webIcon && !webIcon.classList.contains('done')) {
+                        webIcon.classList.remove('waiting');
+                        webIcon.classList.add('done');
+                        webIcon.innerHTML = '\u2713';
+                        const col = document.getElementById('checklist-web');
+                        col.querySelector('.checklist-desc').textContent = 'Connected';
+                        const qrWrap = col.querySelector('.checklist-qr-wrap');
+                        if (qrWrap) qrWrap.remove();
+                    }
+
+                    // Update Spotify Connect checkmark
+                    const connIcon = document.getElementById('connect-icon');
+                    if (setup_status.spotify_connect_ready && connIcon && !connIcon.classList.contains('done')) {
+                        connIcon.classList.remove('waiting');
+                        connIcon.classList.add('done');
+                        connIcon.innerHTML = '\u2713';
+                        const col = document.getElementById('checklist-connect');
+                        col.querySelector('.checklist-desc').textContent = 'Paired';
+                        const mock = col.querySelector('.device-mock');
+                        if (mock) mock.remove();
+                    }
+
+                    // Both done — reload after short delay
+                    if (setup_status.web_api_ready && setup_status.spotify_connect_ready) {
+                        clearInterval(poll);
+                        setTimeout(() => location.reload(), 1500);
+                    }
+                } catch (e) { /* keep polling */ }
+            }, 3000);
+        }
 
         function showSetupScreen(url, isReconnect) {
             const title = isReconnect ? 'RECONNECT SPOTIFY' : 'CONNECT SPOTIFY';

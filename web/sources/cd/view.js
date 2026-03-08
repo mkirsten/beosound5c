@@ -444,6 +444,9 @@ window.CDView = (() => {
         const prevTrack = metadata?.current_track;
         metadata = data;
 
+        // Always update the PLAYING page back face (track list for flip)
+        updatePlayingBackFace(data);
+
         if (!menuActive) return;
 
         const loadingEl = document.getElementById('cd-loading');
@@ -533,6 +536,49 @@ window.CDView = (() => {
             renderArc();
             startAnimation();
         }, 1200);
+    }
+
+    // ── Playing View Back Face (track listing for flip) ──
+
+    /**
+     * Populate the PLAYING page back face with a track listing.
+     * Called on every cd_update — ensures the flip always has content,
+     * even when MusicBrainz doesn't have a back cover image.
+     * If back_artwork IS present, DEFAULT_PLAYING_PRESET handles it
+     * and we skip (image back face takes priority).
+     */
+    function updatePlayingBackFace(data) {
+        if (data.back_artwork) return;  // image back takes priority
+        const container = document.getElementById('now-playing');
+        if (!container) return;
+        const backFace = container.querySelector('.playing-back');
+        if (!backFace) return;
+
+        const tracks = data.tracks || [];
+        if (!tracks.length) return;
+
+        const current = data.current_track || 0;
+        const lines = tracks.map((t, i) => {
+            const num = t.num || (i + 1);
+            const playing = num === current;
+            const title = t.title || `Track ${num}`;
+            const dur = t.duration || '';
+            return `<div class="cd-back-track${playing ? ' cd-back-track-playing' : ''}">`
+                + `<span class="cd-back-num">${num}.</span>`
+                + `<span class="cd-back-title">${title}</span>`
+                + (dur ? `<span class="cd-back-dur">${dur}</span>` : '')
+                + `</div>`;
+        });
+
+        const albumTitle = data.title || '';
+        const artist = data.artist || '';
+        const header = artist ? `${albumTitle} — ${artist}` : albumTitle;
+
+        backFace.innerHTML = `<div class="cd-back-tracklist">`
+            + (header ? `<div class="cd-back-header">${header}</div>` : '')
+            + lines.join('')
+            + `</div>`;
+        backFace.style.display = '';
     }
 
     // ── Playing View Flip (Progressive — follows nav wheel) ──
@@ -798,38 +844,6 @@ window.SourcePresets.cd = {
         if (window.CDView) window.CDView.destroy();
     },
 
-    // PLAYING sub-preset: uses default artwork slot (front/back flipper).
-    playing: {
-        eventType: 'cd_update',
-
-        onUpdate(container, data) {
-            const track = data.tracks?.[data.current_track - 1];
-            const titleEl = container.querySelector('.media-view-title');
-            const artistEl = container.querySelector('.media-view-artist');
-            const albumEl = container.querySelector('.media-view-album');
-            if (window.crossfadeText) {
-                window.crossfadeText(titleEl, track?.title || `Track ${data.current_track}`);
-                window.crossfadeText(artistEl, data.artist || '\u2014');
-                window.crossfadeText(albumEl, data.year
-                    ? `${data.title} (${data.year})`
-                    : data.title || '\u2014');
-            }
-            // Front artwork
-            const front = container.querySelector('.playing-artwork');
-            if (front) {
-                if (data.artwork) {
-                    front.src = data.artwork;
-                } else if (window.ArtworkManager) {
-                    window.ArtworkManager.displayArtwork(front, null, 'noArtwork');
-                }
-            }
-            // Back artwork (show/hide back face)
-            const backFace = container.querySelector('.playing-back');
-            const backImg = container.querySelector('.playing-artwork-back');
-            if (backFace && backImg && data.back_artwork) {
-                backImg.src = data.back_artwork;
-                backFace.style.display = '';
-            }
-        }
-    }
+    // No playing sub-preset needed — DEFAULT_PLAYING_PRESET handles media_update
+    // from the source via the unified router media path.
 };

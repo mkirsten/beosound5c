@@ -42,11 +42,7 @@ from lib.config import cfg
 from lib.source_base import SourceBase
 
 
-try:
-    import edge_tts
-    HAS_EDGE_TTS = True
-except ImportError:
-    HAS_EDGE_TTS = False
+from lib.tts import tts_announce, tts_precache
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger('beo-cd')
@@ -673,6 +669,7 @@ class CDService(SourceBase):
         "stop": "stop",
         "info": "announce",
         "track": "announce",
+        "menu": "announce",
         "0": "play_track", "1": "play_track", "2": "play_track",
         "3": "play_track", "4": "play_track", "5": "play_track",
         "6": "play_track", "7": "play_track", "8": "play_track",
@@ -752,6 +749,16 @@ class CDService(SourceBase):
             log.info("Resync: state=%s, metadata=%s", state, self.metadata is not None)
             return {'status': 'ok', 'resynced': True}
         return {'status': 'ok', 'resynced': False}
+
+    async def activate_playback(self):
+        """Resume or start CD playback on source button press."""
+        if not self.drive.disc_inserted or self.cdplayer.total_tracks == 0:
+            return
+        if self.cdplayer.state == 'paused':
+            await self.cdplayer.toggle_playback()
+        elif self.cdplayer.state == 'stopped':
+            await self.cdplayer.play()
+        await self._broadcast_cd_update()
 
     async def handle_raw_action(self, action, data):
         """Handle CD button before action_map."""
@@ -851,6 +858,8 @@ class CDService(SourceBase):
 
     async def _on_disc_change(self, inserted):
         if inserted:
+            import time
+            self._action_ts = time.monotonic()  # disc insert = user action
             is_startup = self._is_first_detection
             self._is_first_detection = False
             navigate = not is_startup
@@ -929,7 +938,7 @@ class CDService(SourceBase):
     async def _broadcast_cd_update(self):
         if not self.metadata:
             return
-        await self.broadcast('cd_update', {
+        cd_data = {
             'title': self.metadata.get('title', 'Unknown Album'),
             'artist': self.metadata.get('artist', 'Unknown Artist'),
             'album': self.metadata.get('album', ''),
@@ -944,7 +953,24 @@ class CDService(SourceBase):
             'shuffle': self.cdplayer.shuffle,
             'repeat': self.cdplayer.repeat,
             'has_external_drive': self._detect_external_drive()
-        })
+        }
+        await self.broadcast('cd_update', cd_data)
+        # Unified PLAYING view metadata via router (only when we have active metadata)
+        if cd_data['state'] in ('playing', 'paused'):
+            track = cd_data['tracks'][cd_data['current_track'] - 1] if cd_data['tracks'] and cd_data['current_track'] > 0 else None
+            album_text = f"{cd_data['title']} ({cd_data['year']})" if cd_data['year'] else cd_data['title']
+            track_title = track.get('title', f"Track {cd_data['current_track']}") if track else cd_data['title']
+            await self.post_media_update(
+                title=track_title,
+                artist=cd_data['artist'],
+                album=album_text,
+                artwork=cd_data.get('artwork', ''),
+                back_artwork=cd_data.get('back_artwork', ''),
+                state=cd_data['state'],
+            )
+            # Pre-cache TTS for instant announce on button press
+            tts_text = f"{track_title}, by {cd_data['artist']}" if cd_data['artist'] else track_title
+            asyncio.ensure_future(tts_precache(tts_text))
 
     async def _announce_track(self, volume=100, text=None):
         """Speak text over the CD audio via TTS overlay.
@@ -969,43 +995,9 @@ class CDService(SourceBase):
             text = f"{title}, by {artist}"
         log.info(f"Announcing: {text}")
 
-        tts_file = '/tmp/beo-tts.mp3'
-        env = os.environ.copy()
-        env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
-
-        # Duck CD volume
+        # Duck CD volume, play TTS, then restore
         await self.cdplayer.fade_volume(60, duration=0.5)
-
-        # Generate and play TTS
-        tts_proc = None
-        if HAS_EDGE_TTS:
-            try:
-                communicate = edge_tts.Communicate(text, voice="en-US-AndrewNeural")
-                await communicate.save(tts_file)
-                tts_proc = subprocess.Popen(
-                    ['mpv', '--ao=pulse', f'--volume={volume}', '--no-video', '--no-terminal', tts_file],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env
-                )
-            except Exception as e:
-                log.warning(f"edge-tts failed, trying espeak-ng: {e}")
-
-        if tts_proc is None:
-            # Fallback: espeak-ng (offline, robotic but reliable)
-            try:
-                espeak = subprocess.Popen(
-                    ['espeak-ng', '-v', 'en-us', '-s', '160', '--stdout', text],
-                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env
-                )
-                tts_proc = subprocess.Popen(
-                    ['mpv', '--ao=pulse', f'--volume={volume}', '--no-video', '--no-terminal', '-'],
-                    stdin=espeak.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env
-                )
-            except Exception as e:
-                log.error(f"TTS announce failed: {e}")
-
-        # Wait for TTS to finish, then restore CD volume
-        if tts_proc:
-            await asyncio.get_running_loop().run_in_executor(None, tts_proc.wait)
+        await tts_announce(text, volume=volume)
         await self.cdplayer.fade_volume(100, duration=0.8)
 
     def _detect_external_drive(self):

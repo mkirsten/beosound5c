@@ -147,26 +147,6 @@ window.SourcePresets.demo = {
         if (window.DemoView) window.DemoView.destroy();
     },
 
-    playing: {
-        eventType: 'demo_update',
-
-        artworkSlot: `
-            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
-                <div style="font-size:80px;opacity:0.3;">&#9835;</div>
-            </div>
-        `,
-
-        onUpdate(container, data) {
-            const sound = data.sounds?.[data.selected];
-            const titleEl = container.querySelector('.media-view-title');
-            const artistEl = container.querySelector('.media-view-artist');
-            const albumEl = container.querySelector('.media-view-album');
-            if (titleEl) titleEl.textContent = sound?.title || 'Demo';
-            if (artistEl) artistEl.textContent = sound?.subtitle || '';
-            if (albumEl) albumEl.textContent = data.state === 'playing' ? 'Playing' : 'Ready';
-        },
-
-        onMount(container) {},
-        onRemove(container) {}
-    }
+    // No playing sub-preset needed — DEFAULT_PLAYING_PRESET handles media_update
+    // from the source via the unified router media path.
 };

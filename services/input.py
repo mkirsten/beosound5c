@@ -832,11 +832,16 @@ async def handle_appletv(request):
 
     ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
     ha_token = os.getenv('HA_TOKEN', '')
+    entity_id = cfg("showing", "entity_id")
+    if not entity_id:
+        response = web.json_response({'error': 'showing.entity_id not configured', 'title': '—', 'app_name': '—', 'friendly_name': '—', 'artwork': '', 'state': 'error'})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
 
     try:
         session = await get_http_session()
         headers = {'Authorization': f'Bearer {ha_token}'} if ha_token else {}
-        async with session.get(f'{ha_url}/api/states/media_player.loft_apple_tv', headers=headers) as resp:
+        async with session.get(f'{ha_url}/api/states/{entity_id}', headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     # Transform for frontend
@@ -931,8 +936,8 @@ async def handle_bt_remotes(request):
 
 async def handler(ws, path=None):
     clients.add(ws)
-    # Notify CD service so it can resync menu items / metadata for this new client
-    asyncio.create_task(_notify_cd_resync())
+    # Ask router to re-probe all sources so menu items are up-to-date for this new client
+    asyncio.create_task(_notify_sources_resync())
     recv_task = asyncio.create_task(receive_commands(ws))
     try:
         await ws.wait_closed()
@@ -942,17 +947,19 @@ async def handler(ws, path=None):
         await stop_log_stream(ws)  # Clean up any active log streams
 
 
-async def _notify_cd_resync():
-    """Ask beo-cd to re-send its menu item and metadata (if a disc is in)."""
+async def _notify_sources_resync():
+    """Ask router to re-probe all sources (handles any service that restarted)."""
     try:
         session = await get_http_session()
-        async with session.get('http://localhost:8769/resync', timeout=aiohttp.ClientTimeout(total=3)) as resp:
+        async with session.post('http://localhost:8770/router/resync',
+                                timeout=aiohttp.ClientTimeout(total=10)) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                if data.get('resynced'):
-                    logger.info('CD resync triggered for new client')
+                resynced = data.get('resynced', [])
+                if resynced:
+                    logger.info('Sources resynced for new client: %s', resynced)
     except Exception as e:
-        logger.debug('CD resync skipped (beo-cd not reachable): %s', e)
+        logger.debug('Source resync skipped (router not reachable): %s', e)
 
 async def broadcast(msg: str):
     if not clients:
@@ -1103,6 +1110,8 @@ def scan_loop(loop):
                 d.set_nonblocking(True)
                 dev = d
                 logger.info("Opened BS5 @ VID:PID=%04x:%04x", VID, PID)
+                # Send current state (backlight/LED bits) to hardware on connect
+                bs5_send_cmd(state_byte1)
             except Exception as e:
                 logger.warning("Failed to open BS5: %s", e)
                 time.sleep(HID_RETRY_INTERVAL)
@@ -1232,6 +1241,9 @@ async def main():
 
     # Start HID scanning thread
     threading.Thread(target=scan_loop, args=(asyncio.get_running_loop(),), daemon=True).start()
+
+    # Turn screen on at startup so the display is always visible after boot
+    set_backlight(True)
 
     # Start media server connection task
     media_task = asyncio.create_task(connect_to_media_server())

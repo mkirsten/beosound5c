@@ -1,0 +1,23 @@
+[Unit]
+Description=BeoSound5c go-librespot (Spotify Connect local playback)
+After=network-online.target sound.target
+Wants=network-online.target
+Before=beo-player-local.service
+OnFailure=beo-notify-failure@%n.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=/etc/beosound5c
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+ExecStart=/usr/local/bin/go-librespot --config_dir /etc/beosound5c/librespot
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

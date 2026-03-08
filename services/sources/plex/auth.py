@@ -67,6 +67,8 @@ class PlexAuth:
     def check_login(self, pinlogin):
         """Check if the OAuth login has completed.
         Returns True on success, False if still pending, raises on error."""
+        if pinlogin.expired:
+            raise TimeoutError("Plex PIN login expired")
         if not pinlogin.checkLogin():
             return False
 
@@ -100,8 +102,7 @@ class PlexAuth:
                 continue
 
         if not server:
-            log.error("No Plex server with a music library found")
-            return False
+            raise ValueError("No Plex server with a music library found")
 
         self._server = server
         self._token = token

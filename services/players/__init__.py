@@ -14,5 +14,6 @@ it natively, or player="local" to play locally and stream via AirPlay.
 
 Current players:
   sonos.py      — Sonos speaker monitoring (artwork, metadata, volume reporting)
-  bluesound.py  — BlueSound speaker monitoring (STUB — not yet implemented)
+  bluesound.py  — BlueSound speaker monitoring (long-poll, HTTP/XML API)
+  local.py      — Local playback via mpv (CD, USB, News sources)
 """

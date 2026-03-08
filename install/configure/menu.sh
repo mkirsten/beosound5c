@@ -135,6 +135,20 @@ configure_menu() {
         fi
     done
 
+    # If SHOWING was enabled, configure media player entity (skip if already set)
+    for i in "${!ITEMS[@]}"; do
+        if [[ "${ITEMS[$i]}" == "SHOWING" && "${ENABLED[$i]}" == "y" ]]; then
+            local current_showing_entity
+            current_showing_entity=$(cfg_read '.showing.entity_id')
+            if [ -z "$current_showing_entity" ]; then
+                configure_showing_entity
+            fi
+        elif [[ "${ITEMS[$i]}" == "SHOWING" && "${ENABLED[$i]}" == "n" ]]; then
+            # Remove showing config when disabled
+            cfg_set 'del(.showing)'
+        fi
+    done
+
     # Show result
     echo ""
     local enabled_list="PLAYING"
@@ -145,4 +159,53 @@ configure_menu() {
     done
     enabled_list="$enabled_list, SYSTEM"
     log_success "Menu: $enabled_list"
+}
+
+# Prompt for the media_player entity used by SHOWING
+configure_showing_entity() {
+    local current_entity
+    current_entity=$(cfg_read '.showing.entity_id')
+
+    echo ""
+    log_info "SHOWING displays what's playing on a media player (e.g. Apple TV)."
+    echo ""
+
+    # Try to discover media_player entities from Home Assistant
+    local ha_url ha_token
+    ha_url=$(cfg_read '.home_assistant.url')
+    ha_token=$(secret_read 'HA_TOKEN')
+
+    if [ -n "$ha_url" ] && [ -n "$ha_token" ]; then
+        log_info "Discovering media players from Home Assistant..."
+        local entities
+        entities=$(curl -sf -H "Authorization: Bearer $ha_token" "$ha_url/api/states" 2>/dev/null | \
+            jq -r '.[] | select(.entity_id | startswith("media_player.")) | "\(.attributes.friendly_name) (\(.entity_id))"' 2>/dev/null | sort)
+
+        if [ -n "$entities" ]; then
+            local -a player_list=()
+            while IFS= read -r line; do
+                player_list+=("$line")
+            done <<< "$entities"
+
+            if selection=$(select_from_list "Select media player for SHOWING:" "${player_list[@]}"); then
+                # Extract entity_id from "Friendly Name (media_player.xxx)"
+                local entity_id
+                entity_id=$(echo "$selection" | grep -oP '\(([^)]+)\)' | tr -d '()')
+                cfg_set_str '.showing.entity_id' "$entity_id"
+                log_success "SHOWING entity: $entity_id"
+                return
+            fi
+        else
+            log_warn "No media players found in Home Assistant"
+        fi
+    else
+        log_warn "Home Assistant not configured yet — skipping auto-discovery"
+    fi
+
+    # Manual fallback
+    local default_entity="${current_entity:-media_player.living_room_apple_tv}"
+    read -p "Enter media_player entity ID [$default_entity]: " ENTITY_ID
+    ENTITY_ID="${ENTITY_ID:-$default_entity}"
+    cfg_set_str '.showing.entity_id' "$ENTITY_ID"
+    log_success "SHOWING entity: $ENTITY_ID"
 }

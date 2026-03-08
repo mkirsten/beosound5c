@@ -30,8 +30,8 @@ window.SourcePresets.plex = {
 
     onRemove() {},
 
-    // PLAYING sub-preset: use media_update from beo-player-sonos (handles artwork perfectly)
-    playing: {
-        eventType: 'media_update'
-    }
+    // No playing sub-preset needed — DEFAULT_PLAYING_PRESET handles media_update
+    // from beo-player-sonos perfectly.  Defining a separate object here would cause
+    // unnecessary DOM rebuilds (different reference from DEFAULT) and route updates
+    // through a fragile fallback path.
 };

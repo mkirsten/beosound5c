@@ -56,6 +56,8 @@
             initArcList(TIDAL_URL + '/playlists');
         });
 
+        let loginStarted = false;
+
         function showSetupScreen(serviceUrl, isReconnect) {
             const title = isReconnect ? 'RECONNECT TIDAL' : 'CONNECT TIDAL';
             const msg = isReconnect
@@ -73,8 +75,6 @@
                     </div>
                 </div>`;
 
-            let loginStarted = false;
-
             // Listen for GO button from iframe messenger
             window.addEventListener('message', async (e) => {
                 if (e.data && e.data.type === 'button' && e.data.button === 'go' && !loginStarted) {
@@ -84,6 +84,7 @@
             });
 
             // Also auto-start the login
+            loginStarted = true;
             startLogin(serviceUrl);
         }
 
@@ -136,11 +137,19 @@
                             statusEl.textContent = 'Login expired. Press GO to try again.';
                             qrEl.style.display = 'none';
                             urlEl.textContent = '';
+                            loginStarted = false;
+                        } else if (result.status === 'error') {
+                            clearInterval(pollInterval);
+                            statusEl.textContent = result.error || 'Login failed.';
+                            qrEl.style.display = 'none';
+                            urlEl.textContent = '';
+                            loginStarted = false;
                         }
                     } catch (e) { /* keep polling */ }
                 }, 3000);
             } catch (e) {
                 statusEl.textContent = 'Error: ' + e.message;
+                loginStarted = false;
             }
         }
 
