@@ -44,7 +44,6 @@ _update_cache: dict = {'data': None, 'fetched_at': 0.0}
 _UPDATE_CACHE_TTL = 3600  # seconds
 _update_in_progress = False
 _update_step = 'idle'  # 'downloading' | 'extracting' | 'installing' | 'restarting'
-_MOCK_UPDATE = False
 _UPDATE_EXCLUDES = [
     'web/json/config.json',
     'web/json/spotify_playlists.json',
@@ -473,26 +472,6 @@ async def handle_update_check(request):
     """GET /update/check — current version vs latest GitHub release."""
     current = _get_current_version()
 
-    if _MOCK_UPDATE:
-        parts = _parse_semver(current)
-        fake_latest = f'v{parts[0]}.{parts[1]}.{parts[2] + 1}' if parts != (0, 0, 0) else 'v0.0.1'
-        return web.json_response({
-            'current': current,
-            'update_in_progress': _update_in_progress,
-            'update_step': _update_step,
-            'latest': fake_latest,
-            'update_available': not _update_in_progress,
-            'release_url': 'https://github.com/mkirsten/beosound5c/releases',
-            'release_notes': (
-                'Test release — verifying the update flow.\n\n'
-                '- Update badge appears on Info tab\n'
-                '- Release notes shown before updating\n'
-                '- GO button triggers the update\n'
-                '- Live step indicators: downloading → extracting → installing → restarting\n'
-                '- Reconnect polling after services restart'
-            ),
-        }, headers={'Access-Control-Allow-Origin': '*'})
-
     release = await _fetch_latest_release()
 
     result = {'current': current, 'update_in_progress': _update_in_progress, 'update_step': _update_step}
@@ -535,7 +514,7 @@ async def handle_update_run(request):
         )
 
     current = _get_current_version()
-    if not _MOCK_UPDATE and not _is_newer(release['latest'], current):
+    if not _is_newer(release['latest'], current):
         return web.json_response(
             {'status': 'up_to_date'},
             headers={'Access-Control-Allow-Origin': '*'},

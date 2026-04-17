@@ -100,6 +100,7 @@ SYS_PATH_INSERT_BASELINE: dict[str, int] = {
 # players/local.py:203 is a direct pkill on startup that *should* be fixed
 # but isn't blocking anything in practice.
 BLOCKING_IN_ASYNC_BASELINE: dict[str, int] = {
+    "input.py": 2,       # systemctl list-units + hostname in _run_update / info handler
     "players/local.py": 1,
 }
 
