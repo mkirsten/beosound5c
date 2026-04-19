@@ -170,10 +170,12 @@ class UIStore {
 
         const result = window.LaserPositionMapper.resolveMenuSelection(this.laserPosition);
 
-        // Determine effective path — overlays navigate to PLAYING/SHOWING
+        // Determine effective path — overlays navigate to PLAYING/SHOWING.
+        // If SHOWING is not in the menu, both ends land on PLAYING.
         let effectivePath = result.path;
         if (result.isOverlay) {
-            effectivePath = result.angle >= 200 ? 'menu/playing' : 'menu/showing';
+            const hasShowing = this.menu.menuItems.some(m => m.path === 'menu/showing');
+            effectivePath = (result.angle >= 200 || !hasShowing) ? 'menu/playing' : 'menu/showing';
         }
 
         // Menu visibility

@@ -91,6 +91,7 @@ SYS_PATH_INSERT_BASELINE: dict[str, int] = {
     "sources/tidal/fetch.py": 1,
     "sources/tidal/service.py": 2,
     "sources/tidal/tidal_auth.py": 1,
+    "http_server.py": 1,
 }
 
 # subprocess.run / time.sleep / requests.* inside `async def`.  cd.py:147 is

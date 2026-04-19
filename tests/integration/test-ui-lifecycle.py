@@ -10,7 +10,7 @@ UI lifecycle integration tests — validates the four UI stability fixes:
      iframe still fire
 
 Runs against a live kiosk via Chrome DevTools Protocol. Point it at either:
-  - a device:  tests/integration/test-ui-lifecycle.py --host beosound5c-office.kirstenhome
+  - a device:  tests/integration/test-ui-lifecycle.py --host beosound5c.local
   - localhost: tests/integration/test-ui-lifecycle.py --host localhost --cdp-port 9222
 
 Device is assumed to run Chromium with --remote-debugging-port=9222.
@@ -246,13 +246,13 @@ async def run(host: str, cdp_port: int) -> int:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="beosound5c-office.kirstenhome")
+    ap.add_argument("--host", default="beosound5c.local")
     ap.add_argument("--cdp-port", type=int, default=9222)
     args = ap.parse_args()
 
     # When targeting a remote device, we need to reach its CDP port — tunnel
     # through SSH. For the office device, a simple SSH port forward works:
-    #   ssh -L 9222:localhost:9222 kirsten@beosound5c-office.kirstenhome -N
+    #   ssh -L 9222:localhost:9222 kirsten@beosound5c.local -N
     # ...then pass --host localhost. Running locally (e.g. from a dev laptop)
     # is otherwise simpler than wrapping SSH here.
     sys.exit(asyncio.run(run(args.host, args.cdp_port)))

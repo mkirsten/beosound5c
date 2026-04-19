@@ -138,7 +138,7 @@
 </div>
 
 <script>
-const API = 'http://' + location.hostname + ':8767';
+const API = '';
 
 function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function cfgGet(obj, path) { return path.reduce((o, k) => (o != null ? o[k] : undefined), obj); }

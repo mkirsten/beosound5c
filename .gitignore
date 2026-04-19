@@ -1,6 +1,3 @@
-# Generated at deploy time by deploy.sh
-VERSION
-
 # Local deploy target override (see my-hosts.env.example)
 my-hosts.env
 
