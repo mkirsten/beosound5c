@@ -8,7 +8,7 @@ This project replaces the original BeoSound 5 software with a circular arc-based
 
 ## Quick Start
 
-Tested on [Raspberry Pi 5 8GB](https://www.raspberrypi.com/products/raspberry-pi-5/), but lower RAM versions should work fine.
+You want a [Raspberry Pi 5 4GB](https://www.raspberrypi.com/products/raspberry-pi-5/)
 
 ### Fresh Install
 
