@@ -285,8 +285,17 @@
         // Reset fit while dimensions are unknown; applyVideoFit() finalises on loadedmetadata
         video.style.objectPosition = 'center center';
         video.style.transform = '';
-        video.src = url;
-        video.load();
+        if (typeof Hls !== 'undefined' && Hls.isSupported() && url.indexOf('.m3u8') !== -1) {
+            if (video._hls) { video._hls.destroy(); }
+            var hls = new Hls({ enableWorker: false });
+            video._hls = hls;
+            hls.loadSource(url);
+            hls.attachMedia(video);
+        } else {
+            if (video._hls) { video._hls.destroy(); video._hls = null; }
+            video.src = url;
+            video.load();
+        }
     }
 
     function loadPreferred() {

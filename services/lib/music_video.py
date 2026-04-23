@@ -7,9 +7,10 @@
 """
 Music video lookup for BeoSound 5c.
 
-Uses public Invidious instances for both search and stream resolution —
-no API key or account required. Invidious exposes a YouTube-compatible
-search API and returns direct muxed mp4 stream URLs.
+Uses yt-dlp for both search and stream resolution — no API key or account
+required. Search uses `ytsearch5:` to find candidates; stream resolution
+uses the Android player client which returns a direct progressive mp4 URL
+(format 18, 360p) that browsers can play natively without HLS.js.
 
 Two-tier cache: video IDs are cached permanently (avoids repeated search
 hits), stream URLs are cached for 2 hours (Googlevideo auth tokens expire).
@@ -20,7 +21,6 @@ import collections
 import logging
 import subprocess
 import time
-import urllib.parse
 
 import aiohttp
 
@@ -28,16 +28,6 @@ import aiohttp
 _YTDLP_BINS = ("/usr/local/bin/yt-dlp", "/usr/bin/yt-dlp", "yt-dlp")
 
 log = logging.getLogger("music-video")
-
-# Public Invidious instances tried in order for both search and stream resolution.
-# If one is down or rate-limited, the next is tried.
-INVIDIOUS_INSTANCES = [
-    "https://invidious.io",
-    "https://vid.puffyan.us",
-    "https://inv.riverside.rocks",
-    "https://invidious.nerdvpn.de",
-    "https://y.com.sb",
-]
 
 # Minimum video duration — filters out shorts and clips (seconds)
 MIN_DURATION_S = 90
@@ -144,51 +134,61 @@ class MusicVideoClient:
 
     async def _search(self, artist: str, title: str,
                       session: aiohttp.ClientSession) -> str | None:
-        """Search via Invidious API, return first suitable video_id or None."""
-        q = f"{artist} {title} official music video"
-        params = {"q": q, "type": "video", "fields": "videoId,title,lengthSeconds"}
+        """Search via yt-dlp ytsearch, return first suitable video_id or None."""
+        q = f"ytsearch5:{artist} {title} official music video"
+        loop = asyncio.get_running_loop()
 
-        for instance in INVIDIOUS_INSTANCES:
-            url = f"{instance}/api/v1/search?{urllib.parse.urlencode(params)}"
+        for ytdlp in _YTDLP_BINS:
             try:
-                async with session.get(
-                    url,
-                    timeout=aiohttp.ClientTimeout(total=8.0),
-                    headers={"User-Agent": "BeoSound5c/1.0"},
-                ) as resp:
-                    if resp.status != 200:
-                        log.debug("Invidious search %s → HTTP %d", instance, resp.status)
+                result = await loop.run_in_executor(
+                    None,
+                    lambda b=ytdlp, _q=q: subprocess.run(
+                        [b, "--extractor-args", "youtube:player_client=android",
+                         "--print", "%(id)s %(duration)s",
+                         "--no-playlist", "--quiet", "--no-warnings",
+                         "--skip-download", "--", _q],
+                        capture_output=True, text=True, timeout=30,
+                    ),
+                )
+                if result.returncode != 0:
+                    log.debug("yt-dlp search exit %d: %s", result.returncode,
+                              result.stderr.strip()[:120])
+                    continue
+
+                for line in result.stdout.strip().split("\n"):
+                    parts = line.strip().split()
+                    if len(parts) < 2:
                         continue
-                    results = await resp.json()
+                    video_id = parts[0]
+                    try:
+                        duration = int(float(parts[1]))
+                    except (ValueError, IndexError):
+                        duration = 0
+                    if duration >= MIN_DURATION_S:
+                        log.info("Music video candidate for %s – %s: youtube/%s (%ds)",
+                                 artist, title, video_id, duration)
+                        return video_id
+
+                log.info("No suitable music video for %s – %s (all results too short)",
+                         artist, title)
+                return ""
+
+            except FileNotFoundError:
+                continue
             except Exception as e:
-                log.debug("Invidious search %s failed: %s", instance, e)
+                log.debug("yt-dlp search failed: %s", e)
                 continue
 
-            for item in results:
-                duration = item.get("lengthSeconds", 0)
-                if duration < MIN_DURATION_S:
-                    continue  # skip shorts and clips
-                video_id = item.get("videoId")
-                if video_id:
-                    log.info("Music video candidate for %s – %s: youtube/%s (%.0fs)",
-                             artist, title, video_id, duration)
-                    return video_id
-
-            # Got a response but no suitable result — cache this as "no video"
-            log.info("No suitable music video for %s – %s (all results too short or missing)",
-                     artist, title)
-            return ""  # don't try other instances for search; result set is the same
-
-        log.info("All Invidious instances unreachable for search (%s – %s)", artist, title)
-        return None  # network failure — do NOT cache; retry on next track play
+        log.info("yt-dlp not available for search (%s – %s)", artist, title)
+        return None  # not installed — do NOT cache; retry later
 
     async def _resolve_stream(self, video_id: str,
                                session: aiohttp.ClientSession) -> str | None:
-        """Extract a direct stream URL via yt-dlp.
+        """Extract a direct stream URL via yt-dlp (Android player client).
 
-        Runs in a thread executor (blocking subprocess). yt-dlp uses the
-        Android VR client which bypasses YouTube's PO token requirement.
-        Falls back through known binary locations.
+        Uses the Android player client to obtain a progressive mp4 URL
+        (format 18, 360p) that browsers can play natively without HLS.js.
+        Runs in a thread executor (blocking subprocess).
         """
         loop = asyncio.get_running_loop()
         for ytdlp in _YTDLP_BINS:
@@ -196,8 +196,9 @@ class MusicVideoClient:
                 result = await loop.run_in_executor(
                     None,
                     lambda b=ytdlp: subprocess.run(
-                        [b, "--get-url",
-                         "-f", "best[ext=mp4][height<=720]/best[height<=720]",
+                        [b, "--extractor-args", "youtube:player_client=android",
+                         "--get-url",
+                         "-f", "18/best[ext=mp4]/bestvideo[ext=mp4]",
                          "--no-playlist", "--quiet", "--no-warnings",
                          "--", video_id],
                         capture_output=True, text=True, timeout=30,

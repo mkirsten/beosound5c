@@ -183,6 +183,18 @@ def main():
                     'tracks': cp.get('tracks', []),
                 }
             log(f"Loaded cache with {len(cache)} playlists")
+            # Invalidate cache if auth token changed (stream URLs embed the token)
+            cur_tok = tokens['auth_token']
+            for _pc in cache.values():
+                for _tr in _pc.get('tracks', []):
+                    _u = _tr.get('url', '')
+                    if _u and cur_tok not in _u:
+                        log("Auth token changed - invalidating cache for full refresh")
+                        cache = {}
+                        break
+                else:
+                    continue
+                break
         except Exception as e:
             log(f"Could not load cache: {e}")
 
