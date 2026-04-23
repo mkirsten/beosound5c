@@ -303,10 +303,9 @@ class PC2Device:
                             self.message_queue.add(msg_data)
 
                     # Raw MasterLink telegram forwarded by PC2 — source status,
-                    # track info, goto-source, master-present, etc.  Decoded
-                    # and logged only; no routing yet.
+                    # track info, goto-source, master-present, etc.
                     elif msg_type == 0x00:
-                        self._log_ml_telegram(message)
+                        self._handle_ml_telegram(message)
 
                     elif msg_type is not None:
                         hex_str = " ".join(f"{b:02X}" for b in message[:32])
@@ -337,6 +336,7 @@ class PC2Device:
             self.loop.run_until_complete(self._init_session())
             self.loop.run_until_complete(self._start_mixer_http())
             self.loop.create_task(watchdog_loop())
+            self.loop.create_task(self._ml_master_present_loop())
             self.loop.run_until_complete(self._async_sender_loop())
         except Exception as e:
             logger.error("Sender loop failed: %s", e, exc_info=True)
@@ -384,7 +384,7 @@ class PC2Device:
 
         webhook_data = {
             'device_name': BEOSOUND_DEVICE_NAME,
-            'source': 'ir',
+            'source': message.get('source', 'ir'),
             'link': message.get('link', ''),
             'action': message.get('key_name', ''),
             'device_type': message.get('device_type', ''),
@@ -431,106 +431,8 @@ class PC2Device:
             0x1B: "Light"
         }
 
-        # Key mapping (Beo4 IR keycodes)
-        # Reference: B&O MLGW protocol + own hardware testing
-        key_map = {
-            # Digits
-            0x00: "0", 0x01: "1", 0x02: "2", 0x03: "3", 0x04: "4",
-            0x05: "5", 0x06: "6", 0x07: "7", 0x08: "8", 0x09: "9",
-            # Power / standby
-            0x0C: "off",
-            0x0D: "mute",
-            0x0F: "alloff",
-            # Source control (arrow keys on non-joystick, joystick in MODE 3)
-            0x1E: "up", 0x1F: "down",
-            0x32: "left", 0x33: "return", 0x34: "right",
-            0x35: "go", 0x36: "stop",
-            0x37: "record", 0x38: "shift-stop",
-            # Cursor (joystick in MODE 1)
-            0xCA: "cursor_up", 0xCB: "cursor_down",
-            0xCC: "cursor_left", 0xCD: "cursor_right",
-            0x13: "select",
-            # Navigation
-            0x7F: "back",
-            0x58: "list",
-            0x5C: "menu",
-            0x20: "track",
-            0x40: "guide",
-            0x43: "info",
-            # Volume
-            0x60: "volup", 0x64: "voldown",
-            # Sound / picture
-            0x2A: "format",
-            0x44: "speaker",
-            0x46: "sound",
-            0xF7: "stand",
-            0xDA: "cinema_on", 0xDB: "cinema_off",
-            0xAD: "2d", 0xAE: "3d",
-            0x1C: "p.mute",
-            # Sources — audio
-            0x81: "radio",
-            0x91: "amem",
-            0x92: "cd",
-            0x93: "n.radio",
-            0x94: "n.music",
-            0x95: "server",
-            0x96: "spotify",
-            0x97: "join",
-            # Sources — video
-            0x80: "tv",
-            0x82: "v.aux",
-            0x83: "a.aux",
-            0x84: "media",
-            0x85: "vmem",
-            0x86: "dvd",
-            0x87: "camera",
-            0x88: "text",
-            0x8A: "dtv",
-            0x8B: "pc",
-            0x8C: "youtube",
-            0x8D: "doorcam",
-            0x8E: "photo",
-            0x90: "usb2",
-            0xBF: "av",
-            0xFA: "p-in-p",
-            # Color keys
-            0xD4: "yellow", 0xD5: "green", 0xD8: "blue", 0xD9: "red",
-            # Shift combos
-            0x17: "shift-cd",
-            0x22: "shift-play",
-            0x24: "shift-goto",
-            0x28: "clock",
-            0xC0: "edit",
-            0xC1: "random",
-            0xC2: "shift-2",
-            0xC3: "repeat",
-            0xC4: "shift-4",
-            0xC5: "shift-5",
-            0xC6: "shift-6",
-            0xC7: "shift-7",
-            0xC8: "shift-8",
-            0xC9: "shift-9",
-            # Other
-            0x0A: "clear",
-            0x0B: "store",
-            0x0E: "reset",
-            0x14: "back2",
-            0x15: "mots",
-            0x2D: "eject",
-            0x3F: "select2",
-            0x47: "sleep",
-            0x4B: "app",
-            0x9B: "light",
-            0x9C: "command",
-            0xF2: "mots2",
-            # Repeat/hold codes
-            0x70: "rewind_repeat", 0x71: "wind_repeat",
-            0x72: "step_up_repeat", 0x73: "step_down_repeat",
-            0x75: "go_repeat",
-            0x76: "green_repeat", 0x77: "yellow_repeat",
-            0x78: "blue_repeat", 0x79: "red_repeat",
-            0x7E: "key_release",
-        }
+        # Key mapping shared with _handle_ml_telegram (BEO4_KEY over ML).
+        key_map = self._ML_BEO4_KEY_MAP
 
         # Parse link, mode and keycode
         link = data[3]
@@ -598,6 +500,126 @@ class PC2Device:
     #   [..]=checksum  [..]=0x00 (EOT)  [last]=0x61
 
     # --- Raw-bus decode tables (community reverse engineering) ---
+
+    # Beo4 IR/ML key codes — shared by process_beo4_keycode (local IR) and
+    # _handle_ml_telegram (BEO4_KEY payload from a linked-room device).
+    # Source: B&O MLGW protocol spec §4.5 + own hardware testing.
+    _ML_BEO4_KEY_MAP = {
+        # Digits
+        0x00: "0", 0x01: "1", 0x02: "2", 0x03: "3", 0x04: "4",
+        0x05: "5", 0x06: "6", 0x07: "7", 0x08: "8", 0x09: "9",
+        # Power / standby
+        0x0C: "off",
+        0x0D: "mute",
+        0x0F: "alloff",
+        # Source control
+        0x1E: "up", 0x1F: "down",
+        0x32: "left", 0x33: "return", 0x34: "right",
+        0x35: "go", 0x36: "stop",
+        0x37: "record", 0x38: "shift-stop",
+        # Cursor
+        0xCA: "cursor_up", 0xCB: "cursor_down",
+        0xCC: "cursor_left", 0xCD: "cursor_right",
+        0x13: "select",
+        # Navigation
+        0x7F: "back",
+        0x58: "list",
+        0x5C: "menu",
+        0x20: "track",
+        0x40: "guide",
+        0x43: "info",
+        # Volume
+        0x60: "volup", 0x64: "voldown",
+        # Sound / picture
+        0x2A: "format",
+        0x44: "speaker",
+        0x46: "sound",
+        0xF7: "stand",
+        0xDA: "cinema_on", 0xDB: "cinema_off",
+        0xAD: "2d", 0xAE: "3d",
+        0x1C: "p.mute",
+        # Sources — audio
+        0x81: "radio",
+        0x91: "amem",
+        0x92: "cd",
+        0x93: "n.radio",
+        0x94: "n.music",
+        0x95: "server",
+        0x96: "spotify",
+        0x97: "join",
+        # Sources — video
+        0x80: "tv",
+        0x82: "v.aux",
+        0x83: "a.aux",
+        0x84: "media",
+        0x85: "vmem",
+        0x86: "dvd",
+        0x87: "camera",
+        0x88: "text",
+        0x8A: "dtv",
+        0x8B: "pc",
+        0x8C: "youtube",
+        0x8D: "doorcam",
+        0x8E: "photo",
+        0x90: "usb2",
+        0xBF: "av",
+        0xFA: "p-in-p",
+        # Color keys
+        0xD4: "yellow", 0xD5: "green", 0xD8: "blue", 0xD9: "red",
+        # Shift combos
+        0x17: "shift-cd",
+        0x22: "shift-play",
+        0x24: "shift-goto",
+        0x28: "clock",
+        0xC0: "edit",
+        0xC1: "random",
+        0xC2: "shift-2",
+        0xC3: "repeat",
+        0xC4: "shift-4",
+        0xC5: "shift-5",
+        0xC6: "shift-6",
+        0xC7: "shift-7",
+        0xC8: "shift-8",
+        0xC9: "shift-9",
+        # Other
+        0x0A: "clear",
+        0x0B: "store",
+        0x0E: "reset",
+        0x14: "back2",
+        0x15: "mots",
+        0x2D: "eject",
+        0x3F: "select2",
+        0x47: "sleep",
+        0x4B: "app",
+        0x9B: "light",
+        0x9C: "command",
+        0xF2: "mots2",
+        # Repeat/hold codes
+        0x70: "rewind_repeat", 0x71: "wind_repeat",
+        0x72: "step_up_repeat", 0x73: "step_down_repeat",
+        0x75: "go_repeat",
+        0x76: "green_repeat", 0x77: "yellow_repeat",
+        0x78: "blue_repeat", 0x79: "red_repeat",
+        0x7E: "key_release",
+    }
+
+    # ML source IDs (GOTO_SOURCE payload[0]) → router action name.
+    # Audio sources only — video sources are listed for completeness but
+    # the BeoLab 2000 will only ever request audio sources.
+    _ML_GOTO_SOURCE_ACTIONS = {
+        0x6F: "radio",
+        0x8D: "cd",
+        0x79: "amem",
+        0x7A: "amem",     # A_MEM2
+        0x97: "a.aux",
+        0xA1: "n.radio",
+        0x0B: "tv",
+        0x29: "dvd",
+        0x47: "pc",
+        0x33: "v.aux",
+        0x15: "vmem",
+        0x1F: "dtv",
+    }
 
     _ML_TELEGRAM_TYPES = {
         0x0A: "COMMAND", 0x0B: "REQUEST", 0x14: "RESPONSE",
@@ -688,30 +710,185 @@ class PC2Device:
         0xFF: "Blank picture",
     }
 
-    def _log_ml_telegram(self, msg):
-        """Parse and log an incoming ML telegram (message[2] == 0x00).
-        Read-only for now; full handling lives in the router."""
+    def _handle_ml_telegram(self, msg):
+        """Parse, log, and act on an incoming ML telegram (message[2] == 0x00).
+
+        Handles the payloads that matter for linked-room speaker support:
+
+          GOTO_SOURCE (0x45) — a linked device (e.g. BeoLab 2000) is
+              requesting a specific source.  Maps the ML source ID to the
+              corresponding router action name and queues it so the router
+              can activate that source, exactly as if a Beo4 key had been
+              pressed locally.
+
+          BEO4_KEY (0x0D) — a Beo4 key forwarded over ML from a linked
+              device.  Decoded the same way as a local IR press and queued
+              for the router.
+
+          MASTER_PRESENT (0x04) — a device is announcing itself on the
+              bus.  Reply immediately so linked rooms know a master is
+              present; the periodic _ml_master_present_loop handles the
+              ongoing heartbeat.
+
+          STANDBY (0x10) — linked device requesting standby.  Queues an
+              'off' event so the router can power down gracefully.
+
+          REQUEST_LOCAL_SOURCE / REQUEST_DISTRIBUTED_SOURCE /
+          DISTRIBUTION_REQUEST (0x30 / 0x08 / 0x6C) — a linked device
+              wants to receive audio.  Enable PC2 distribute routing so
+              the audio signal is put onto the ML bus.
+        """
         if len(msg) < 14:
             logger.warning("Short ML telegram: %s", " ".join(f"{b:02X}" for b in msg))
             return
+
         dest_node = msg[3]
-        src_node = msg[4]
-        ttype = msg[6]
-        dest_src = msg[7]
-        src_src = msg[8]
-        ptype = msg[10]
-        psize = msg[11]
-        pver = msg[12]
-        payload = msg[13:13 + psize]
+        src_node  = msg[4]
+        ttype     = msg[6]
+        dest_src  = msg[7]
+        src_src   = msg[8]
+        ptype     = msg[10]
+        psize     = msg[11]
+        pver      = msg[12]
+        payload   = msg[13:13 + psize]
 
         src_name = self._ML_NODES.get(src_node, f"0x{src_node:02X}")
         dst_name = self._ML_NODES.get(dest_node, f"0x{dest_node:02X}")
-        tname = self._ML_TELEGRAM_TYPES.get(ttype, f"0x{ttype:02X}")
-        pname = self._ML_PAYLOAD_TYPES.get(ptype, f"0x{ptype:02X}")
+        tname    = self._ML_TELEGRAM_TYPES.get(ttype, f"0x{ttype:02X}")
+        pname    = self._ML_PAYLOAD_TYPES.get(ptype, f"0x{ptype:02X}")
 
         logger.info("ML %s->%s %s/%s v%d [%d]: %s",
                     src_name, dst_name, tname, pname, pver, psize,
                     " ".join(f"{b:02X}" for b in payload))
+
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+
+        # ---- MASTER_PRESENT (0x04) ----------------------------------------
+        # A device announced itself; reply so it knows a master is alive.
+        if ptype == 0x04:
+            try:
+                self.send_ml_telegram(
+                    dest_node=0x80,   # ALL
+                    src_node=0xC1,    # AUDIO_MASTER (we are the master)
+                    telegram_type=0x2C,  # INFO
+                    payload_type=0x04,   # MASTER_PRESENT
+                    payload_version=0x01,
+                    payload=[0x01, 0x01, 0x01],
+                )
+                logger.info("ML MASTER_PRESENT reply sent (triggered by %s)", src_name)
+            except Exception as e:
+                logger.warning("Failed to send MASTER_PRESENT reply: %s", e)
+
+        # ---- GOTO_SOURCE (0x45) -------------------------------------------
+        # Linked device is requesting a source.  payload[0] is the ML source ID.
+        elif ptype == 0x45:
+            if payload:
+                ml_src = payload[0]
+                action = self._ML_GOTO_SOURCE_ACTIONS.get(ml_src)
+                src_label = self._ML_SOURCES.get(ml_src, f"0x{ml_src:02X}")
+                if action:
+                    logger.info("ML GOTO_SOURCE from %s: %s -> action '%s'",
+                                src_name, src_label, action)
+                    self.message_queue.add({
+                        'timestamp_str': timestamp,
+                        'source': 'ml',
+                        'link': 'ML',
+                        'device_type': 'Audio',
+                        'key_name': action,
+                        'keycode': f"0x{ml_src:02X}",
+                        'raw_data': " ".join(f"{b:02X}" for b in payload),
+                    })
+                else:
+                    logger.info("ML GOTO_SOURCE from %s: %s (no action mapping)",
+                                src_name, src_label)
+
+        # ---- BEO4_KEY (0x0D) ----------------------------------------------
+        # A Beo4 key forwarded over ML from a linked device.
+        # Payload: [destination_device_type, keycode, ...]
+        elif ptype == 0x0D:
+            if len(payload) >= 2:
+                dest_dtype = payload[0]
+                keycode    = payload[1]
+                _dtype_map = {
+                    0x00: "Video", 0x01: "Audio", 0x05: "Vmem",
+                    0x0F: "All",   0x1B: "Light",
+                }
+                device_type = _dtype_map.get(dest_dtype, "Audio")
+                key_name = self._ML_BEO4_KEY_MAP.get(keycode, f"Unknown(0x{keycode:02x})")
+                logger.info("ML BEO4_KEY from %s: %s -> %s [0x%02X]",
+                            src_name, device_type, key_name, keycode)
+                if not key_name.startswith("Unknown("):
+                    self.message_queue.add({
+                        'timestamp_str': timestamp,
+                        'source': 'ml',
+                        'link': 'ML',
+                        'device_type': device_type,
+                        'key_name': key_name,
+                        'keycode': f"0x{keycode:02X}",
+                        'raw_data': " ".join(f"{b:02X}" for b in payload),
+                    })
+
+        # ---- STANDBY (0x10) -----------------------------------------------
+        elif ptype == 0x10:
+            logger.info("ML STANDBY from %s", src_name)
+            self.message_queue.add({
+                'timestamp_str': timestamp,
+                'source': 'ml',
+                'link': 'ML',
+                'device_type': 'Audio',
+                'key_name': 'off',
+                'keycode': '0x0C',
+                'raw_data': " ".join(f"{b:02X}" for b in payload),
+            })
+
+        # ---- Distribution requests (0x08 / 0x30 / 0x6C) ------------------
+        # A linked device wants to receive audio from us.  Enable distribute
+        # routing on the PC2 so the audio signal is put onto the ML bus.
+        # Only act if speakers are already on — ignore spurious bus chatter
+        # at startup before any source is active.
+        elif ptype in (0x08, 0x30, 0x6C):
+            pname_str = self._ML_PAYLOAD_TYPES.get(ptype, f"0x{ptype:02X}")
+            logger.info("ML %s from %s — enabling distribute routing", pname_str, src_name)
+            if self.mixer_state['speakers_on']:
+                try:
+                    self.set_routing(
+                        local=self.mixer_state['local'],
+                        distribute=True,
+                        from_ml=self.mixer_state['from_ml'],
+                    )
+                except Exception as e:
+                    logger.warning("Failed to enable distribute routing: %s", e)
+            else:
+                logger.debug("Distribute request ignored — speakers are off")
+
+    async def _ml_master_present_loop(self):
+        """Periodically broadcast MASTER_PRESENT so linked rooms stay tuned.
+
+        The BeoLab 2000 (and other ML link speakers) expect to see a master
+        announce itself at regular intervals.  Without this heartbeat they
+        time out, drop the bus, and stop responding to button presses or
+        accepting audio.  8 seconds gives comfortable headroom below the
+        ~10 s timeout observed in field captures.
+
+        We announce ourselves as AUDIO_MASTER (0xC1) to ALL (0x80).
+        Payload [0x01, 0x01, 0x01] is the minimal "present and active" form
+        confirmed in community bus captures (giachello/mlgw, BeoWorld).
+        """
+        await asyncio.sleep(1.0)   # brief delay so the USB device is ready
+        while self.running:
+            if self.connected:
+                try:
+                    self.send_ml_telegram(
+                        dest_node=0x80,      # ALL
+                        src_node=0xC1,       # AUDIO_MASTER
+                        telegram_type=0x2C,  # INFO
+                        payload_type=0x04,   # MASTER_PRESENT
+                        payload_version=0x01,
+                        payload=[0x01, 0x01, 0x01],
+                    )
+                except Exception as e:
+                    logger.debug("MASTER_PRESENT heartbeat failed: %s", e)
+            await asyncio.sleep(8.0)
 
     def send_ml_telegram(self, dest_node, src_node, telegram_type, payload_type,
                          payload_version, payload, dest_src=0x00, src_src=0x00):
