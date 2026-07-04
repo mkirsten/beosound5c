@@ -123,7 +123,11 @@ class PlexService(DigitPlaylistMixin, SourceBase):
         self._last_play_id = None
 
     async def on_start(self):
-        has_creds = self.auth.load()
+        # auth.load() connects to the Plex server with blocking requests
+        # (~10-20s against an unreachable server) — keep it off the loop
+        # so startup can't hang past the systemd watchdog.
+        loop = asyncio.get_running_loop()
+        has_creds = await loop.run_in_executor(None, self.auth.load)
 
         if has_creds:
             self._load_playlists()
@@ -418,13 +422,21 @@ class PlexService(DigitPlaylistMixin, SourceBase):
                 'title': track.get('name'),
                 'artist': track.get('artist'),
                 'image': track.get('image'),
-                'index': self._current_index,
                 'total': len(tracks),
+                'index': self._current_index,
             }
             await self.register("playing", auto_power=True)
             self._start_polling()
         else:
-            log.error("Player service failed to start track")
+            # Leave state != "playing" — if it stayed "playing" the poll
+            # loop would see the stopped player and auto-advance, burning
+            # through the entire playlist at poll rate (e.g. when every
+            # cached stream URL 401s after a token rotation).
+            log.error("Player service failed to start track — stopping")
+            self.state = "stopped"
+            self.now_playing = None
+            self._stop_polling()
+            await self.register("available")
 
     async def _fetch_artwork_base64(self, url):
         """Fetch artwork URL and return as base64 data URI.
@@ -549,6 +561,10 @@ class PlexService(DigitPlaylistMixin, SourceBase):
 
     async def _refresh_playlists(self):
         """Re-fetch playlists by running fetch.py."""
+        if getattr(self, '_refresh_running', False):
+            log.info("Playlist refresh already running — skipping duplicate")
+            return
+        self._refresh_running = True
         self._fetching_playlists = True
         t0 = time.monotonic()
         try:
@@ -576,11 +592,18 @@ class PlexService(DigitPlaylistMixin, SourceBase):
                 err_msg = (stdout.decode() + stderr.decode())[-500:]
                 log.error("fetch.py failed (rc=%d): %s", proc.returncode, err_msg)
         except asyncio.TimeoutError:
-            log.error("Playlist refresh timed out")
+            # wait_for cancels the communicate() await but does NOT kill the
+            # child — an orphan with a full stdout pipe blocks forever and
+            # its late JSON write races the next refresh.  Reap it.
+            log.error("Playlist refresh timed out — killing fetch subprocess")
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
         except Exception as e:
             log.error("Playlist refresh failed: %s", e)
         finally:
             self._fetching_playlists = False
+            self._refresh_running = False
 
     async def _delayed_refresh(self, delay):
         try:

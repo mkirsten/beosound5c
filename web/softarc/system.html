@@ -1491,10 +1491,26 @@
                 this.fetchPeople();
                 this.fetchBTRemotes();
                 this.checkUpdate();
+                this.maybeOpenConfigTab();
 
                 this._intervals = [
                     setInterval(() => this.fetchPeople(), 30000),
                 ];
+            }
+
+            async maybeOpenConfigTab() {
+                try {
+                    const resp = await fetch('../json/config.json', { cache: 'no-store' });
+                    if (!resp.ok) return;
+                    const cfg = await resp.json();
+                    if (cfg.setup_complete === false) {
+                        const idx = this.sections.indexOf('config');
+                        if (idx >= 0) {
+                            this.currentSection = idx;
+                            this.updateSection();
+                        }
+                    }
+                } catch (e) { /* offline — leave on default tab */ }
             }
 
             // ── Subcards ──

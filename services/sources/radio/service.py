@@ -902,7 +902,7 @@ class RadioService(SourceBase):
         await self.post_media_update(**meta, state="playing", reason="track_change")
 
         # Play via player service (direct favicon URL for Sonos — it can fetch from internet)
-        await self.player_play(
+        ok = await self.player_play(
             url=url,
             meta={
                 "title": meta["title"],
@@ -912,7 +912,14 @@ class RadioService(SourceBase):
             radio=True,
             action_ts=action_ts,
         )
-        self._playing_state = "playing"
+        if ok:
+            self._playing_state = "playing"
+        else:
+            # Roll back the pre-broadcast — otherwise GO toggles
+            # pause/resume on a stream that never started.
+            log.error("Player failed to start station %s", station.get("name"))
+            self._playing_state = "stopped"
+            await self.register("available")
 
     def _build_meta(self, station: dict) -> dict:
         uuid = station.get("stationuuid", "")
@@ -1168,7 +1175,14 @@ class RadioService(SourceBase):
         path = self._last_station_path()
         try:
             with open(path) as f:
-                self._current_station = json.load(f)
+                loaded = json.load(f)
+            # Shape-validate: JSON that parses but isn't a station dict
+            # (SD corruption, hand edit) would otherwise crash later
+            # callers of .get() — on every restart, since the file persists.
+            if not isinstance(loaded, dict) or not loaded.get("name"):
+                log.warning("Malformed last-station file, ignoring: %.100r", loaded)
+                return
+            self._current_station = loaded
             log.info("Loaded last station: %s", self._current_station.get("name"))
         except FileNotFoundError:
             pass

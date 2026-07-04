@@ -2,6 +2,7 @@
 import asyncio, threading, json, time, sys
 import hid, websockets
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 import os
 import logging
 import aiohttp
@@ -12,7 +13,9 @@ from lib.config import cfg
 from lib.correlation import install_logging
 from lib.endpoints import (
     ROUTER_BROADCAST,
+    ROUTER_EVENT,
     ROUTER_OUTPUT_OFF,
+    ROUTER_TOUCH,
     ROUTER_RESYNC,
 )
 from lib.loop_monitor import LoopMonitor
@@ -79,6 +82,10 @@ state_byte1 = 0x00
 last_power_press_time = 0  # For debouncing power button
 POWER_DEBOUNCE_TIME = 0.5  # Seconds to ignore repeated power button presses
 power_button_state = 0  # 0 = released, 1 = pressed
+power_button_pressed_at = 0.0  # wall time of the current press (long-press detection)
+# Hold the power button this long to send ALL-STANDBY (local standby +
+# ML broadcast so link speakers in other rooms power down too).
+POWER_LONGPRESS_ALL_STANDBY = 5.0
 
 def is_backlight_on():
     """Check backlight state from the hardware state byte."""
@@ -112,17 +119,13 @@ def set_led(mode: str):
         state_byte1 |= 0x10
     bs5_send_cmd(state_byte1)
 
-def set_backlight(on: bool):
-    """Turn backlight bit on/off."""
-    global state_byte1
+# Single worker so on/off xrandr calls can't reorder; running them off
+# the caller's thread keeps a slow HDMI mode-set (up to the 2s timeout)
+# from freezing the event loop that serves the hardware-event WebSocket.
+_xrandr_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="xrandr")
 
-    if on:
-        state_byte1 |= 0x40
-    else:
-        state_byte1 &= ~0x40
-    bs5_send_cmd(state_byte1)
-
-    # Control screen using xrandr (Linux only, skip on Mac)
+def _run_xrandr(on: bool):
+    """Control screen using xrandr (Linux only, skip on Mac)."""
     try:
         env = os.environ.copy()
         env["DISPLAY"] = ":0"
@@ -138,6 +141,20 @@ def set_backlight(on: bool):
     except FileNotFoundError:
         # xrandr not available (e.g., on macOS) - skip screen control
         pass
+    except Exception as e:
+        logger.warning("xrandr failed: %s", e)
+
+def set_backlight(on: bool):
+    """Turn backlight bit on/off."""
+    global state_byte1
+
+    if on:
+        state_byte1 |= 0x40
+    else:
+        state_byte1 &= ~0x40
+    bs5_send_cmd(state_byte1)
+
+    _xrandr_pool.submit(_run_xrandr, on)
 
 def toggle_backlight():
     """Toggle backlight state."""
@@ -735,6 +752,10 @@ async def handle_config_save(request):
             headers={'Access-Control-Allow-Origin': '*'},
         )
 
+    # Saving via the web UI implies setup is done — flip the first-boot flag so
+    # the BS5 stops auto-opening System/Config on the next reload.
+    body['setup_complete'] = True
+
     # Extract secrets — they go to secrets.env, not config.json
     raw_secrets = body.pop('_secrets', None) or {}
     _SECRET_KEY_MAP = {'ha_token': 'HA_TOKEN', 'mqtt_user': 'MQTT_USER', 'mqtt_password': 'MQTT_PASSWORD'}
@@ -1185,6 +1206,15 @@ async def process_command(data: dict) -> dict:
         page = params.get('page', 'now_playing')
         logger.info('Waking up and showing: %s', page)
         set_backlight(True)
+        # Tell the router this is user/HA activity so its auto-standby
+        # idle clock resets. Otherwise `_standby_dispatched` stays True
+        # forever after the first dispatch (HA's wake/screen_on commands
+        # bypass /router/event and /router/volume).
+        try:
+            s = await get_http_session()
+            await s.post(ROUTER_TOUCH, timeout=aiohttp.ClientTimeout(total=2))
+        except Exception:
+            pass
         await _forward_to_router('navigate', {'page': page})
         return {'status': 'ok', 'screen': 'on', 'page': page}
 
@@ -1574,7 +1604,7 @@ async def receive_commands(ws):
 # ——— HID parse & broadcast loop ———
 
 def parse_report(rep: list, loop=None):
-    global last_power_press_time, power_button_state
+    global last_power_press_time, power_button_state, power_button_pressed_at
     if len(rep) < 4:
         logger.warning("Truncated HID report (%d bytes), ignoring", len(rep))
         return None, None, None, None
@@ -1607,16 +1637,30 @@ def parse_report(rep: list, loop=None):
         # Button is pressed
         if power_button_state == 0:  # Was released before
             power_button_state = 1  # Now pressed
+            power_button_pressed_at = time.time()
             logger.info("Power button pressed")
     else:
         # Button is released
         if power_button_state == 1:  # Was pressed before
             power_button_state = 0  # Now released
-            logger.info("Power button released")
-            
-            # Check debounce time
+            held = time.time() - power_button_pressed_at if power_button_pressed_at else 0.0
+            logger.info("Power button released (held %.1fs)", held)
+
             current_time = time.time()
-            if current_time - last_power_press_time > POWER_DEBOUNCE_TIME:
+            if held >= POWER_LONGPRESS_ALL_STANDBY:
+                # Long-press → ALL STANDBY: screen off + local standby +
+                # ML broadcast (the router handles the fan-out on 'alloff').
+                logger.info("Power long-press (%.1fs) -> ALL STANDBY", held)
+                do_click()
+                if is_backlight_on():
+                    set_backlight(False)
+                try:
+                    asyncio.run_coroutine_threadsafe(_send_all_standby(), loop)
+                except Exception:
+                    pass
+                last_power_press_time = current_time
+            # Check debounce time
+            elif current_time - last_power_press_time > POWER_DEBOUNCE_TIME:
                 logger.info("Power button action triggered")
                 toggle_backlight()
                 do_click()
@@ -1634,6 +1678,26 @@ def parse_report(rep: list, loop=None):
                 logger.debug("Power button debounced (pressed too soon)")
 
     return nav_evt, vol_evt, btn_evt, laser_pos
+
+async def _send_all_standby():
+    """Forward an 'alloff' event to the router (long-press power).
+
+    The router does the local standby (player stop, output power off,
+    screen off), broadcasts STANDBY on the ML bus, and falls through to
+    HA so automations can react too.
+    """
+    try:
+        s = await get_http_session()
+        await s.post(ROUTER_EVENT, json={
+            'device_name': 'BeoSound5c',
+            'source': 'input',
+            'action': 'alloff',
+            'device_type': 'All',
+            'count': 1,
+        }, timeout=aiohttp.ClientTimeout(total=2))
+    except Exception as e:
+        logger.warning('All-standby forward failed: %s', e)
+
 
 async def _output_power(url):
     """Fire-and-forget call to router output power endpoint."""

@@ -82,8 +82,11 @@
         });
         video.addEventListener('timeupdate', updateProgress);
         video.addEventListener('error', function() {
+            // Stop the retry cycle outright — leaving videoReady=false
+            // with cycling on re-arms a 2s retry forever while nothing
+            // re-attempts the load.
             videoReady = false;
-            if (active) hide();
+            stopCycle();
         });
 
         document.body.appendChild(container);
@@ -180,6 +183,10 @@
         clearTimeout(cycleTimer);
         cycleTimer = null;
         if (active) hide();
+        // Pause unconditionally — with autoplay+loop, a canvas stopped
+        // during the artwork-dwell phase (before it was ever shown) keeps
+        // decoding hidden video indefinitely otherwise.
+        if (video && !video.paused) video.pause();
     }
 
     // Wait for artwork to finish, then attempt to show video.
@@ -312,6 +319,13 @@
         videoReady = false;
         stopCycle();
         if (video) {
+            // Tear down any HLS instance too — its loaders/buffers/
+            // listeners otherwise linger until the next loadVideo() on a
+            // shell that runs for weeks.
+            if (video._hls) {
+                try { video._hls.destroy(); } catch (e) { /* already dead */ }
+                video._hls = null;
+            }
             video.removeAttribute('src');
             video.load();
         }

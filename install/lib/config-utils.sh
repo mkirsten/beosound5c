@@ -12,12 +12,16 @@ cfg_read() {
 
 # Merge a jq expression into config.json.
 # Usage: cfg_set '.player.type = "sonos" | .player.ip = "1.2.3.4"'
+# The temp file MUST live next to the target: mktemp's default is /tmp,
+# which is tmpfs, and a cross-filesystem mv is copy-then-unlink — a crash
+# mid-copy truncates config.json (services then silently fall back to
+# default.json).  Same-fs mv is an atomic rename.
 cfg_set() {
     local tmp
-    tmp=$(mktemp)
+    tmp=$(mktemp "${CONFIG_FILE}.XXXXXX")
     if jq "$1" "$CONFIG_FILE" > "$tmp"; then
+        chmod 644 "$tmp"
         mv "$tmp" "$CONFIG_FILE"
-        chmod 644 "$CONFIG_FILE"
     else
         rm -f "$tmp"
         log_error "Failed to update config.json"
@@ -31,10 +35,10 @@ cfg_set_str() {
     local path="$1"
     local value="$2"
     local tmp
-    tmp=$(mktemp)
+    tmp=$(mktemp "${CONFIG_FILE}.XXXXXX")
     if jq --arg v "$value" "$path = \$v" "$CONFIG_FILE" > "$tmp"; then
+        chmod 644 "$tmp"
         mv "$tmp" "$CONFIG_FILE"
-        chmod 644 "$CONFIG_FILE"
     else
         rm -f "$tmp"
         log_error "Failed to update config.json"
@@ -82,6 +86,13 @@ radio_favs_ensure() {
     local favs_file="$CONFIG_DIR/radio_favourites.json"
     local last_station_file="$CONFIG_DIR/radio_last_station.json"
     mkdir -p "$CONFIG_DIR"
+    # /etc/beosound5c itself must be writable by INSTALL_USER — _save_favourites
+    # uses an atomic ``write .tmp + os.replace`` pattern that needs to create
+    # a sibling .tmp file, and Python's os.replace can't cross filesystems.
+    # Without this chown, the radio service silently fails to persist any
+    # favourite/alias change, so on-device edits and short_name auto-suggest
+    # both revert on every service restart.
+    chown "$INSTALL_USER":"$INSTALL_USER" "$CONFIG_DIR"
     if [ ! -f "$favs_file" ]; then
         local default_favs="$INSTALL_DIR/config/radio_favourites.default.json"
         if [ -f "$default_favs" ]; then
@@ -138,9 +149,10 @@ secret_set() {
     local val="$2"
     secrets_ensure
     local tmp
-    tmp=$(mktemp)
+    # Same-fs temp so the mv is an atomic rename (see cfg_set).
+    tmp=$(mktemp "${SECRETS_FILE}.XXXXXX")
     grep -v "^${key}=" "$SECRETS_FILE" > "$tmp" 2>/dev/null || true
     echo "${key}=\"${val}\"" >> "$tmp"
+    chmod 600 "$tmp"
     mv "$tmp" "$SECRETS_FILE"
-    chmod 600 "$SECRETS_FILE"
 }

@@ -17,6 +17,15 @@ logger = logging.getLogger('beacon')
 
 BEACON_URL = 'https://beosound5c.com/api/beacon'
 
+# Project-specific namespace so uuid5(namespace, mac) is unique to beosound5c
+# even if other projects derive UUIDs from the same MAC.
+_BEACON_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, 'beosound5c.com')
+
+# Onboard interfaces on a Pi — MACs are derived from the CPU serial, so they
+# are persistent across re-imaging. USB WiFi (wlan1+) is intentionally skipped:
+# the dongle is swappable and would invalidate the ID.
+_STABLE_IFACES = ('eth0', 'wlan0')
+
 _KNOWN_SYSTEM_KEYS = frozenset({
     'device', 'menu', 'scenes', 'player', 'volume',
     'home_assistant', 'transport', 'showing', 'join',
@@ -24,15 +33,44 @@ _KNOWN_SYSTEM_KEYS = frozenset({
 })
 
 
+def _read_stable_mac() -> str | None:
+    for iface in _STABLE_IFACES:
+        try:
+            with open(f'/sys/class/net/{iface}/address') as f:
+                mac = f.read().strip().lower()
+            if mac and mac != '00:00:00:00:00:00':
+                return mac
+        except OSError:
+            continue
+    return None
+
+
 def _get_or_create_device_id(base_path: str) -> str:
     id_file = os.path.join(base_path, 'device_id')
     try:
         if os.path.isfile(id_file):
-            return open(id_file).read().strip()
-        device_id = str(uuid.uuid4())
+            existing = open(id_file).read().strip()
+            if existing:
+                try:
+                    uuid.UUID(existing)
+                    return existing
+                except ValueError:
+                    # Corrupted file (e.g. truncated by a power cut).  On
+                    # Pis the MAC-derived id below is deterministic, so
+                    # re-deriving restores the SAME identity instead of
+                    # beaconing as a phantom device forever.
+                    logger.debug('Invalid device_id %r — re-deriving', existing)
+
+        mac = _read_stable_mac()
+        if mac:
+            device_id = str(uuid.uuid5(_BEACON_NAMESPACE, mac))
+            logger.debug('Derived device_id from MAC %s: %s', mac, device_id)
+        else:
+            device_id = str(uuid.uuid4())
+            logger.debug('No stable MAC available; generated random device_id: %s', device_id)
+
         with open(id_file, 'w') as f:
             f.write(device_id + '\n')
-        logger.debug('Generated new device_id: %s', device_id)
         return device_id
     except Exception as e:
         logger.debug('device_id file unavailable: %s', e)

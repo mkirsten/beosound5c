@@ -11,7 +11,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "services"))
 
-from lib.beacon import _get_or_create_device_id, _build_payload
+from lib.beacon import _BEACON_NAMESPACE, _get_or_create_device_id, _build_payload
 
 
 # ── UUID persistence ──────────────────────────────────────────────────────────
@@ -24,10 +24,36 @@ def test_uuid_created_on_first_call(tmp_path):
     assert result == id_file.read_text().strip()
 
 
-def test_uuid_is_valid_uuid4(tmp_path):
+def test_uuid_is_valid_uuid(tmp_path):
+    """Result is a valid UUID — version depends on whether a MAC is available."""
     result = _get_or_create_device_id(str(tmp_path))
     parsed = uuid.UUID(result)
-    assert parsed.version == 4
+    assert parsed.version in (4, 5)
+
+
+def test_uuid_derived_from_mac_is_deterministic(tmp_path):
+    """When a stable MAC is available, the same MAC produces the same UUID
+    even across separate base paths (i.e. across reinstalls)."""
+    mac = "b8:27:eb:12:34:56"
+    expected = str(uuid.uuid5(_BEACON_NAMESPACE, mac))
+
+    install_a = tmp_path / "install_a"
+    install_b = tmp_path / "install_b"
+    install_a.mkdir()
+    install_b.mkdir()
+
+    with patch("lib.beacon._read_stable_mac", return_value=mac):
+        a = _get_or_create_device_id(str(install_a))
+        b = _get_or_create_device_id(str(install_b))
+
+    assert a == b == expected
+
+
+def test_uuid_falls_back_to_uuid4_when_no_mac(tmp_path):
+    """No stable MAC (e.g. dev mode on macOS) falls back to a random UUID4."""
+    with patch("lib.beacon._read_stable_mac", return_value=None):
+        result = _get_or_create_device_id(str(tmp_path))
+    assert uuid.UUID(result).version == 4
 
 
 def test_uuid_stable_across_calls(tmp_path):
@@ -39,10 +65,12 @@ def test_uuid_stable_across_calls(tmp_path):
 
 
 def test_uuid_stable_when_file_pre_exists(tmp_path):
-    """UUID read from an existing file, not regenerated."""
+    """Pre-existing UUID is preserved verbatim — never overwritten by the
+    MAC-derived value (keeps beacon history continuity for older deployments)."""
     known_id = "aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee"
     (tmp_path / "device_id").write_text(known_id + "\n")
-    result = _get_or_create_device_id(str(tmp_path))
+    with patch("lib.beacon._read_stable_mac", return_value="b8:27:eb:12:34:56"):
+        result = _get_or_create_device_id(str(tmp_path))
     assert result == known_id
 
 

@@ -103,7 +103,12 @@ def fetch_playlist_tracks(token, playlist_id):
     tracks instead of overwriting them with an empty list.
     """
     tracks = []
-    url = f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks?limit=100'
+    # Spotify's Feb/Mar 2026 Web API migration replaced /playlists/{id}/tracks
+    # with /playlists/{id}/items — the old endpoint returns 403 for apps in
+    # Development Mode (which is what third-party installs run as).  Each page
+    # entry carries the track under 'item'; during the transition Spotify also
+    # includes the legacy 'track' key, so read whichever is present.
+    url = f'https://api.spotify.com/v1/playlists/{playlist_id}/items?limit=100'
     while url:
         try:
             data = _spotify_get(token, url)
@@ -119,7 +124,7 @@ def fetch_playlist_tracks(token, playlist_id):
         skipped_local = 0
         skipped_no_url = 0
         for item in raw_items:
-            track = item.get('track')
+            track = item.get('item') or item.get('track')
             if not track:
                 continue
             if track.get('is_local'):
@@ -434,6 +439,7 @@ def main():
     fetched_ok = 0
     fetched_failed = 0
     kept_from_cache_on_error = 0
+    third_party_403 = 0
     if to_fetch:
         log(f"Fetching tracks for {len(to_fetch)} playlists in parallel...")
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -449,6 +455,10 @@ def main():
                     tracks, error = [], f"unexpected: {e}"
 
                 if error:
+                    if (error == "http_403" and my_user_id
+                            and pl.get('owner')
+                            and pl['owner'] != my_user_id):
+                        third_party_403 += 1
                     # Don't clobber cached tracks with an empty list when
                     # the fetch errored — the playlist is real, we just
                     # couldn't reach it this round.  Snapshot stays the
@@ -522,8 +532,13 @@ def main():
 
     # Save all playlists.
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    with open(output_file, 'w') as f:
+    # Atomic write — a concurrent fetch (or a reader mid-write) must never
+    # see a truncated file; corrupt JSON means zero playlists until the
+    # next clean refresh.
+    _tmp = output_file + '.tmp'
+    with open(_tmp, 'w') as f:
         json.dump(playlists_with_tracks, f, indent=2)
+    os.replace(_tmp, output_file)
     log(f"Saved {final_count} playlists to {output_file}")
 
     # Build digit mapping: pinned names first, then fill alphabetically.
@@ -541,6 +556,19 @@ def main():
         f"fetched_ok={fetched_ok}, fetched_failed={fetched_failed}, "
         f"kept_from_cache={skipped + kept_from_cache_on_error}, "
         f"dropped_empty={dropped_empty}, written={final_count} ===")
+    if third_party_403:
+        log(f"NOTE: {third_party_403} playlist(s) owned by other users "
+            "returned 403. Spotify's dev-mode rules (Mar 2026) only allow "
+            "reading tracks from playlists you own or collaborate on. "
+            "Fix: duplicate them into your own account, or apply for "
+            "Extended Quota Mode at developer.spotify.com/dashboard.")
+    if len(all_playlists) <= 1:
+        log(f"WARNING: only {len(all_playlists)} playlist(s) returned by "
+            "Spotify. If you expected more, the most likely cause is a "
+            "stale OAuth grant missing 'playlist-read-private' / "
+            "'playlist-read-collaborative'. Fix: revoke at "
+            "https://www.spotify.com/account/apps, then re-auth via "
+            "the BeoSound 5c /setup page.")
     log("=== Done ===")
     return 0
 

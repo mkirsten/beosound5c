@@ -179,10 +179,45 @@ class LocalPlayer(PlayerBase):
         logger.info("Stopped")
         return True
 
+    async def set_shuffle(self, enabled: bool) -> bool:
+        if not self._librespot_available or self._active_backend != 'librespot':
+            logger.info("set_shuffle: librespot not active")
+            return False
+        ok = await self._librespot.set_shuffle(enabled)
+        if ok:
+            logger.info("Shuffle %s", "on" if enabled else "off")
+        return ok
+
+    async def play_track_radio(self, track_uri) -> bool:
+        """Start Spotify track radio seeded by *track_uri* via go-librespot.
+
+        Passes the ``spotify:station:track:<id>`` context URI to librespot;
+        go-librespot resolves it through Spotify's recommender just like
+        any other context.
+        """
+        if not track_uri or "spotify:track:" not in track_uri:
+            logger.warning("play_track_radio: invalid track_uri %r", track_uri)
+            return False
+        if not self._librespot_available:
+            logger.warning("play_track_radio: go-librespot not available")
+            return False
+        track_id = track_uri.split(":")[-1]
+        station_uri = f"spotify:station:track:{track_id}"
+        await self._kill_mpv()
+        ok = await self._librespot.play(station_uri)
+        if ok:
+            self._active_backend = 'librespot'
+            self._current_playback_state = 'playing'
+            logger.info("Playing Spotify track radio seeded by %s", track_id[:12])
+            return True
+        logger.error("go-librespot rejected station URI %s", station_uri)
+        return False
+
     async def get_capabilities(self) -> list:
         caps = ["url_stream"]
         if self._librespot_available:
             caps.insert(0, "spotify")
+            caps.append("spotify_track_radio")
         return caps
 
     async def get_track_uri(self) -> str:
@@ -241,9 +276,15 @@ class LocalPlayer(PlayerBase):
 
         if event_type == 'metadata':
             # Ignore track events after explicit stop (go-librespot only pauses,
-            # so it may auto-advance and fire metadata for the next track)
-            if self._active_backend != 'librespot':
+            # so it may auto-advance and fire metadata for the next track) —
+            # but accept them when NO backend is active: on an external
+            # Spotify Connect start (phone → go-librespot) the 'metadata'
+            # event arrives BEFORE 'playing' sets the backend, and dropping
+            # it leaves the playing view empty until the next track.
+            if self._active_backend not in (None, 'librespot'):
                 return
+            if self._active_backend is None and self._recently_stopped():
+                return  # post-stop auto-advance noise, not an external start
             # New track loaded — broadcast media update
             artists = data.get('artist_names', [])
             media_data = {

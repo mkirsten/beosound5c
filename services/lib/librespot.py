@@ -144,6 +144,11 @@ class LibrespotClient:
     async def stop_playback(self) -> bool:
         return await self._post('/player/pause')
 
+    async def set_shuffle(self, enabled: bool) -> bool:
+        """Toggle shuffle for the current playback context."""
+        return await self._post('/player/shuffle_context',
+                                {'shuffle_context': bool(enabled)})
+
     async def status(self) -> dict | None:
         """Get full player status including current track."""
         return await self._get('/status')

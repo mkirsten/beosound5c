@@ -66,6 +66,24 @@ class UIStore {
 
         // Fetch menu from router (async, non-blocking)
         this.menu.fetchMenu();
+
+        // First-boot: jump straight to SYSTEM so the user sees the Config QR
+        // without having to scroll the wheel. system.html reads the same flag
+        // and starts on its Config tab.
+        this._maybeOpenSetup();
+    }
+
+    async _maybeOpenSetup() {
+        try {
+            const resp = await fetch('json/config.json', { cache: 'no-store' });
+            if (!resp.ok) return;
+            const cfg = await resp.json();
+            if (cfg.setup_complete === false) {
+                this.navigateToView('menu/system');
+            }
+        } catch (e) {
+            // Config unreachable — fall through to normal boot
+        }
     }
 
     // ── Backward-compatible property access ──
@@ -241,23 +259,28 @@ class UIStore {
                     this.handleWheelChange();
                     break;
                 case "ArrowLeft":
-                    if (this.view.currentRoute === 'menu/playing') {
-                        // Webhook handled by dummy hardware system
+                    if (this.view.currentRoute === 'menu/playing'
+                            || window.dummyHardwareManager?.isActive) {
+                        // Dummy hardware routes buttons through the event
+                        // pipeline (same path as real hardware) — forwarding
+                        // here too would double-deliver to the iframe.
                     } else {
                         this.forwardButtonToActiveIframe('left');
                         this.forwardKeyboardToActiveIframe(event);
                     }
                     break;
                 case "ArrowRight":
-                    if (this.view.currentRoute === 'menu/playing') {
-                        // Webhook handled by dummy hardware system
+                    if (this.view.currentRoute === 'menu/playing'
+                            || window.dummyHardwareManager?.isActive) {
+                        // See ArrowLeft — dummy hardware owns delivery.
                     } else {
                         this.forwardButtonToActiveIframe('right');
                         this.forwardKeyboardToActiveIframe(event);
                     }
                     break;
                 case "Enter":
-                    if (this.view.currentRoute !== 'menu/playing') {
+                    if (this.view.currentRoute !== 'menu/playing'
+                            && !window.dummyHardwareManager?.isActive) {
                         this.forwardKeyboardToActiveIframe(event);
                     }
                     break;

@@ -1,5 +1,6 @@
 {
   "device": "Development",
+  "setup_complete": false,
 
   "menu": {
     "PLAYING": "playing",

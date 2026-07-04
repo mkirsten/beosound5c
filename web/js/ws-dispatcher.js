@@ -220,6 +220,16 @@ function handleExternalNavigation(uiStore, data) {
     // Explicit mapping first, then auto-prefix bare names with "menu/"
     const route = pageRoutes[page] || (page.startsWith('menu/') ? page : `menu/${page}`);
 
+    // External wake to the playing view (HA fires this when something
+    // starts playing on the active source). The media_update that
+    // triggered HA's automation usually races with this navigate, so
+    // isPlaying() may still be false when view-change fires. Arm
+    // immersive entry so the navigate lands directly in the immersive
+    // overlay instead of flashing the menu for ~1s.
+    if (route === 'menu/playing' && window.ImmersiveMode?.armEagerEntry) {
+        window.ImmersiveMode.armEagerEntry();
+    }
+
     if (uiStore.navigateToView) {
         uiStore.navigateToView(route);
         console.log(`[NAVIGATE] Navigated to: ${route}`);

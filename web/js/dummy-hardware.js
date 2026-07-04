@@ -316,15 +316,19 @@ class DummyHardwareManager {
         }
 
         console.log('[DUMMY-HW] Starting dummy hardware simulation');
-        
-        // Create server
-        this.server = new DummyWebSocketServer();
+
+        // Reuse the server + simulators across stop/start cycles.
+        // ws-dispatcher registers its bridge client ONCE at init; creating
+        // a fresh server here (e.g. re-enabling the fallback after real
+        // hardware disconnects) would start with zero clients and every
+        // simulated event would silently go nowhere until page reload.
+        if (!this.server) {
+            this.server = new DummyWebSocketServer();
+            this.laserSimulator = new LaserPointerSimulator(this.server);
+            this.keyboardSimulator = new KeyboardSimulator(this.server);
+        }
         this.server.start();
-        
-        // Create simulators
-        this.laserSimulator = new LaserPointerSimulator(this.server);
-        this.keyboardSimulator = new KeyboardSimulator(this.server);
-        
+
         // Enable simulators
         this.laserSimulator.enable();
         this.keyboardSimulator.enable();

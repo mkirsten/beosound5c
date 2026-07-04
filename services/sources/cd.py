@@ -445,14 +445,33 @@ class CDPlayer:
         except asyncio.CancelledError:
             return
         except Exception as e:
-            log.debug(f"IPC reader ended: {e}")
+            # Not just EOF: a handler exception lands here too, possibly
+            # with mpv still alive and audibly playing.  Without killing it
+            # we'd drop the handle (orphan) and — with repeat on — launch a
+            # second mpv on top of it below.
+            log.warning(f"IPC reader ended: {e}")
 
         # mpv exited naturally (not via stop() which cancels this task first)
         if self.state not in ('playing', 'paused'):
             return
+        proc = self.process
         self.process = None
         self.state = 'stopped'
         await self._close_ipc()
+        if proc is not None:
+            loop = asyncio.get_running_loop()
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        await loop.run_in_executor(None, proc.wait, 2)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        await loop.run_in_executor(None, proc.wait)
+                else:
+                    proc.wait()  # reap the zombie from a natural EOF exit
+            except Exception:
+                pass
 
         # Repeat → restart the disc
         if self.repeat:
@@ -668,6 +687,9 @@ class CDPlayer:
                     None, self.process.wait, 2)
             except subprocess.TimeoutExpired:
                 self.process.kill()
+                # Reap after kill or the dead mpv lingers as a zombie
+                await asyncio.get_running_loop().run_in_executor(
+                    None, self.process.wait)
             self.process = None
         self.state = 'stopped'
         self._pending_track = None
@@ -1034,7 +1056,12 @@ class CDService(SourceBase):
         await self.broadcast('cd_update', cd_data)
         # Unified PLAYING view metadata via router (only when we have active metadata)
         if cd_data['state'] in ('playing', 'paused'):
-            track = cd_data['tracks'][cd_data['current_track'] - 1] if cd_data['tracks'] and cd_data['current_track'] > 0 else None
+            # Upper bound too: metadata from an alternative MusicBrainz
+            # release can list fewer tracks than the physical disc plays.
+            track = (cd_data['tracks'][cd_data['current_track'] - 1]
+                     if cd_data['tracks']
+                     and 0 < cd_data['current_track'] <= len(cd_data['tracks'])
+                     else None)
             album_text = f"{cd_data['title']} ({cd_data['year']})" if cd_data['year'] else cd_data['title']
             track_title = track.get('title', f"Track {cd_data['current_track']}") if track else cd_data['title']
             await self.post_media_update(

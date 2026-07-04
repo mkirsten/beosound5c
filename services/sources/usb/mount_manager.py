@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sqlite3
 import logging
 import re
 from pathlib import Path
@@ -20,16 +21,30 @@ class MountManager:
         self.mounts = []  # list of (name, browser) -- BM5Library or FileBrowser
 
     async def init(self):
-        """Initialize mounts from configured paths, then auto-detect if needed."""
+        """Initialize mounts from configured paths, then auto-detect if needed.
+
+        A single unreadable path must never kill the service: a failing
+        or yanked disk surfaces as OSError EIO from os.stat — pathlib's
+        is_dir() only swallows does-not-exist errors, everything else
+        propagates.  Treat such paths as "no USB present" and move on.
+        """
         for path in self.paths:
-            browser = await self._init_path(path)
+            try:
+                browser = await self._init_path(path)
+            except (OSError, sqlite3.Error) as e:
+                log.warning("Skipping unreadable path %s: %s", path, e)
+                continue
             if browser:
                 name = getattr(browser, 'name', Path(path).name)
                 self.mounts.append((name, browser))
 
         # No configured paths, or none worked — auto-detect BM5 HDD
         if not any(isinstance(b, BM5Library) for _, b in self.mounts):
-            browser = await self._auto_detect_bm5()
+            try:
+                browser = await self._auto_detect_bm5()
+            except (OSError, sqlite3.Error) as e:
+                log.warning("USB auto-detect failed: %s", e)
+                browser = None
             if browser:
                 self.mounts.append((browser.name, browser))
 
@@ -101,7 +116,23 @@ class MountManager:
         mount_target = "/mnt/beo-usb-auto"
 
         # Check if already mounted at target from a previous run
-        if Path(mount_target).is_dir() and (Path(mount_target) / "BM-Share" / "Music").is_dir():
+        try:
+            already_mounted = (Path(mount_target).is_dir()
+                               and (Path(mount_target) / "BM-Share" / "Music").is_dir())
+        except OSError as e:
+            # Stale mount from a failing/yanked disk (EIO on stat).
+            # Lazy-unmount it so a later re-plug can mount cleanly,
+            # then fall through to fresh block-device detection.
+            log.warning("Mount at %s unreadable (%s) — releasing stale mount",
+                        mount_target, e)
+            proc = await asyncio.create_subprocess_exec(
+                'sudo', 'umount', '-l', mount_target,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.wait()
+            already_mounted = False
+        if already_mounted:
             lib = BM5Library(mount_target)
             if lib.available:
                 lib.open()

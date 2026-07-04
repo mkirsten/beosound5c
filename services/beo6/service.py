@@ -70,6 +70,26 @@ def _get_local_ip():
         return '127.0.0.1'
 
 
+class _LRUMap(dict):
+    """Bounded dict for artwork blobs — evicts the oldest entry when full.
+
+    Values are base64 data URIs up to a few hundred KB each; unbounded
+    growth (one entry per track change, never read back for old tracks)
+    slowly OOMs a Pi over months.
+    """
+
+    def __init__(self, cap=200):
+        super().__init__()
+        self._cap = cap
+
+    def __setitem__(self, key, value):
+        if key in self:
+            del self[key]  # re-insert refreshes recency (dicts keep insertion order)
+        elif len(self) >= self._cap:
+            del self[next(iter(self))]
+        super().__setitem__(key, value)
+
+
 def _esc(text):
     """Escape text for XML attribute/content."""
     return html.escape(str(text), quote=True)
@@ -138,13 +158,27 @@ class BeoNetSession:
         while text:
             text = text.strip()
             if not text:
+                self._buf = b''
                 break
             stanza, rest = self._extract_stanza(text)
             if stanza is None:
-                break
+                if rest != text:
+                    # Garbage at the buffer head was consumed — persist the
+                    # skip and keep parsing.  Without this, one unknown tag
+                    # (or a UTF-8 char split across TCP segments) stays at
+                    # the head forever and wedges the whole session.
+                    text = rest
+                    self._buf = text.encode('utf-8')
+                    continue
+                break  # incomplete stanza — wait for more bytes
             text = rest
             self._buf = text.encode('utf-8')
-            await self._handle_stanza(stanza)
+            try:
+                await self._handle_stanza(stanza)
+            except Exception as e:
+                # A malformed attribute (e.g. non-numeric int() input from
+                # the remote) must cost one stanza, not the whole session.
+                log.warning("Stanza handler error: %s — %.200s", e, stanza)
 
     def _extract_stanza(self, text):
         """Extract one complete XML stanza from text. Returns (stanza_str, remaining) or (None, text)."""
@@ -162,9 +196,12 @@ class BeoNetSession:
                     end = end_sc + 2
                     return text[:end], text[end:]
                 return None, text  # incomplete
-        # Unknown or garbage — skip one character
-        log.warning("Unexpected XMPP data: %.100s", text)
-        return None, ""
+        # Unknown or garbage at the head — skip to the next tag start so
+        # the caller can make progress (returning the input unchanged means
+        # "incomplete, wait for more bytes", which garbage never satisfies).
+        log.warning("Unexpected XMPP data, skipping: %.100s", text)
+        nxt = text.find('<', 1)
+        return None, text[nxt:] if nxt > 0 else ""
 
     async def _handle_stream_open(self, data):
         """Handle <stream:stream> open from Beo6."""
@@ -551,7 +588,17 @@ class BeoNetSession:
         log.debug("XMPP TX → %.500s", data)
         try:
             self.writer.write(data.encode('utf-8'))
-            await self.writer.drain()
+            # The Beo6 is a battery WiFi remote that sleeps/roams — a
+            # black-holed connection makes drain() hang for the TCP
+            # retransmit timeout (15-30 min), stalling every caller up
+            # the chain (including the router media-WS loop).
+            await asyncio.wait_for(self.writer.drain(), timeout=5)
+        except asyncio.TimeoutError:
+            log.warning("Send to Beo6 timed out — dropping session")
+            self._closed = True
+            transport = self.writer.transport
+            if transport is not None:
+                transport.abort()
         except (ConnectionError, OSError) as e:
             log.warning("Send failed: %s", e)
             self._closed = True
@@ -584,8 +631,8 @@ class Beo6Service:
         self.queue_position = 0
         self.pq_revision = 1
 
-        # Artwork hash -> URL mapping for cover art proxy
-        self._art_map = {}
+        # Artwork hash -> URL mapping for cover art proxy (bounded)
+        self._art_map = _LRUMap(cap=200)
         # Suppress media WS updates briefly after a play command
         self._play_suppress_until = 0
         # Fixed queue start index — all queue positions are relative to this

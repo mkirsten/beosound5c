@@ -82,6 +82,14 @@ class _SuppressState:
 # Thread pool for blocking SoCo calls
 executor = ThreadPoolExecutor(max_workers=6)
 
+# Separate pool for the JOIN-view network sweep.  _check_all_devices_sync
+# runs as one task and fans out one future per Sonos device, blocking on
+# the results — running all of that inside `executor` saturates it (outer
+# task + N device probes), queueing the monitor loop's 500ms status calls
+# behind an up-to-8s network check.  8 workers: 1 for the sweep itself,
+# 7 for concurrent device probes.
+netcheck_executor = ThreadPoolExecutor(max_workers=8)
+
 
 async def _resolved(value):
     """Instantly-resolved coroutine — used as a no-op stand-in when an
@@ -155,9 +163,16 @@ class SonosArtworkViewer:
             logger.error(f"Error getting track info: {e}")
             return None
 
-    def get_artwork_url(self):
-        """Get the artwork URL for the currently playing track."""
-        track_info = self.get_current_track_info()
+    def get_artwork_url(self, track_info=None):
+        """Get the artwork URL for the currently playing track.
+
+        Pass the ``track_info`` dict already in hand when available —
+        re-fetching makes a second blocking SoCo round-trip, and on rapid
+        skips the two snapshots can straddle a track change, pairing
+        track N's title with track N+1's artwork.
+        """
+        if track_info is None:
+            track_info = self.get_current_track_info()
         if not track_info:
             return None
 
@@ -266,6 +281,12 @@ class MediaServer(PlayerBase):
         self._current_track_id = None
         self._current_position = None
         self._last_update_time = 0
+        # A track change whose broadcast was suppressed (window expiry) or
+        # whose media fetch failed transiently.  The track id is already
+        # committed at that point (dedup would swallow it forever), so the
+        # monitor retries the broadcast on following polls until one lands.
+        self._pending_broadcast = False
+        self._pending_broadcast_attempts = 0
         # Broadcast suppression window (set by play(), cleared by monitor/playback_started).
         # Unifies the old _suppress_until_track / _suppress_set_time / _last_play_was_radio.
         self._suppress: _SuppressState | None = None
@@ -481,6 +502,12 @@ class MediaServer(PlayerBase):
             await loop.run_in_executor(None, coordinator.pause)
             logger.info("Paused")
             return True
+        except SoCoUPnPException as e:
+            if e.error_code == '701':
+                logger.debug("Pause: already paused (UPnP 701)")
+                return True
+            logger.error("Pause failed: %s", e)
+            return False
         except Exception as e:
             logger.error("Pause failed: %s", e)
             return False
@@ -548,8 +575,36 @@ class MediaServer(PlayerBase):
             media_data = await self.fetch_media_data()
             if media_data:
                 await self.broadcast_media_update(media_data, "track_change")
+            else:
+                # Track id is committed; without a retry the monitor's dedup
+                # would swallow this track forever (same invariant as the
+                # monitor loop's _pending_broadcast).
+                self._pending_broadcast = True
+                self._pending_broadcast_attempts = 0
         except Exception as e:
             logger.debug("Early skip broadcast failed: %s", e)
+            self._pending_broadcast = True
+            self._pending_broadcast_attempts = 0
+
+    async def _retry_artwork_broadcast(self, artwork_url, track_id):
+        """Single delayed retry after an artwork fetch failed at track-change
+        time.  Re-fetches the artwork and rebroadcasts the full media state
+        if the same track is still playing; gives up quietly otherwise."""
+        await asyncio.sleep(3)
+        if track_id != self._current_track_id:
+            return  # track moved on — its own broadcast handles artwork
+        try:
+            artwork_result = await self.sonos_viewer.fetch_artwork_async(artwork_url)
+        except Exception as e:
+            logger.debug("Artwork retry failed: %s", e)
+            return
+        if not artwork_result:
+            return
+        media_data = await self.fetch_media_data()
+        if media_data and media_data.get('artwork') and \
+                track_id == self._current_track_id:
+            logger.info("Artwork retry succeeded — rebroadcasting")
+            await self.broadcast_media_update(media_data, "update")
 
     async def stop(self) -> bool:
         try:
@@ -569,8 +624,94 @@ class MediaServer(PlayerBase):
             logger.error("Stop failed: %s", e)
             return False
 
+    async def set_shuffle(self, enabled: bool) -> bool:
+        """Toggle shuffle via the Sonos play mode (repeat state kept off —
+        BS5c doesn't manage repeat, and SHUFFLE alone implies repeat-all
+        in the Sonos API, which would surprise more than it helps)."""
+        try:
+            loop = asyncio.get_running_loop()
+            coordinator = self.sonos_viewer.get_coordinator()
+
+            def _set():
+                coordinator.play_mode = 'SHUFFLE_NOREPEAT' if enabled else 'NORMAL'
+            await loop.run_in_executor(executor, _set)
+            logger.info("Shuffle %s", "on" if enabled else "off")
+            return True
+        except Exception as e:
+            logger.error("set_shuffle failed: %s", e)
+            return False
+
+    async def play_track_radio(self, track_uri) -> bool:
+        """Start Spotify track radio (a station seeded by *track_uri*).
+
+        Builds the Sonos SMAPI ``trackRadio:spotify:track:<id>`` container
+        URI and plays it via the queue, bypassing the ShareLink plugin which
+        doesn't recognise station URIs.
+        """
+        if not track_uri or "spotify:track:" not in track_uri:
+            logger.warning("play_track_radio: invalid track_uri %r", track_uri)
+            return False
+        track_id = track_uri.split(":")[-1]
+        self._suppress = _SuppressState(
+            until=time.monotonic() + USER_ACTION_HORIZON,
+            expected_track=None,
+        )
+        logger.info("Suppressing monitor broadcasts for %.0fs (track radio)",
+                    USER_ACTION_HORIZON)
+        try:
+            loop = asyncio.get_running_loop()
+            coordinator = self.sonos_viewer.get_coordinator()
+
+            # Cancel any in-flight playlist backfill from a prior play()
+            if self._queue_backfill_task and not self._queue_backfill_task.done():
+                self._queue_backfill_task.cancel()
+
+            encoded = f"trackRadio%3aspotify%3atrack%3a{track_id}"
+            enqueue_uri = f"x-rincon-cpcontainer:1006206c{encoded}"
+            sn = 2311  # Spotify SMAPI service number (matches SpotifyShare)
+            item_id = f"1006206c{encoded}"
+            metadata = (
+                '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" '
+                'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" '
+                'xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" '
+                'xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">'
+                f'<item id="{item_id}" restricted="true">'
+                '<upnp:class>object.container.playlistContainer</upnp:class>'
+                '<desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:'
+                f'metadata-1-0/">SA_RINCON{sn}_X_#Svc{sn}-0-Token</desc>'
+                '</item></DIDL-Lite>'
+            )
+
+            try:
+                await loop.run_in_executor(None, coordinator.pause)
+            except Exception:
+                pass
+            await loop.run_in_executor(None, coordinator.clear_queue)
+
+            def _enqueue():
+                return coordinator.avTransport.AddURIToQueue([
+                    ("InstanceID", 0),
+                    ("EnqueuedURI", enqueue_uri),
+                    ("EnqueuedURIMetaData", metadata),
+                    ("DesiredFirstTrackNumberEnqueued", 0),
+                    ("EnqueueAsNext", 0),
+                ])
+
+            await loop.run_in_executor(None, _enqueue)
+            await loop.run_in_executor(None, coordinator.play_from_queue, 0)
+            logger.info("Playing Spotify track radio seeded by %s", track_id[:12])
+            return True
+        except Exception as e:
+            err = str(e)
+            if "800" in err:
+                logger.error("Track radio failed: Spotify account not linked "
+                             "on Sonos — add it in the Sonos app first")
+            else:
+                logger.error("Track radio failed: %s", e)
+            return False
+
     async def get_capabilities(self) -> list:
-        return ["spotify", "url_stream"]
+        return ["spotify", "url_stream", "spotify_track_radio"]
 
     async def get_track_uri(self) -> str:
         return self._current_track_id or ""
@@ -859,8 +1000,8 @@ class MediaServer(PlayerBase):
                 logger.debug("Skipping device %s during check: %s", name, e)
                 return None
 
-        # Query all devices in parallel
-        futures = {executor.submit(_check_one, n, ip): n
+        # Query all devices in parallel (netcheck pool — see its comment)
+        futures = {netcheck_executor.submit(_check_one, n, ip): n
                    for n, ip in self._sonos_devices.items()}
 
         seen_coordinators = set()
@@ -957,13 +1098,13 @@ class MediaServer(PlayerBase):
             if now - last >= REFRESH_COOLDOWN:
                 self._network_refresh_time = now
                 loop = asyncio.get_running_loop()
-                loop.run_in_executor(executor, self._check_all_devices_sync)
+                loop.run_in_executor(netcheck_executor, self._check_all_devices_sync)
             return web.json_response(cache, headers=self._cors_headers())
 
         # First call — must block (but capped at DEVICE_TIMEOUT)
         self._network_refresh_time = time.time()
         loop = asyncio.get_running_loop()
-        devices = await loop.run_in_executor(executor, self._check_all_devices_sync)
+        devices = await loop.run_in_executor(netcheck_executor, self._check_all_devices_sync)
         return web.json_response(devices, headers=self._cors_headers())
 
     async def _handle_join(self, request) -> web.Response:
@@ -1234,16 +1375,44 @@ class MediaServer(PlayerBase):
 
                         if suppress:
                             logger.debug("Suppressing broadcast during track switch")
+                            # Track id is committed but nothing was sent —
+                            # without a retry the UI stays on the previous
+                            # track for the whole song (e.g. Spotify track
+                            # relinking never matches expected_track).
+                            self._pending_broadcast = True
+                            self._pending_broadcast_attempts = 0
                         else:
                             logger.info(f"Detected change: {reason}")
                             media_data = await self.fetch_media_data()
                             if media_data:
                                 await self.broadcast_media_update(media_data, reason)
+                                self._pending_broadcast = False
+                            else:
+                                # Transient fetch failure — retry next poll.
+                                self._pending_broadcast = True
+                                self._pending_broadcast_attempts = 0
 
                         if track_changed:
                             self._spawn(
                                 self.sonos_viewer.prefetch_upcoming_artwork(count=PREFETCH_COUNT),
                                 name="prefetch_artwork")
+
+                    # Retry a previously swallowed/failed broadcast once the
+                    # suppression window is gone.  Deliberately does NOT
+                    # re-run the side-effect paths (prefetch, playback
+                    # override) — only the media update is owed.
+                    elif self._pending_broadcast and not suppress:
+                        self._pending_broadcast_attempts += 1
+                        media_data = await self.fetch_media_data()
+                        if media_data:
+                            await self.broadcast_media_update(media_data, 'track_change')
+                            self._pending_broadcast = False
+                            logger.info("Recovered suppressed/failed broadcast "
+                                        "(attempt %d)", self._pending_broadcast_attempts)
+                        elif self._pending_broadcast_attempts >= 20:
+                            logger.warning("Giving up on pending broadcast after "
+                                           "%d attempts", self._pending_broadcast_attempts)
+                            self._pending_broadcast = False
 
                     # External track change? Clear active source so transport
                     # commands route directly to the player.
@@ -1288,7 +1457,7 @@ class MediaServer(PlayerBase):
                                  _k, _v)
                     return None
 
-            artwork_url = self.sonos_viewer.get_artwork_url()
+            artwork_url = self.sonos_viewer.get_artwork_url(track_info)
             artwork_base64 = None
             artwork_size = None
 
@@ -1301,6 +1470,15 @@ class MediaServer(PlayerBase):
                         logger.info(f"Artwork ready: {artwork_size}, {len(artwork_base64)} chars")
                 except Exception as e:
                     logger.warning(f"Failed to fetch artwork: {e}")
+                if not artwork_base64:
+                    # Artwork existed but the fetch failed (CDN hiccup, cold
+                    # cache).  The broadcast goes out with the placeholder and
+                    # nothing rebroadcasts until the next track — schedule one
+                    # delayed retry that rebroadcasts if it succeeds.
+                    self._spawn(
+                        self._retry_artwork_broadcast(artwork_url,
+                                                      self._current_track_id),
+                        name="artwork_retry")
 
             coordinator = self.sonos_viewer.get_coordinator()
             actual_speaker = self.sonos_viewer.sonos

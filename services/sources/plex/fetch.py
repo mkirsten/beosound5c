@@ -327,8 +327,13 @@ def main():
 
     # Save all playlists
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    with open(output_file, 'w') as f:
+    # Atomic write — a concurrent fetch (or a reader mid-write) must never
+    # see a truncated file; corrupt JSON means zero playlists until the
+    # next clean refresh.
+    _tmp = output_file + '.tmp'
+    with open(_tmp, 'w') as f:
         json.dump(playlists_with_tracks, f, indent=2)
+    os.replace(_tmp, output_file)
     log(f"Saved {len(playlists_with_tracks)} playlists to {output_file}")
 
     # Build digit mapping

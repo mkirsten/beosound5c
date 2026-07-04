@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from typing import Optional
 
@@ -71,7 +72,19 @@ class LoopMonitor:
         if self._task is not None:
             return self
         self._stop.clear()
-        self._task = asyncio.get_running_loop().create_task(self._run())
+        loop = asyncio.get_running_loop()
+        # Opt-in: BEO_LOOP_DEBUG=1 turns on asyncio debug mode so the
+        # loop logs the offending callback's traceback whenever any
+        # callback runs longer than `slow_callback_duration`.  Off by
+        # default — debug mode adds ~10% overhead per call.
+        if os.environ.get("BEO_LOOP_DEBUG") == "1":
+            loop.set_debug(True)
+            loop.slow_callback_duration = self._warn
+            self._logger.info(
+                "asyncio debug mode ON (slow_callback_duration=%.0fms) "
+                "— stall tracebacks will be logged", self._warn * 1000,
+            )
+        self._task = loop.create_task(self._run())
         return self
 
     async def stop(self) -> None:

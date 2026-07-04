@@ -36,6 +36,7 @@ from lib.correlation import (
 from lib.background_tasks import BackgroundTaskSet
 from lib.endpoints import (
     INPUT_WEBHOOK,
+    MIXER_ML_STANDBY,
     PLAYER_ANNOUNCE,
     PLAYER_JOIN,
     PLAYER_MEDIA,
@@ -325,6 +326,9 @@ class EventRouter:
                         self.media.state = data
                         logger.info("Recovered media state: %s — %s",
                                      data.get("artist", ""), data.get("title", ""))
+                        # Clients that connected before recovery finished got
+                        # an empty client_connect replay — push to them too.
+                        await self.media.push_media(data, "resync")
                         title = data.get("title", "")
                         artist = data.get("artist", "")
                         if title and data.get("state") == "playing" and self._player_type == "local":
@@ -550,12 +554,19 @@ class EventRouter:
 
         # 4c. Off / standby — intentional fallthrough to HA (§6) so HA also
         # receives the off event (e.g. to trigger a scene or power-off routine).
-        if action == "off" and is_local:
-            logger.info("-> standby (off)")
+        # "alloff" (Beo4 ALL-off key, or a long-press on the BS5c power
+        # button) additionally broadcasts STANDBY on the ML bus so link
+        # speakers in other rooms power down with us.
+        # device_type "All" is what Beo4 ALL-off and the power long-press
+        # carry — is_local only covers Audio/Video, so accept All here.
+        if action in ("off", "alloff") and (is_local or device_type == "All"):
+            logger.info("-> standby (%s)", action)
             self._spawn(self._player_stop(), name="off_stop")
             if self._volume:
                 self._spawn(self._volume.power_off(), name="off_power")
             self._spawn(self._screen_off(), name="off_screen")
+            if action == "alloff":
+                self._spawn(self._ml_all_standby(), name="alloff_ml")
 
         # 4d. BLUE → JOIN — returns only if JOIN is configured locally; otherwise
         # intentional fallthrough to HA so HA can handle the BLUE button.
@@ -731,6 +742,24 @@ class EventRouter:
     async def _screen_off(self):
         await self._set_backlight(False)
 
+    async def _ml_all_standby(self):
+        """Broadcast STANDBY on the ML bus via beo-masterlink.
+
+        Best-effort: devices without a PC2 card don't run beo-masterlink,
+        so an unreachable endpoint just means there's no ML bus to tell.
+        """
+        try:
+            async with self._session.post(
+                MIXER_ML_STANDBY,
+                timeout=aiohttp.ClientTimeout(total=2),
+            ) as resp:
+                if resp.status == 200:
+                    logger.info("ML all-standby broadcast requested")
+                else:
+                    logger.warning("ML all-standby returned HTTP %d", resp.status)
+        except Exception as e:
+            logger.debug("ML all-standby skipped (no masterlink?): %s", e)
+
     # ── Canvas injection ──
 
     def _should_fetch_canvas(self, payload: dict) -> bool:
@@ -793,14 +822,21 @@ class EventRouter:
 
     async def _inject_music_video(self, payload: dict, generation: int,
                                    artist: str, title: str):
+        def _clear_pending():
+            # Only clear our own key — a newer track's lookup may already
+            # have overwritten it, and blanking that would let
+            # _handle_media_post spawn a duplicate concurrent lookup.
+            if self._music_video_pending_key == f"{artist}||{title}":
+                self._music_video_pending_key = ""
+
         try:
             url = await self._music_video_client.lookup(artist, title, self._session)
         except Exception as e:
             logger.warning("Music video lookup error for %s – %s: %s", artist, title, e)
-            self._music_video_pending_key = ""
+            _clear_pending()
             return
         if not url:
-            self._music_video_pending_key = ""
+            _clear_pending()
             return
         if self._music_video_generation != generation:
             logger.info("Music video injection stale (gen %d != %d), dropping",
@@ -815,7 +851,7 @@ class EventRouter:
             logger.info("Music video arrived for different track, dropping")
             return
         current["music_video_url"] = url
-        self._music_video_pending_key = ""
+        _clear_pending()
         logger.info("Music video injected for %s – %s", artist, title)
         await self.media.push_media(current, "music_video_inject")
 
@@ -862,10 +898,15 @@ class EventRouter:
         if source_id == "radio":
             payload["canvas_url"] = ""
             payload["music_video_url"] = ""
+        # Bump on EVERY accepted update, not only when spawning a fetch —
+        # otherwise an in-flight canvas lookup for the previous track passes
+        # the staleness guard and injects the old canvas onto the new
+        # track's state (e.g. after switching to a source that carries its
+        # own canvas_url or posts a non-playing state).
+        self._canvas_generation += 1
         if payload.get("canvas_url"):
             logger.info("Media has canvas_url: %s", payload["canvas_url"][:60])
         elif not source_id and self._should_fetch_canvas(payload):
-            self._canvas_generation += 1
             # Snapshot payload — it's mutated below (pop _validated_*) and
             # passed to media.accept_and_push, which may further mutate it.
             self._spawn(
@@ -1259,6 +1300,19 @@ async def handle_broadcast(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
 
 
+async def handle_touch(request: web.Request) -> web.Response:
+    """POST /router/touch — reset the auto-standby idle clock.
+
+    Called by beo-input on `wake` (and similar commands that come from
+    HA bypassing the router) so the router's auto-standby loop knows
+    the device is in active use. Without this, `_standby_dispatched`
+    stays True forever after the first dispatch, because HA's
+    wake/screen_on commands never hit `route_event` or `/router/volume`.
+    """
+    router_instance.touch_activity()
+    return web.json_response({"status": "ok"})
+
+
 # ---------------------------------------------------------------------------
 # App lifecycle
 # ---------------------------------------------------------------------------
@@ -1308,6 +1362,7 @@ def create_app() -> web.Application:
     app.router.add_post("/router/media", router_instance._handle_media_post)
     app.router.add_get("/router/media", router_instance._handle_media_get)
     app.router.add_post("/router/broadcast", handle_broadcast)
+    app.router.add_post("/router/touch", handle_touch)
     app.router.add_get("/router/queue", handle_queue)
     app.router.add_post("/router/queue/play", handle_queue_play)
     app.on_startup.append(on_startup)

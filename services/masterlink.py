@@ -36,6 +36,7 @@ import time
 import threading
 import sys
 import json
+import logging
 import os
 import shlex
 import aiohttp
@@ -260,6 +261,18 @@ class PC2Device:
         self.sniff_mode = False
         self._mixer_runner = None  # aiohttp AppRunner for cleanup
         self._vol_lock = threading.Lock()  # serialize step-based volume changes
+        # Serializes USB TX across the three threads that send frames:
+        # the sniffer thread (ML role replies), the sender-loop thread
+        # (clock broadcasts), and default-executor threads (mixer HTTP).
+        # Held per-frame in send_message and across the multi-frame
+        # sequences whose ordering libpc2 warns about ("the PC2 crashing
+        # very hard if this is fudged").  RLock so sequences can nest
+        # (audio_on → set_routing → send_message).
+        self._tx_lock = threading.RLock()
+        # Track unknown USB message types we've already logged at INFO so
+        # recurring background heartbeats (e.g. type 0x01, 0x1C every ~30s
+        # on Church) don't flood the journal.
+        self._unknown_usb_seen = set()
 
         # Role wiring.  Each of the three roles is a sibling module under
         # lib/masterlink_*.py with the same shape: __init__(pc2), start(loop),
@@ -297,16 +310,19 @@ class PC2Device:
     def _release_device(self):
         """Release the USB device handle (best-effort, ignores errors)."""
         self.connected = False
-        if self.dev is not None:
-            try:
-                usb.util.release_interface(self.dev, 0)
-            except Exception:
-                pass
-            try:
-                usb.util.dispose_resources(self.dev)
-            except Exception:
-                pass
-            self.dev = None
+        # TX lock so we don't yank the handle out from under a thread
+        # that's mid-send_message.
+        with self._tx_lock:
+            if self.dev is not None:
+                try:
+                    usb.util.release_interface(self.dev, 0)
+                except Exception:
+                    pass
+                try:
+                    usb.util.dispose_resources(self.dev)
+                except Exception:
+                    pass
+                self.dev = None
 
     def _reconnect(self):
         """Try to reconnect to the PC2 device with exponential backoff."""
@@ -334,15 +350,20 @@ class PC2Device:
 
     def init(self):
         """Initialize the device with required commands"""
-        self.send_message([0xf1])
-        time.sleep(0.1)
-        self.send_message([0x80, 0x01, 0x00])
+        with self._tx_lock:
+            self.send_message([0xf1])
+            time.sleep(0.1)
+            self.send_message([0x80, 0x01, 0x00])
 
     def send_message(self, message):
         """Send a message to the device"""
         telegram = [0x60, len(message)] + list(message) + [0x61]
         logger.debug("Sending: %s", " ".join([f"{x:02X}" for x in telegram]))
-        self.dev.write(self.EP_OUT, telegram, 0)
+        with self._tx_lock:
+            dev = self.dev
+            if dev is None:
+                raise RuntimeError("PC2 device not connected")
+            dev.write(self.EP_OUT, telegram, 0)
 
     def set_address_filter(self):
         """Claim the Audio Master identity on the ML bus.
@@ -458,9 +479,11 @@ class PC2Device:
             self._log_ml_telegram(message)
         elif msg_type is not None:
             hex_str = " ".join(f"{b:02X}" for b in message[:32])
-            logger.info("Unknown USB message [type=0x%02X]: %s%s",
-                        msg_type, hex_str,
-                        "…" if len(message) > 32 else "")
+            level = logging.DEBUG if msg_type in self._unknown_usb_seen else logging.INFO
+            self._unknown_usb_seen.add(msg_type)
+            logger.log(level, "Unknown USB message [type=0x%02X]: %s%s",
+                       msg_type, hex_str,
+                       "…" if len(message) > 32 else "")
 
     def _sender_loop_wrapper(self):
         """Wrapper to run the async sender loop in its own thread"""
@@ -969,20 +992,21 @@ class PC2Device:
         libpc2: "I have observed the PC2 crashing very hard if this is fudged."
         Power on: 0xEA 0xFF then unmute.  Power off: mute then 0xEA 0x00.
         """
-        if on:
-            self.send_message([0xea, 0xFF])
-            time.sleep(0.05)
-            self.send_message([0xea, 0x81])  # unmute
-            self.mixer_state['speakers_on'] = True
-            self.mixer_state['muted'] = False
-            logger.info("Speakers powered ON")
-        else:
-            self.send_message([0xea, 0x80])  # mute first
-            time.sleep(0.05)
-            self.send_message([0xea, 0x00])
-            self.mixer_state['speakers_on'] = False
-            self.mixer_state['muted'] = True
-            logger.info("Speakers powered OFF")
+        with self._tx_lock:
+            if on:
+                self.send_message([0xea, 0xFF])
+                time.sleep(0.05)
+                self.send_message([0xea, 0x81])  # unmute
+                self.mixer_state['speakers_on'] = True
+                self.mixer_state['muted'] = False
+                logger.info("Speakers powered ON")
+            else:
+                self.send_message([0xea, 0x80])  # mute first
+                time.sleep(0.05)
+                self.send_message([0xea, 0x00])
+                self.mixer_state['speakers_on'] = False
+                self.mixer_state['muted'] = True
+                logger.info("Speakers powered OFF")
 
     def speaker_mute(self, muted):
         """Mute or unmute speakers."""
@@ -1028,9 +1052,10 @@ class PC2Device:
         else:
             locally = 0x00
 
-        self.send_message([0xe7, muted_byte])
-        time.sleep(0.02)
-        self.send_message([0xe5, locally, dist_byte, 0x00, muted_byte])
+        with self._tx_lock:
+            self.send_message([0xe7, muted_byte])
+            time.sleep(0.02)
+            self.send_message([0xe5, locally, dist_byte, 0x00, muted_byte])
 
         self.mixer_state['local'] = local
         self.mixer_state['distribute'] = distribute
@@ -1061,26 +1086,28 @@ class PC2Device:
             volume = VOL_DEFAULT
         volume = max(0, min(VOL_MAX, volume))
 
-        self.activate_source()
-        time.sleep(0.1)
-        # Ask the role whether to also drive audio onto the ML bus.  Master
-        # role says yes when a link device has been seen; provider/link say
-        # no (their audio paths are handled separately).
-        wants = getattr(self._role, 'wants_distribute', None)
-        distribute = bool(wants and wants())
-        self.set_routing(local=True, distribute=distribute)
-        time.sleep(0.1)
-        self.speaker_power(True)
-        time.sleep(0.05)
-        self.set_parameters(volume)
-        time.sleep(0.1)
+        with self._tx_lock:
+            self.activate_source()
+            time.sleep(0.1)
+            # Ask the role whether to also drive audio onto the ML bus.  Master
+            # role says yes when a link device has been seen; provider/link say
+            # no (their audio paths are handled separately).
+            wants = getattr(self._role, 'wants_distribute', None)
+            distribute = bool(wants and wants())
+            self.set_routing(local=True, distribute=distribute)
+            time.sleep(0.1)
+            self.speaker_power(True)
+            time.sleep(0.05)
+            self.set_parameters(volume)
+            time.sleep(0.1)
         logger.info("Audio ON at volume %d", volume)
 
     def audio_off(self):
         """Power off: route off → power off."""
-        self.set_routing(local=False, distribute=False, from_ml=False)
-        time.sleep(0.05)
-        self.speaker_power(False)
+        with self._tx_lock:
+            self.set_routing(local=False, distribute=False, from_ml=False)
+            time.sleep(0.05)
+            self.speaker_power(False)
         self.mixer_state['volume'] = 0
         logger.info("Audio OFF")
 
@@ -1443,6 +1470,32 @@ class PC2Device:
             {'ok': True, 'source_byte': source_byte,
              'master_node_id': self._role.master_node_id})
 
+    async def _handle_ml_standby(self, request):
+        """POST /ml/standby — broadcast STANDBY to all link devices.
+
+        Used for "all standby": long-press on the BS5c power button and
+        the Beo4 ALL-off key both route here via the router.  Telegram
+        shape (COMMAND/STANDBY, empty payload, broadcast to
+        ALL_LINK_DEVICES) follows community captures — like /ml/send,
+        confirm against a sniffer when validating on new hardware.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, self.send_ml_telegram,
+                0x83,                 # ALL_LINK_DEVICES
+                self.OUR_NODE_ID,
+                0x0A,                 # COMMAND
+                0x10,                 # STANDBY
+                1,
+                [],
+            )
+            logger.info("ML all-standby broadcast sent")
+            return web.json_response({'ok': True})
+        except Exception as e:
+            logger.error("ML all-standby TX failed: %s", e)
+            return web.json_response({'ok': False, 'error': str(e)}, status=500)
+
     async def _handle_ml_send(self, request):
         """POST /ml/send — raw ML telegram TX for experimentation.
 
@@ -1494,6 +1547,7 @@ class PC2Device:
         app.router.add_get('/mixer/tone', self._handle_mixer_tone)
         app.router.add_post('/mixer/tone', self._handle_mixer_tone)
         app.router.add_post('/ml/send', self._handle_ml_send)
+        app.router.add_post('/ml/standby', self._handle_ml_standby)
         app.router.add_post('/link/source', self._handle_link_source)
         runner = web.AppRunner(app)
         await runner.setup()

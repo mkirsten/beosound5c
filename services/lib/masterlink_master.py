@@ -15,6 +15,17 @@
 # as Beo4 keycode 0x53 over the IR/RF channel (USB msg type 0x02), not
 # as an ML telegram — mapped in masterlink.py:process_beo4_keycode.
 #
+# Cold-idle exception: the BL2000 panel's PLAY button only emits Beo4
+# 0x53 once an ML session has been engaged on the master.  In a fully
+# idle state — no GOTO_SOURCE has happened yet, no source playing —
+# pressing PLAY produces nothing on the bus.  We work around this with
+# a wake-on-link-activity heuristic (_maybe_wake_on_link_activity):
+# the first ML telegram from a link node after a >60 s quiet period
+# triggers a synthetic ``go`` toward the router, which routes to "start
+# default source" via its existing 1b2/1b3 fallbacks.  Skipped when the
+# router reports something is already playing, so a BL2000 power-on
+# does not pause music in another room.
+#
 # Boilerplate telegram shapes are derived from libpc2 (GPL-3.0) by
 # Tore Sinding Bekkedal — see https://github.com/toresbe/libpc2,
 # masterlink/telegram.cpp and masterlink/masterlink.cpp.  GPL-3.0-or-later
@@ -24,6 +35,9 @@ import asyncio
 import logging
 import time
 
+import aiohttp
+
+from lib.endpoints import ROUTER_STATUS
 from lib.masterlink_common import ML_BEO4_TRANSPORT_ACTIONS, forward_to_router
 
 logger = logging.getLogger('beo-masterlink')
@@ -67,6 +81,22 @@ LINK_PRESENCE_WINDOW = 300.0  # seconds
 # value; 60 s matches what real B&O masters do in casual sniffs.
 CLOCK_BROADCAST_INTERVAL = 60.0
 
+# Wake-on-link-activity tuning.  The BL2000 panel's PLAY button only
+# emits Beo4 0x53 once an ML session is engaged, so PLAY-from-cold-idle
+# is silently dropped on the bus.  We work around it by treating the
+# first ML telegram from a link node after a quiet period as a panel-
+# wake event and forwarding ``go`` to the router (which the router
+# already handles correctly: idle → activate default, paused → resume,
+# playing → pause).
+#
+# QUIET threshold: how long a link node must have been silent before
+# its next telegram counts as "user just touched the panel".  Periodic
+# heartbeat polls keep the timestamp fresh, so they don't trigger.
+# DEDUP window: don't re-fire wake within this many seconds of a prior
+# fire, even if the link goes quiet and back again.
+LINK_WAKE_QUIET_THRESHOLD = 60.0
+LINK_WAKE_DEDUP_WINDOW = 30.0
+
 
 class MasterRole:
     """BS5c-as-audio-master — handles MASTER_PRESENT / AUDIO_BUS / GOTO_SOURCE
@@ -80,6 +110,13 @@ class MasterRole:
         # replies name this so a link device knows what's playing without
         # having to wait for a fresh STATUS_INFO broadcast.
         self._active_source_byte = None
+        # Per-link-node timestamp of last incoming telegram.  Used by
+        # _maybe_wake_on_link_activity to detect "first telegram after a
+        # quiet period" as a panel-wake trigger — the BL2000's panel
+        # PLAY button doesn't reach the bus until a session is engaged,
+        # so we use the wake-up signature itself as a proxy.
+        self._link_telegram_at: dict[int, float] = {}
+        self._last_wake_fired = 0.0  # monotonic; 0 = never
 
     # ── lifecycle ─────────────────────────────────────────────────────
 
@@ -103,6 +140,27 @@ class MasterRole:
     def handle_telegram(self, ttype, ptype, src_node, dest_node,
                         src_src, payload):
         """Called from PC2Device._dispatch_ml when role == 'master'."""
+
+        # STANDBY (0x10) from the link side — e.g. Beo4 ALL-off pressed in
+        # a link room, or a link device commanding standby.  Follow it
+        # locally.  Handled BEFORE wake detection so a standby arriving
+        # after a quiet period can't be misread as a panel wake (which
+        # would start music instead of stopping it).
+        if ptype == 0x10:
+            if src_node not in (0x80, 0x81, 0x83):
+                # Still counts as bus activity for the wake tracker.
+                self._link_telegram_at[src_node] = time.monotonic()
+            logger.info("ML STANDBY from %s — going to standby",
+                        self.pc2.node_label(src_node))
+            self._forward_router(src_node, "off", label="ML standby")
+            return
+
+        # Panel-wake detection.  Runs before per-payload handlers so a
+        # quiet→active transition fires regardless of which telegram
+        # type carries the wake (BL2000 has been observed leading with
+        # MASTER_PRESENT, AUDIO_BUS, or REQUEST_LOCAL_SOURCE depending
+        # on its internal state).  No-op for broadcast addresses.
+        self._maybe_wake_on_link_activity(src_node)
 
         # REQUEST / MASTER_PRESENT — "is there an audio master here?"
         if ttype == 0x0B and ptype == 0x04:
@@ -183,6 +241,81 @@ class MasterRole:
         if src_node in (0x80, 0x81, 0x83):
             return  # broadcast addresses, not real devices
         self._last_link_seen = time.monotonic()
+
+    # ── wake-on-link-activity ─────────────────────────────────────────
+
+    def _maybe_wake_on_link_activity(self, src_node):
+        """First telegram from a link node after a quiet period → forward
+        ``go`` to the router as a synthetic PLAY.
+
+        The BL2000 panel's PLAY button only emits Beo4 0x53 once an ML
+        session is engaged, so PLAY-from-cold-idle disappears.  Touching
+        the panel (or coming out of standby) does cause the BL2000 to
+        send ML telegrams though, and we use that quiet→active edge as a
+        substitute trigger.
+
+        ``go`` is forwarded rather than ``activate``/``play`` because
+        the router already does the right thing for every state on a
+        ``go`` press: idle → activate default, paused → resume, playing
+        → pause.  That matches the user-facing "play = start if idle,
+        pause if playing" semantics they expect from a panel PLAY.
+        """
+        if src_node in (0x80, 0x81, 0x83):
+            return  # broadcast addresses, not real devices
+        now = time.monotonic()
+        prev = self._link_telegram_at.get(src_node, 0.0)
+        was_quiet = (now - prev) > LINK_WAKE_QUIET_THRESHOLD
+        self._link_telegram_at[src_node] = now
+        if not was_quiet:
+            return
+        if (now - self._last_wake_fired) < LINK_WAKE_DEDUP_WINDOW:
+            return
+        if not (self.pc2.session and self.pc2.loop):
+            logger.debug("Link wake: session/loop not ready, dropping")
+            return
+        self._last_wake_fired = now
+        asyncio.run_coroutine_threadsafe(
+            self._wake_if_router_idle(src_node), self.pc2.loop)
+
+    async def _wake_if_router_idle(self, src_node):
+        """Async helper for _maybe_wake_on_link_activity.
+
+        Queries the router's status and only forwards ``go`` when nothing
+        is currently playing locally — otherwise a link wake would
+        clobber audio in a different room (e.g., user walks into the
+        BL2000 room and powers the speaker on while music plays at the
+        master).  A paused source still gets the wake (router will
+        resume it), and a fully idle master gets the default-source
+        activation path.
+        """
+        try:
+            async with self.pc2.session.get(
+                ROUTER_STATUS,
+                timeout=aiohttp.ClientTimeout(total=0.5),
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug("Link wake: router status HTTP %d, skipping",
+                                 resp.status)
+                    return
+                data = await resp.json()
+        except Exception as e:
+            logger.debug("Link wake: router unreachable (%s), skipping", e)
+            return
+        active_id = data.get("active_source")
+        if active_id:
+            sources = data.get("sources", {})
+            state = sources.get(active_id, {}).get("state")
+            if state == "playing":
+                logger.info("Link wake: 0x%02X panel touch, but %s is "
+                            "already playing — skipping",
+                            src_node, active_id)
+                return
+        link_name = self.pc2.node_label(src_node)
+        logger.info("Link wake: 0x%02X panel touch, router idle/paused — "
+                    "forwarding 'go'", src_node)
+        await forward_to_router(self.pc2.session, source="masterlink",
+                                action="go", device_type="Audio",
+                                link=link_name)
 
     # ── master replies ────────────────────────────────────────────────
 

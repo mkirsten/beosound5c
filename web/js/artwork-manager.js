@@ -89,6 +89,10 @@ const ArtworkManager = {
             }, fadeInDelay);
         };
 
+        // Remember the most recent request for this element — sync paths
+        // update it too, so any older in-flight async load bails out.
+        imgElement._artworkToken = artworkUrl;
+
         // No artwork URL - show placeholder
         if (!artworkUrl) {
             const placeholder = placeholders[placeholderType] || placeholders.noArtwork;
@@ -109,14 +113,18 @@ const ArtworkManager = {
             return;
         }
 
-        // Preload and cache for future use
+        // Preload and cache for future use.  The token guard means a slow
+        // load that resolves AFTER a newer track's artwork was applied
+        // can't overwrite it (fast skips: track A's late resolve/reject
+        // must not clobber track B's art).
         this.preloadImage(artworkUrl)
             .then(img => {
-                if (img) {
+                if (img && imgElement._artworkToken === artworkUrl) {
                     fadeIn(img.src);
                 }
             })
             .catch(error => {
+                if (imgElement._artworkToken !== artworkUrl) return;
                 console.error('Error loading artwork:', error.message);
                 if (error.message.includes('0 bytes')) {
                     console.warn('Home Assistant media player proxy returned 0 bytes - this is a known issue with Sonos artwork URLs');

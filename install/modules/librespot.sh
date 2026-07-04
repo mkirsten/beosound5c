@@ -26,8 +26,10 @@ install_librespot() {
     # Download if not installed or wrong version
     local NEEDS_INSTALL=true
     if [ -x "$LIBRESPOT_BINARY" ]; then
+        # go-librespot has no --version flag; with no args it starts the daemon
+        # and never exits, so we capture its startup log line under a timeout.
         local CURRENT_VERSION
-        CURRENT_VERSION=$("$LIBRESPOT_BINARY" 2>&1 | grep -oP 'go-librespot \K[0-9.]+' || echo "")
+        CURRENT_VERSION=$(timeout 2 "$LIBRESPOT_BINARY" 2>&1 | grep -oP 'go-librespot \K[0-9.]+' | head -1 || echo "")
         if [ "$CURRENT_VERSION" = "$LIBRESPOT_VERSION" ]; then
             log_info "go-librespot $LIBRESPOT_VERSION already installed"
             NEEDS_INSTALL=false

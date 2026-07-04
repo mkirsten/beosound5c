@@ -6,8 +6,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SPLASH_IMAGE="${SCRIPT_DIR}/../plymouth/splashscreen-red.png"
 export SPLASH_IMAGE  # Export for xinit subshell
 
-# Clean shutdown on SIGTERM/SIGINT — kill entire process group
-trap 'kill 0; wait; exit 0' SIGTERM SIGINT
+# Fast shutdown on SIGTERM/SIGINT — Chromium kiosk has no state to flush,
+# and `kill 0; wait` used to hang the cron-restart until systemd's
+# TimeoutStopSec expired and SIGKILLed the cgroup anyway.  Kill X/xinit/
+# Chromium by name first: Xorg setsid()s and Chromium spawns its own
+# process groups, so a group-kill alone leaves them alive and systemd
+# still waits out TimeoutStopSec (unit ends "failed (timeout)").  The
+# final group-kill takes down this shell itself — SuccessExitStatus=KILL
+# in beo-ui.service marks that as a clean exit.
+trap 'pkill -KILL -f chromium 2>/dev/null; pkill -KILL xinit 2>/dev/null; pkill -KILL Xorg 2>/dev/null; kill -KILL 0 2>/dev/null; exit 0' SIGTERM SIGINT
 
 # Kill potential conflicting X instances
 sudo pkill X || true
@@ -80,6 +87,12 @@ fi
 # xinit exits when its client (bash) exits, so any clean exit from the inner
 # script (Chromium crash loop) lands here. We sleep briefly and try again.
 # The VT-failure reboot and SIGTERM shutdown are handled inside the loop.
+#
+# xinit runs in the BACKGROUND with a `wait` — bash defers trap execution
+# until a foreground command completes, so with xinit in the foreground
+# the SIGTERM trap above never ran and every stop waited out systemd's
+# TimeoutStopSec before being SIGKILLed.  `wait` is interruptible, so
+# backgrounding is what actually makes the fast-shutdown trap work.
 while true; do
 xinit /bin/bash -c '
 
@@ -114,6 +127,43 @@ xinit /bin/bash -c '
   log() {
     echo "[$(date "+%Y-%m-%d %H:%M:%S")] $*"
   }
+
+  # Honor the pre-restart screen state.  X always re-enables HDMI on
+  # session start, but if beo-input had backlight off (e.g. HA fired
+  # screen_off before our nightly cron-restart), turn HDMI back off so
+  # the user does not see a 10-minute window of lit screen at 03:00.
+  (
+    sleep 2  # wait for X to settle and beo-input HTTP to be reachable
+    SCREEN_STATE=$(curl -s --max-time 1 http://localhost:8767/health 2>/dev/null \
+      | grep -oE "\"screen\"\\s*:\\s*\"(on|off)\"" \
+      | grep -oE "(on|off)$")
+    if [ "$SCREEN_STATE" = "off" ]; then
+      log "beo-input reports screen=off — re-applying xrandr --off"
+      xrandr --output HDMI-1 --off 2>/dev/null
+    fi
+  ) &
+
+  # Resolution watchdog — HDMI sometimes renegotiates to the lowest mode
+  # (typically 320x200) after a power cycle or display sleep, leaving the
+  # UI rendered into a tiny viewport. Check every 30s; if HDMI-1 is on
+  # but not at 1024x768, force the mode and kick Chromium so it re-lays
+  # out. Skips when beo-input has the output deliberately --off.
+  (
+    while true; do
+      sleep 30
+      HDMI_LINE=$(xrandr --query 2>/dev/null | grep "^HDMI-1 ")
+      # Skip if output is intentionally off (no "WxH+X+Y" geometry).
+      echo "$HDMI_LINE" | grep -qE "[0-9]+x[0-9]+\+[0-9]+\+[0-9]+" || continue
+      # Skip if already at 1024x768.
+      echo "$HDMI_LINE" | grep -q " 1024x768+" && continue
+      CURRENT=$(echo "$HDMI_LINE" | grep -oE "[0-9]+x[0-9]+\+[0-9]+\+[0-9]+" | head -1)
+      log "Resolution watchdog: HDMI-1 at $CURRENT, forcing 1024x768"
+      if xrandr --output HDMI-1 --mode 1024x768 --rate 60 2>/dev/null; then
+        sleep 1
+        pkill -9 chromium 2>/dev/null
+      fi
+    done
+  ) &
 
   # Stop crash recovery loop on SIGTERM
   STOPPING=0
@@ -204,7 +254,17 @@ xinit /bin/bash -c '
     CHROMIUM_BIN="/usr/bin/chromium-browser"
     [ -x "$CHROMIUM_BIN" ] || CHROMIUM_BIN="/usr/bin/chromium"
 
-    "$CHROMIUM_BIN" \
+    # Wrap in dbus-run-session so Chromium has a session bus to talk to.
+    # Without this, on trixie+ Chromium spams the journal every ~33s with
+    # "Failed to connect to the bus: Could not parse server address"
+    # from its GCM/notification subsystems.  No-op if dbus-run-session
+    # is missing (older Debian, dev hosts).
+    DBUS_WRAP=()
+    if command -v dbus-run-session &>/dev/null; then
+      DBUS_WRAP=(dbus-run-session --)
+    fi
+
+    "${DBUS_WRAP[@]}" "$CHROMIUM_BIN" \
       --user-data-dir="$CHROMIUM_DATA_DIR" \
       --force-dark-mode \
       --enable-features=WebUIDarkMode \
@@ -279,7 +339,8 @@ xinit /bin/bash -c '
 
     log "Restarting Chromium..."
   done
-' -- :0 vt7
+' -- :0 vt7 &
+  wait $!
 
   # ── Post-xinit check (inside outer restart loop) ──
   # Reboot if Xorg failed to claim the VT — that state can only be cleared by reboot.

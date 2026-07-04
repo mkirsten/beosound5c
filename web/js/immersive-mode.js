@@ -360,6 +360,9 @@
                         eagerEntryArmedTimer = null;
                     }
                     setTimeout(() => {
+                        // User may have wheeled away during the delay —
+                        // hiding the menu on a normal view would strand it.
+                        if (uiStore.currentRoute !== 'menu/playing') return;
                         ensureOverlay();
                         uiStore.setMenuVisible(false);
                         animatedEnter();
@@ -387,6 +390,9 @@
             // Media state may not be loaded yet — check periodically
             let startupChecks = 0;
             const startupCheck = () => {
+                // Stop polling if the user navigated away during startup —
+                // entering immersive here would hide the menu on a normal view.
+                if (uiStore.currentRoute !== 'menu/playing') return;
                 if (isPlaying() && !isPartiallyImmersive()) {
                     ensureOverlay();
                     uiStore.setMenuVisible(false);

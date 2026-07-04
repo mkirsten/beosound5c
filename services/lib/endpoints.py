@@ -79,6 +79,11 @@ ROUTER_VOLUME_REPORT = f"{_ROUTER_BASE}/volume/report"
 ROUTER_PLAYBACK_OVERRIDE = f"{_ROUTER_BASE}/playback_override"
 ROUTER_OUTPUT_ON = f"{_ROUTER_BASE}/output/on"
 ROUTER_OUTPUT_OFF = f"{_ROUTER_BASE}/output/off"
+ROUTER_TOUCH = f"{_ROUTER_BASE}/touch"
+ROUTER_STATUS = f"{_ROUTER_BASE}/status"
+
+# beo-masterlink mixer HTTP API (only present on devices with a PC2 card)
+MIXER_ML_STANDBY = "http://localhost:8768/ml/standby"
 
 
 # ── Per-source command endpoints used by lydbro ────────────────────────

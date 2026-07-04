@@ -11,6 +11,7 @@ window.JoinView = (() => {
 
     // ── State ──
     let menuActive = false;
+    let mountGen = 0;   // increments per init(); suspended stale inits bail
     let devices = [];
     let isGrouped = false;
     let defaultPlayer = null;  // from config (fetched once)
@@ -62,6 +63,11 @@ window.JoinView = (() => {
         if (!document.getElementById('join-view')) return;
         resetState();
         menuActive = true;
+        // Mount generation: an older init() suspended at an await and
+        // resuming after a remount passes the shared menuActive check and
+        // would arm a second poll interval that leaks for the life of the
+        // parent shell.
+        const gen = ++mountGen;
 
         // Fetch default_player from config (once)
         if (defaultPlayer === null) {
@@ -81,6 +87,8 @@ window.JoinView = (() => {
                 defaultPlayer = '';
             }
         }
+
+        if (gen !== mountGen || !menuActive) return;  // superseded during config fetch
 
         // Cached-first render: if we have a previous snapshot, draw it
         // immediately so the view isn't blank while the network fetch
@@ -108,7 +116,7 @@ window.JoinView = (() => {
             } catch (e) {
                 console.warn('[JOIN] Network fetch failed:', e);
             }
-            if (!menuActive) return;  // destroyed while fetching
+            if (gen !== mountGen || !menuActive) return;  // destroyed/remounted while fetching
             loading = false;
 
             if (devices.length === 0) {
@@ -121,6 +129,8 @@ window.JoinView = (() => {
         }
 
         // Poll for changes while view is open
+        if (gen !== mountGen) return;  // a newer init owns the poll now
+        if (pollTimer) clearInterval(pollTimer);
         pollTimer = setInterval(refreshDevices, POLL_INTERVAL);
     }
 

@@ -103,6 +103,8 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
         "up": "next",
         "down": "prev",
         "stop": "stop",
+        # Beo4 RANDOM key (0xC1) toggles shuffle while Spotify is active
+        "random": "shuffle",
         "0": "digit", "1": "digit", "2": "digit",
         "3": "digit", "4": "digit", "5": "digit",
         "6": "digit", "7": "digit", "8": "digit",
@@ -135,6 +137,7 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
         self._last_refresh_duration = None  # seconds the last refresh took
         self._display_name = None  # Spotify display name from /v1/me
         self._canvas = SpotifyCanvasClient()  # reads SPOTIFY_SP_DC from env
+        self._shuffle_on = False  # our view of the player's shuffle state
 
     async def on_start(self):
         # Load credentials (may fail — setup flow will handle it)
@@ -329,11 +332,14 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
             'playlist_count': len(self.playlists),
             'has_credentials': self.auth.is_configured,
             'needs_reauth': self.auth.revoked,
+            'reauth_recommended': self.auth.reauth_recommended,
+            'auth_age_days': self.auth.auth_age_days,
             'display_name': self._display_name,
             'last_refresh': self._last_refresh_wall.isoformat() if self._last_refresh_wall else None,
             'last_refresh_duration': self._last_refresh_duration,
             'digit_playlists': self._get_digit_names(),
             'fetching': self._fetching_playlists,
+            'shuffle': self._shuffle_on,
         }
 
     async def handle_resync(self) -> dict:
@@ -540,6 +546,18 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
             uri = data.get('uri', '')
             await self._play_track(uri, action_ts=action_ts)
 
+        elif cmd == 'shuffle':
+            target = not self._shuffle_on
+            if await self.player_set_shuffle(target):
+                self._shuffle_on = target
+                log.info("Shuffle toggled %s", "on" if target else "off")
+            else:
+                log.warning("Player does not support shuffle (or not active)")
+
+        elif cmd == 'play_track_radio':
+            uri = data.get('uri') or data.get('track_uri') or ''
+            await self._play_track_radio(uri, action_ts=action_ts)
+
         elif cmd == 'play_index':
             index = data.get('index', 0)
             if self._last_playlist_id:
@@ -669,6 +687,26 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
         if not ok:
             log.error("Player service failed to start track")
 
+    async def _play_track_radio(self, track_uri, action_ts=None):
+        """Start track radio seeded by *track_uri*.
+
+        Sonos uses an SMAPI station container URI; the local player passes
+        ``spotify:station:track:<id>`` to go-librespot. Both paths go via
+        player_play_track_radio — the player decides per its capabilities.
+        """
+        if not track_uri or "spotify:track:" not in track_uri:
+            log.warning("play_track_radio: invalid track_uri %r", track_uri)
+            return
+        log.info("Play track radio seeded by %s", track_uri)
+        self.state = "playing"
+        self._last_track_uri = track_uri
+        self._track_gen += 1
+        await self.register("playing", auto_power=True)
+        self._start_polling()
+        ok = await self.player_play_track_radio(track_uri, action_ts=action_ts)
+        if not ok:
+            log.error("Player service failed to start track radio")
+
     async def get_queue(self, start=0, max_items=50) -> dict:
         """Return tracks from the last played Spotify playlist.
         Used when Spotify+local (source is queue authority for local player)."""
@@ -760,7 +798,15 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
         to independently refresh the PKCE token (which would race and revoke it).
         """
         if self.auth.revoked:
+            # Callers (e.g. _handle_playlists) may have optimistically set
+            # the fetching flag before spawning us — clear it or the UI
+            # reports "loading" forever.
+            self._fetching_playlists = False
             return  # don't bother — token is dead
+        if getattr(self, '_refresh_running', False):
+            log.info("Playlist refresh already running — skipping duplicate")
+            return
+        self._refresh_running = True
         self._fetching_playlists = True
         t0 = time.monotonic()
         try:
@@ -801,11 +847,18 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
                 log.error("fetch.py failed (rc=%d): %s",
                           proc.returncode, err_msg)
         except asyncio.TimeoutError:
-            log.error("Playlist refresh timed out")
+            # wait_for cancels the communicate() await but does NOT kill the
+            # child — an orphan with a full stdout pipe blocks forever and
+            # its late JSON write races the next refresh.  Reap it.
+            log.error("Playlist refresh timed out — killing fetch subprocess")
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
         except Exception as e:
             log.error("Playlist refresh failed: %s", e)
         finally:
             self._fetching_playlists = False
+            self._refresh_running = False
 
     async def _delayed_refresh(self, delay):
         """Refresh playlists after a delay. Used on startup and after OAuth."""
@@ -1165,13 +1218,21 @@ label{{display:block;margin-top:12px;color:#666;font-size:13px;text-transform:up
                 missing = missing_scopes(granted_scope, SPOTIFY_SCOPES)
                 if missing:
                     log.warning("OAuth: user did not grant %s — some "
-                                "features will be unavailable until re-auth",
+                                "features will be unavailable. Fix: revoke "
+                                "at https://www.spotify.com/account/apps, "
+                                "then re-auth via /setup",
                                 missing)
 
-            # Save tokens — try file first, fall back to in-memory only
+            # Save tokens — try file first, fall back to in-memory only.
+            # authorized_at anchors Spotify's 6-month refresh-token expiry
+            # window, which runs from this original grant (not from
+            # subsequent rotations).
+            authorized_at = time.time()
             try:
                 await loop.run_in_executor(
-                    None, save_tokens, client_id, rt, granted_scope)
+                    None, lambda: save_tokens(
+                        client_id, rt, scope=granted_scope,
+                        authorized_at=authorized_at))
                 log.info("OAuth: tokens saved to disk")
             except Exception as e:
                 log.warning("OAuth: could not save tokens to disk (%s) — using in-memory", e)
@@ -1181,7 +1242,8 @@ label{{display:block;margin-top:12px;color:#666;font-size:13px;text-transform:up
                 client_id, rt,
                 access_token=token_data.get('access_token'),
                 expires_in=token_data.get('expires_in', 3600),
-                scope=granted_scope)
+                scope=granted_scope,
+                authorized_at=authorized_at)
             self._detect_player()
 
             # Register as available now that we have credentials

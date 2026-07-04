@@ -56,6 +56,11 @@ class USBService(SourceBase):
         "right": "next",
         "left": "prev",
         "stop": "stop",
+        # Album skip on the Beo4 colour keys (BM5 library only) — claimed
+        # only while USB is the active source, so no clash with radio's
+        # favourite bindings on other sources.
+        "green": "next_album",
+        "yellow": "prev_album",
     }
 
     def __init__(self):
@@ -189,30 +194,50 @@ class USBService(SourceBase):
     # -- USB hot-plug detection --
 
     async def _watch_hotplug(self):
-        """Watch for USB block device add/remove events via udevadm."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                'udevadm', 'monitor', '--subsystem-match=block', '--udev',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            async for line in proc.stdout:
-                text = line.decode(errors='replace')
-                if ' add ' in text or ' remove ' in text:
-                    # Debounce — USB devices emit multiple events rapidly
-                    if self._rescan_task and not self._rescan_task.done():
-                        self._rescan_task.cancel()
-                    self._rescan_task = asyncio.create_task(
-                        self._rescan_after_delay())
-        except asyncio.CancelledError:
-            if proc.returncode is None:
-                proc.terminate()
-        except Exception as e:
-            log.warning("USB hotplug watcher failed: %s", e)
+        """Watch for USB block device add/remove events via udevadm.
+
+        Respawns udevadm if it exits (udev restart during a system update
+        would otherwise silently kill hot-plug detection for good).
+        """
+        while True:
+            proc = None
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    'udevadm', 'monitor', '--subsystem-match=block', '--udev',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                async for line in proc.stdout:
+                    text = line.decode(errors='replace')
+                    if ' add ' in text or ' remove ' in text:
+                        # Debounce — USB devices emit multiple events rapidly
+                        if self._rescan_task and not self._rescan_task.done():
+                            self._rescan_task.cancel()
+                        self._rescan_task = asyncio.create_task(
+                            self._rescan_after_delay())
+                log.warning("udevadm monitor exited — respawning in 10s")
+            except asyncio.CancelledError:
+                if proc and proc.returncode is None:
+                    proc.terminate()
+                raise
+            except Exception as e:
+                log.warning("USB hotplug watcher failed: %s — respawning in 10s", e)
+            await asyncio.sleep(10)
 
     async def _rescan_after_delay(self):
         """Wait for udev events to settle, then rescan mounts."""
         await asyncio.sleep(3)
+        try:
+            await self._do_rescan()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # A failed rescan must not leave the exception unobserved (the
+            # task is fire-and-forget) — availability will be corrected by
+            # the next hot-plug event.
+            log.error("USB rescan failed: %s", e)
+
+    async def _do_rescan(self):
         was_available = self.mount_manager.available if self.mount_manager else False
 
         # Close existing BM5 databases before rescan
@@ -363,6 +388,14 @@ class USBService(SourceBase):
             await self.register('available')
             await self._broadcast_update()
 
+        elif cmd == 'next_album':
+            if not await self._album_skip(+1):
+                return {'status': 'error', 'message': 'Album skip unavailable'}
+
+        elif cmd == 'prev_album':
+            if not await self._album_skip(-1):
+                return {'status': 'error', 'message': 'Album skip unavailable'}
+
         elif cmd == 'toggle_shuffle':
             self._player.toggle_shuffle()
             await self._broadcast_update()
@@ -435,6 +468,10 @@ class USBService(SourceBase):
                 album_artist=album_tracks[0]['album_artist'] or '',
             )
             if not await self.remote_player.play_track(start_index):
+                # We already registered as playing (pre-broadcast above
+                # stops the previous source and powers speakers) — roll
+                # back so the router doesn't show USB playing nothing.
+                await self.register('available')
                 return False
         else:
             file_paths = [t['file_path'] for t in tracks_meta if t['file_path']]
@@ -446,6 +483,36 @@ class USBService(SourceBase):
             await self.file_player.play_track(start_index)
 
         return True
+
+    async def _album_skip(self, direction):
+        """Jump to the first track of the next/previous album (BM5 only).
+
+        Album order matches the browse view (normalized title).  Wraps
+        around at either end.  Returns False when there's no BM5 library
+        or no current album context (plain-folder playback).
+        """
+        album_id = (self._current_track_meta or {}).get('album_id')
+        mount_idx = self._current_mount_idx
+        bm5 = self._get_bm5(mount_idx)
+        if not bm5 or not album_id:
+            log.info("Album skip: no BM5 album context")
+            return False
+        try:
+            albums = bm5.browse("albums").get("items", [])
+        except Exception as e:
+            log.warning("Album skip: browse failed: %s", e)
+            return False
+        ids = [a.get("id") for a in albums]
+        if album_id not in ids:
+            log.info("Album skip: current album %s not in library list", album_id)
+            return False
+        target = ids[(ids.index(album_id) + direction) % len(ids)]
+        log.info("Album skip %+d: %s -> %s", direction, album_id, target)
+        if await self._play_bm5_album(target, mount_idx):
+            await self.register('playing', auto_power=True)
+            await self._broadcast_update()
+            return True
+        return False
 
     async def _play_bm5_album(self, album_id, mount_idx):
         """Play an entire album from track 1."""

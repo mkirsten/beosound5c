@@ -31,6 +31,11 @@ class VolumeAdapter(ABC):
         self._debounce_handle: asyncio.TimerHandle | None = None
         self._flush_task: asyncio.Task | None = None
         self._debounce_ms = debounce_ms
+        # Serializes flushes: adapters allow multi-second HTTP timeouts, so
+        # without this two in-flight _apply_volume calls (rapid wheel turns
+        # + a laggy speaker) can complete in reverse order, leaving the
+        # hardware at the OLDER volume while the UI shows the newer one.
+        self._flush_lock = asyncio.Lock()
 
     # -- Volume (debounced) --
 
@@ -57,13 +62,17 @@ class VolumeAdapter(ABC):
             log.exception("Volume adapter flush failed: %s", e)
 
     async def _do_flush(self):
-        """Send the pending volume to hardware."""
-        vol = self._pending_volume
-        if vol is None:
-            return
-        self._pending_volume = None
-        self._debounce_handle = None
-        await self._apply_volume(vol)
+        """Send the pending volume to hardware (serialized, latest wins)."""
+        async with self._flush_lock:
+            # Re-read under the lock: while we waited for an in-flight
+            # apply, a newer set_volume may have queued a fresher value —
+            # sending that one collapses the queue to latest-wins.
+            vol = self._pending_volume
+            if vol is None:
+                return
+            self._pending_volume = None
+            self._debounce_handle = None
+            await self._apply_volume(vol)
 
     @abstractmethod
     async def _apply_volume(self, volume: float) -> None:

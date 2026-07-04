@@ -201,6 +201,16 @@ class PlayerBase:
     async def stop(self) -> bool:
         raise NotImplementedError
 
+    async def set_shuffle(self, enabled: bool) -> bool:
+        """Enable/disable shuffle on the player. Override in subclasses
+        that support it; default is no-op."""
+        return False
+
+    async def play_track_radio(self, track_uri) -> bool:
+        """Start a radio station seeded by *track_uri* (e.g. Spotify track
+        radio). Override in subclasses that support it; default is no-op."""
+        return False
+
     async def get_state(self) -> str:
         """Return "playing", "paused", or "stopped"."""
         return self._current_playback_state or "stopped"
@@ -349,6 +359,8 @@ class PlayerBase:
         app.router.add_get("/player/media", self._handle_media)
         app.router.add_get("/player/queue", self._handle_queue)
         app.router.add_post("/player/play_from_queue", self._handle_play_from_queue)
+        app.router.add_post("/player/play_track_radio", self._handle_play_track_radio)
+        app.router.add_post("/player/shuffle", self._handle_shuffle)
 
         # Let subclass add extra routes
         self.add_routes(app)
@@ -488,6 +500,44 @@ class PlayerBase:
         self._stamp_command()
         return web.json_response(
             {"status": "ok" if ok else "error"},
+            headers=self._cors_headers())
+
+    async def _handle_play_track_radio(self, request: web.Request) -> web.Response:
+        self._stamp_command()
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        action_ts = data.get("action_ts", 0)
+        if action_ts and 0 < self._latest_action_ts - action_ts < 3.0:
+            log.warning("Dropped stale play_track_radio (ts=%.3f < latest=%.3f)",
+                        action_ts, self._latest_action_ts)
+            return web.json_response(
+                {"status": "dropped", "reason": "stale"},
+                headers=self._cors_headers())
+        if action_ts:
+            self._latest_action_ts = action_ts
+        track_uri = data.get("track_uri")
+        if not track_uri:
+            return web.json_response(
+                {"status": "error", "reason": "missing track_uri"},
+                headers=self._cors_headers())
+        ok = await self.play_track_radio(track_uri=track_uri)
+        self._stamp_command()
+        return web.json_response(
+            {"status": "ok" if ok else "error"},
+            headers=self._cors_headers())
+
+    async def _handle_shuffle(self, request: web.Request) -> web.Response:
+        self._stamp_command()
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        enabled = bool(data.get("enabled", False))
+        ok = await self.set_shuffle(enabled)
+        return web.json_response(
+            {"status": "ok" if ok else "error", "shuffle": enabled},
             headers=self._cors_headers())
 
     async def _handle_pause(self, request: web.Request) -> web.Response:

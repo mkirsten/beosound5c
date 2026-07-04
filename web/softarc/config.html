@@ -1722,28 +1722,38 @@ async function saveConfig() {
             const d = await resp.json().catch(() => ({}));
             status.textContent = d.message || 'Save failed';
             status.style.color = '#a44';
+            // The popup has no close button — auto-dismiss so the view
+            // isn't blocked behind a dead full-screen overlay.
+            setTimeout(() => popup.classList.remove('active'), 4000);
         }
     } catch(e) {
         status.textContent = 'Could not reach device';
         status.style.color = '#a44';
+        setTimeout(() => popup.classList.remove('active'), 4000);
     }
 }
 
 function pollReconnect() {
     let attempts = 0;
+    let sawDown = false;
     const status = document.getElementById('restart-status');
     const poll = async () => {
         try {
             const resp = await fetch(API + '/update/check', { signal: AbortSignal.timeout(2000) });
             if (resp.ok) {
                 const data = await resp.json();
-                if (!data.update_in_progress) {
+                // Config-save restarts services but never sets
+                // update_in_progress, so the very first poll would hit the
+                // OLD still-running backend and reload mid-restart into a
+                // Chromium error page.  Require a down→up transition, or
+                // ~20s of stable OKs as the restarted-too-fast fallback.
+                if (!data.update_in_progress && (sawDown || attempts >= 10)) {
                     status.style.color = '#4a4'; status.textContent = 'Done — reloading...';
                     setTimeout(() => location.reload(), 1500);
                     return;
                 }
             }
-        } catch(e) { if (status) status.textContent = 'Waiting for device...'; }
+        } catch(e) { sawDown = true; if (status) status.textContent = 'Waiting for device...'; }
         attempts++;
         if (attempts < 60) setTimeout(poll, 2000);
         else { status.style.color = '#a44'; status.textContent = 'Taking too long — reload manually'; }

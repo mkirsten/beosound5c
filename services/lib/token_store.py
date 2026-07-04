@@ -124,7 +124,22 @@ class TokenStore:
             try:
                 with os.fdopen(fd, "w") as f:
                     f.write(content)
+                    # fsync before the rename: the SD cards run with
+                    # commit=120 (sd-hardening), so without this a power
+                    # cut within ~2 min can leave an empty file — and a
+                    # lost refresh_token means manual re-auth on a
+                    # headless device.
+                    f.flush()
+                    os.fsync(f.fileno())
                 os.replace(tmp, path)
+                try:
+                    dfd = os.open(d, os.O_DIRECTORY)
+                    try:
+                        os.fsync(dfd)
+                    finally:
+                        os.close(dfd)
+                except OSError:
+                    pass  # directory fsync is best-effort (not on all platforms)
                 log.info("Tokens saved to %s", path)
                 return path
             except Exception:

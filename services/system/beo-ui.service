@@ -11,7 +11,16 @@ Group=__USER__
 WorkingDirectory=__HOME__/beosound5c/services
 ExecStart=__HOME__/beosound5c/services/ui.sh
 KillMode=mixed
-TimeoutStopSec=5
+# Chromium kiosk has no state to flush — the nightly cron-restart
+# only ever ended in SIGKILL after waiting out the full TimeoutStopSec.
+# Skip the wait: the inner trap below SIGKILLs the process group
+# immediately on SIGTERM.
+TimeoutStopSec=2
+# The ui.sh trap SIGKILLs its own process group (itself included), so the
+# main process always exits via SIGKILL on stop — that's the intended
+# clean shutdown, not a failure. Without this, every stop/restart marks
+# the unit failed and counts against StartLimitBurst.
+SuccessExitStatus=KILL
 Restart=on-failure
 RestartSec=10
 StartLimitIntervalSec=120
