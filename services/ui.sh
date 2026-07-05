@@ -39,7 +39,12 @@ else
 fi
 
 # Redirect GPU/shader/code caches from SD to tmpfs.
-# HTTP cache is already disabled via --disable-cache / --disk-cache-size=0.
+# HTTP/media caches are capped at 10MB each via --disk-cache-size /
+# --media-cache-size (NOTE: 0 means "Chromium decides", not "off").
+# --disable-component-update stops Chromium's background component
+# downloads (crx cache, WasmTtsEngine, on-device models — ~75MB+) which
+# a kiosk never needs and which otherwise slowly fill the 200MB tmpfs
+# that sd-hardening mounts on /tmp.
 # Symlinks persist on SD; /tmp target dirs are recreated here each boot.
 _cache_to_tmp() {
   local src="$1" dst="$2"
@@ -271,8 +276,10 @@ xinit /bin/bash -c '
       --disable-application-cache \
       --disable-cache \
       --disable-offline-load-stale-cache \
-      --disk-cache-size=0 \
-      --media-cache-size=0 \
+      --disk-cache-size=10485760 \
+      --media-cache-size=10485760 \
+      --disable-component-update \
+      --password-store=basic \
       --kiosk \
       --app=http://localhost:${HTTP_PORT} \
       --start-fullscreen \

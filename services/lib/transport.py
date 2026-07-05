@@ -74,6 +74,15 @@ class Transport:
         self._extra_subscriptions: list[tuple[str, callable]] = []
         self._running = False
 
+        # Webhook circuit breaker. On a device without Home Assistant the
+        # default webhook_url never resolves; without this, every HA-bound
+        # event blocks its caller for the full 2s timeout and logs a warning.
+        # After a few consecutive failures we suppress sends (one probe per
+        # minute) until HA answers again.
+        self._webhook_failures = 0
+        self._webhook_suppressed_since: float | None = None
+        self._webhook_last_probe = 0.0
+
     def add_subscription(self, topic: str, handler):
         """Add an extra MQTT topic subscription with its own handler."""
         self._extra_subscriptions.append((topic, handler))
@@ -152,10 +161,22 @@ class Transport:
 
     # --- Webhook transport ---------------------------------------------------
 
+    _WEBHOOK_TRIP_AFTER = 3     # consecutive failures before suppressing
+    _WEBHOOK_PROBE_INTERVAL = 60.0  # seconds between probes while suppressed
+
     async def _send_webhook(self, payload: dict) -> bool:
         if not self._session:
             logger.warning("Webhook session not initialized")
             return False
+
+        # While the circuit is open (HA unreachable), skip the send so the
+        # caller isn't stalled for the 2s timeout on every event — but still
+        # probe once a minute so HA coming online is picked up automatically.
+        now = asyncio.get_event_loop().time()
+        if self._webhook_suppressed_since is not None:
+            if now - self._webhook_last_probe < self._WEBHOOK_PROBE_INTERVAL:
+                return False
+            self._webhook_last_probe = now
 
         try:
             async with self._session.post(
@@ -165,14 +186,32 @@ class Transport:
                 raise_for_status=True,
             ) as resp:
                 logger.debug("Webhook sent: %s (HTTP %d)", payload.get("action"), resp.status)
+                if self._webhook_suppressed_since is not None:
+                    logger.info("Webhook reachable again — resuming sends")
+                    self._webhook_suppressed_since = None
+                self._webhook_failures = 0
                 return True
         except asyncio.TimeoutError:
-            logger.warning("Webhook timeout for %s", payload.get("action"))
+            self._webhook_note_failure(now, "Webhook timeout for %s" % payload.get("action"))
         except aiohttp.ClientError as e:
-            logger.warning("Webhook error: %s", e)
+            self._webhook_note_failure(now, "Webhook error: %s" % e)
         except Exception as e:
             logger.error("Webhook unexpected error: %s", e)
         return False
+
+    def _webhook_note_failure(self, now: float, msg: str):
+        self._webhook_failures += 1
+        if self._webhook_suppressed_since is not None:
+            return  # already suppressed — probes fail quietly
+        if self._webhook_failures >= self._WEBHOOK_TRIP_AFTER:
+            self._webhook_suppressed_since = now
+            self._webhook_last_probe = now
+            logger.warning(
+                "%s — webhook unreachable %d times in a row, suppressing "
+                "sends (will probe every %ds; is Home Assistant configured?)",
+                msg, self._webhook_failures, int(self._WEBHOOK_PROBE_INTERVAL))
+        else:
+            logger.warning(msg)
 
     # --- MQTT transport -------------------------------------------------------
 

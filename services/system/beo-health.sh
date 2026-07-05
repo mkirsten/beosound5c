@@ -91,3 +91,37 @@ pc2_recovery() {
     fi
 }
 pc2_recovery
+
+# /tmp pressure safety net.  sd-hardening mounts /tmp as a 200MB tmpfs; when
+# it fills, Chromium, yt-dlp and anything else writing temp files starts
+# failing in confusing ways (observed Jul 2026: leaked yt-dlp extractions
+# plus Chromium component downloads filled /tmp within hours of a fresh
+# install).  Root causes are fixed (pip yt-dlp, --disable-component-update),
+# but a pressure valve keeps one regression from taking the device down.
+# Everything removed here is a cache that Chromium/ui.sh recreates on demand.
+tmp_pressure() {
+    local used
+    used=$(df --output=pcent /tmp 2>/dev/null | tail -1 | tr -dc '0-9')
+    [ -n "$used" ] && [ "$used" -ge 90 ] || return 0
+
+    logger -t beo-health "/tmp at ${used}% — clearing disposable caches"
+    # Leaked PyInstaller extractions + Chromium component downloads: safe to
+    # remove wholesale (recreated on demand, and shouldn't exist at all now).
+    rm -rf /tmp/_MEI* \
+           /tmp/chromium-profile/component_crx_cache \
+           /tmp/chromium-profile/WasmTtsEngine \
+           /tmp/chromium-profile/OnDeviceHeadSuggestModel \
+           /tmp/chromium-profile/Default/Cache 2>/dev/null
+    # Cache dirs that ui.sh symlinks into /tmp: empty their contents but keep
+    # the dirs themselves so the symlink targets stay valid for Chromium.
+    local d
+    for d in /tmp/chromium-gr-shader /tmp/chromium-shader \
+             /tmp/chromium-graphite /tmp/chromium-gpu-cache \
+             /tmp/chromium-code-cache; do
+        [ -d "$d" ] && find "$d" -mindepth 1 -delete 2>/dev/null
+    done
+
+    used=$(df --output=pcent /tmp 2>/dev/null | tail -1 | tr -dc '0-9')
+    logger -t beo-health "/tmp now at ${used}% after cache cleanup"
+}
+tmp_pressure

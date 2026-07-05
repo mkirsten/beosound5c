@@ -911,12 +911,27 @@ class MediaServer(PlayerBase):
                                  headers=self._cors_headers())
 
     def _discover_all_sync(self) -> dict[str, str]:
-        """One-time multicast discovery — returns {player_name: ip}."""
+        """Discover other Sonos zones — returns {player_name: ip}.
+
+        SSDP multicast first (fast), then a unicast subnet scan as a fallback.
+        Multicast is routinely dropped on WiFi (client isolation) and across
+        VLANs, so discover() comes back empty on plenty of real networks even
+        when other Sonos zones are present — which left JOIN permanently empty.
+        The scan reaches them over unicast.
+        """
         try:
             devices = soco.discover(timeout=5)
         except Exception as e:
             logger.warning("Sonos network discovery failed: %s", e)
-            return {}
+            devices = None
+        if not devices:
+            try:
+                from soco import discovery as _disc
+                devices = _disc.scan_network(
+                    multi_household=False, scan_timeout=0.5, max_threads=256)
+            except Exception as e:
+                logger.warning("Sonos subnet scan failed: %s", e)
+                devices = None
         if not devices:
             return {}
 
@@ -1261,6 +1276,7 @@ class MediaServer(PlayerBase):
         except Exception as e:
             logger.warning(f"Could not determine coordinator status: {e}")
 
+        consecutive_failures = 0
         while self.running:
             try:
                 loop = asyncio.get_running_loop()
@@ -1423,11 +1439,27 @@ class MediaServer(PlayerBase):
 
                     self._current_position = position
 
+                if consecutive_failures:
+                    logger.info("Sonos reachable again after %d failed polls",
+                                consecutive_failures)
+                    consecutive_failures = 0
                 await asyncio.sleep(POLL_INTERVAL)
 
             except Exception as e:
-                logger.error(f"Error in Sonos monitoring: {e}")
-                await asyncio.sleep(POLL_INTERVAL)
+                # Back off while the speaker is unreachable. With the shipped
+                # placeholder player.ip (before the user configures their real
+                # speaker) or a speaker that's off the network, every cycle
+                # raises — at 0.5s that's ~2 error lines/second into the
+                # journal forever. Log the first failure, back off to 30s,
+                # and resume the fast poll as soon as a cycle succeeds.
+                consecutive_failures += 1
+                if consecutive_failures == 1:
+                    logger.error(f"Error in Sonos monitoring: {e}")
+                elif consecutive_failures % 120 == 0:
+                    logger.warning("Sonos still unreachable (%d consecutive "
+                                   "failed polls): %s", consecutive_failures, e)
+                await asyncio.sleep(
+                    min(POLL_INTERVAL * (2 ** min(consecutive_failures, 6)), 30.0))
 
     async def fetch_media_data(self):
         """Fetch current media data including artwork."""

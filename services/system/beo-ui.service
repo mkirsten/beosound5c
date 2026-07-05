@@ -3,6 +3,11 @@ Description=BeoSound5c Chromium UI kiosk
 After=network.target beo-http.service beo-router.service
 Wants=network.target beo-http.service beo-router.service
 Requires=beo-http.service
+# StartLimit* belongs in [Unit] — in [Service] systemd ignores it
+# ("Unknown key ... in section [Service]") and the default 5-in-10s
+# limit applies instead of the intended 5-in-120s.
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -23,8 +28,6 @@ TimeoutStopSec=2
 SuccessExitStatus=KILL
 Restart=on-failure
 RestartSec=10
-StartLimitIntervalSec=120
-StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 

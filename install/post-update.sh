@@ -117,4 +117,82 @@ if [ -f "$REQUIREMENTS" ]; then
     log "pip packages up to date"
 fi
 
+# ── 6. yt-dlp (music video feature) ──────────────────────────────────────────
+# Devices installed before v0.9.1 carry either the apt yt-dlp (stale — broken
+# by YouTube's player changes) or the PyInstaller standalone (leaks its ~70MB
+# /tmp extraction on every killed run, eventually filling the sd-hardening
+# tmpfs and breaking the feature). Switch the fleet to the pip package: runs
+# in place (no /tmp extraction), always current from PyPI. Also install the
+# weekly self-update timer from install/modules/ytdlp.sh. Failure-tolerant —
+# a PyPI hiccup must not abort the OTA update.
+YTDLP_BIN="/usr/local/bin/yt-dlp"
+# The standalone is >20MB; pip's entry point is a tiny script. Remove the
+# legacy standalone so pip's entry point takes over.
+if [ -f "$YTDLP_BIN" ] && [ "$(stat -c %s "$YTDLP_BIN" 2>/dev/null || echo 0)" -gt 1000000 ]; then
+    rm -f "$YTDLP_BIN"
+    log "Removed legacy standalone yt-dlp binary"
+fi
+if pip3 install -U -q --ignore-installed --break-system-packages "yt-dlp[default]" 2>/dev/null \
+        || pip3 install -U -q --ignore-installed "yt-dlp[default]" 2>/dev/null; then
+    log "yt-dlp up to date: $(yt-dlp --version 2>/dev/null || echo '?')"
+else
+    log "yt-dlp pip install failed — will retry on next update"
+fi
+# JS runtime for YouTube player solving (see install/modules/ytdlp.sh).
+# No armv7 build — those devices keep using yt-dlp's fallback clients.
+if ! command -v deno >/dev/null 2>&1; then
+    DENO_ASSET=""
+    case "$(uname -m)" in
+        aarch64) DENO_ASSET="deno-aarch64-unknown-linux-gnu.zip" ;;
+        x86_64)  DENO_ASSET="deno-x86_64-unknown-linux-gnu.zip" ;;
+    esac
+    if [ -n "$DENO_ASSET" ]; then
+        # `|| true`-style guards throughout: this whole step must never abort
+        # the OTA update (set -e is active) — a missing download or changed
+        # zip layout just means yt-dlp keeps using its fallback clients.
+        DENO_TMP=$(mktemp -d || true)
+        if [ -n "$DENO_TMP" ] \
+                && curl -fsSL --max-time 300 \
+                "https://github.com/denoland/deno/releases/latest/download/$DENO_ASSET" \
+                -o "$DENO_TMP/deno.zip" 2>/dev/null \
+                && python3 -m zipfile -e "$DENO_TMP/deno.zip" "$DENO_TMP" 2>/dev/null \
+                && install -m 755 "$DENO_TMP/deno" /usr/local/bin/deno 2>/dev/null; then
+            log "deno installed (yt-dlp JS runtime)"
+        else
+            log "deno install failed — yt-dlp will use fallback clients"
+        fi
+        rm -rf "$DENO_TMP"
+    fi
+fi
+
+if [ ! -f /etc/systemd/system/beo-ytdlp-update.timer ] \
+        || ! grep -q 'pip3 install' /etc/systemd/system/beo-ytdlp-update.service 2>/dev/null; then
+    cat > /etc/systemd/system/beo-ytdlp-update.service << 'EOF'
+[Unit]
+Description=BeoSound 5c — update yt-dlp (music video)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'pip3 install -U -q --ignore-installed --break-system-packages "yt-dlp[default]" || pip3 install -U -q --ignore-installed "yt-dlp[default]"'
+EOF
+    cat > /etc/systemd/system/beo-ytdlp-update.timer << 'EOF'
+[Unit]
+Description=BeoSound 5c — weekly yt-dlp update
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now beo-ytdlp-update.timer >/dev/null 2>&1 \
+        && log "yt-dlp weekly update timer installed" \
+        || log "could not enable yt-dlp update timer"
+fi
+
 log "Done"

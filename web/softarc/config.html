@@ -1507,7 +1507,9 @@ async function discoverPlayer(event) {
     btn.textContent = 'Scanning...'; btn.disabled = true;
     resultEl.classList.remove('show');
     try {
-        const resp = await fetch(API + endpoint, { signal: AbortSignal.timeout(12000) });
+        // Generous timeout: SSDP + subnet IP-scan fallback (see /discover/sonos)
+        // can take ~20s on networks where multicast is blocked.
+        const resp = await fetch(API + endpoint, { signal: AbortSignal.timeout(28000) });
         const devices = await resp.json();
         if (!Array.isArray(devices) || !devices.length) {
             resultEl.innerHTML = '<span class="cfg-discover-empty">No devices found — enter IP manually</span>';

@@ -629,7 +629,27 @@ async def handle_discover_sonos(request):
     try:
         import soco
         loop = asyncio.get_event_loop()
-        devices = await loop.run_in_executor(None, lambda: soco.discover(timeout=5) or set())
+
+        def _find():
+            # SSDP multicast — fast when it works.
+            devices = soco.discover(timeout=5) or set()
+            if not devices:
+                # Multicast is routinely blocked on WiFi (client isolation)
+                # and across VLANs/subnets, so discover() comes back empty on
+                # plenty of real networks. Fall back to a direct IP scan of the
+                # local subnet, which only needs unicast to reach the speakers.
+                try:
+                    from soco import discovery as _disc
+                    devices = _disc.scan_network(
+                        multi_household=False,
+                        scan_timeout=0.5,
+                        max_threads=256,
+                    ) or set()
+                except Exception as e:
+                    logger.debug('Sonos scan_network fallback failed: %s', e)
+            return devices
+
+        devices = await loop.run_in_executor(None, _find)
         result = sorted(
             [{'ip': d.ip_address, 'name': d.player_name} for d in devices],
             key=lambda x: x['name'],
@@ -765,6 +785,29 @@ async def handle_config_save(request):
         if k in _SECRET_KEY_MAP and v
     }
 
+    # Fill in the real Sonos zone name when it's missing or the generic
+    # default. Picking a speaker from discovery auto-fills output_name, but
+    # typing the IP manually leaves it as "Sonos" — query the speaker itself
+    # so the UI shows e.g. "Sheep Lounge" instead. Never overrides a name the
+    # user chose; never blocks the save (5s cap, best-effort).
+    volume_cfg = body.get('volume')
+    player_cfg = body.get('player') or {}
+    if (isinstance(volume_cfg, dict)
+            and player_cfg.get('type') == 'sonos' and player_cfg.get('ip')
+            and (volume_cfg.get('output_name') or '').strip().lower() in ('', 'sonos')):
+        try:
+            import soco
+            zone_name = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None, lambda: soco.SoCo(player_cfg['ip']).player_name),
+                timeout=5,
+            )
+            if zone_name:
+                volume_cfg['output_name'] = zone_name
+                logger.info('Sonos output_name auto-derived: %s', zone_name)
+        except Exception as e:
+            logger.info('Could not derive Sonos zone name: %r', e)
+
     config_path = '/etc/beosound5c/config.json'
     config_json = json.dumps(body, indent=2, ensure_ascii=False)
 
@@ -809,6 +852,23 @@ async def handle_config_save(request):
 
     async def _reconcile():
         await asyncio.sleep(1.5)
+
+        # Reload the kiosk FIRST so it re-reads the new config. reconcile-
+        # services.sh deliberately skips beo-ui (the arc menu re-fetches on
+        # media-WS reconnect), but a config *save* also changes menu visibility
+        # and the setup_complete flag — both of which the kiosk only evaluates
+        # at page load. This must run *before* the reconcile below, because
+        # reconcile-services.sh restarts beo-input last (this very process), and
+        # anything after that call would be killed with our own cgroup. The
+        # kiosk's menu-manager retries /router/menu with backoff, so reloading
+        # ahead of the backend reconcile is safe.
+        try:
+            await asyncio.create_subprocess_exec(
+                'sudo', 'systemctl', 'restart', 'beo-ui',
+            )
+        except Exception as e:
+            logger.error('beo-ui restart after config save failed: %s', e)
+
         try:
             await asyncio.create_subprocess_exec(
                 'sudo', 'bash', reconcile_script,
@@ -1462,6 +1522,14 @@ async def handle_people(request):
 
     ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
     ha_token = os.getenv('HA_TOKEN', '')
+
+    # No HA token means Home Assistant was never configured — don't probe
+    # (the system page polls this every 30s, which on an HA-less device
+    # produced an error log line every cycle, forever).
+    if not ha_token:
+        response = web.json_response([])
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
 
     try:
         session = await get_http_session()

@@ -97,6 +97,7 @@ source "$SCRIPT_ROOT/install/modules/audio-hat.sh"
 source "$SCRIPT_ROOT/install/modules/plymouth.sh"
 source "$SCRIPT_ROOT/install/modules/librespot.sh"
 source "$SCRIPT_ROOT/install/modules/piper.sh"
+source "$SCRIPT_ROOT/install/modules/ytdlp.sh"
 source "$SCRIPT_ROOT/install/modules/verify.sh"
 
 source "$SCRIPT_ROOT/install/configure/device.sh"
@@ -284,9 +285,11 @@ run_system_setup() {
     setup_audio_hat
     harden_sd_card
     configure_x11
+    disable_desktop_session
     install_plymouth_theme
     install_librespot
     install_piper
+    install_ytdlp
     install_usb_music_support
 }
 
@@ -341,6 +344,11 @@ case "$SUBCOMMAND" in
             exit 1
         fi
         install_services
+        # `update` follows a git pull — refresh yt-dlp too, since a stale build
+        # is broken by YouTube changes (same reason post-update.sh does this).
+        if [ "$SUBCOMMAND" = "update" ]; then
+            install_ytdlp
+        fi
         ;;
 
     verify)

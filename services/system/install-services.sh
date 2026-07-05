@@ -233,8 +233,13 @@ sudo systemctl reset-failed
 echo "📊 Service Status Check:"
 echo "======================="
 for service in "${SERVICES[@]}"; do
-    status=$(systemctl is-active "$service" 2>/dev/null)
-    enabled=$(systemctl is-enabled "$service" 2>/dev/null)
+    # `|| true`: is-active/is-enabled exit non-zero for inactive/disabled
+    # units (normal for optional players/sources), and under `set -e` a
+    # failing command substitution in an assignment kills the whole script —
+    # which aborted the installer mid status-report, before the verification,
+    # summary and reboot prompt ever ran.
+    status=$(systemctl is-active "$service" 2>/dev/null || true)
+    enabled=$(systemctl is-enabled "$service" 2>/dev/null || true)
     
     if [ "$status" = "active" ]; then
         status_icon="✅"

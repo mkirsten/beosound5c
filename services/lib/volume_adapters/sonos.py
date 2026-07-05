@@ -20,6 +20,9 @@ class SonosVolume(VolumeAdapter):
         self._speaker = SoCo(ip)
 
     async def _apply_volume(self, volume: float) -> None:
+        # Control ONLY the paired speaker's own volume, even when it is grouped
+        # with others. If the speaker is part of a group you're listening to,
+        # this changes just this speaker's contribution — that's intentional.
         try:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(

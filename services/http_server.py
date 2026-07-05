@@ -34,10 +34,15 @@ def _proxy_to_input(handler, method: str) -> bool:
         body = handler.rfile.read(length) if length else b''
     ct = handler.headers.get('Content-Type', 'application/json')
 
+    # Device discovery (SSDP + subnet IP-scan fallback) can legitimately take
+    # longer than a normal config call, so give /discover/ a wider window —
+    # otherwise a slow-but-successful scan surfaces to the UI as a 502.
+    timeout = 30 if handler.path.startswith('/discover/') else 15
+
     try:
         req = urllib.request.Request(url, data=body, method=method,
                                      headers={'Content-Type': ct})
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = resp.read()
             handler.send_response(resp.status)
             handler.send_header('Content-Type',

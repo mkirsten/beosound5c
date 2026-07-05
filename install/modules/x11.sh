@@ -48,3 +48,46 @@ EOF
         mv "$XINITRC_FILE" "${XINITRC_FILE}.bak"
     fi
 }
+
+# =============================================================================
+# Disable the desktop session so beo-ui owns the display.
+#
+# The installer is written for Raspberry Pi OS Lite, but plenty of people flash
+# the full desktop image. There, a display manager (lightdm) autologs into a
+# Wayland/labwc session that permanently owns the console, DRM master and the
+# X11 :0 socket. beo-ui's kiosk Xorg then loops forever on "Cannot establish
+# any listening sockets — Make sure an X server isn't already running", and the
+# device sits on the boot splash. Boot to the console instead and let beo-ui
+# start its own Xorg — matching how a Lite install already behaves.
+# =============================================================================
+disable_desktop_session() {
+    log_section "Disabling Desktop Session (kiosk owns the display)"
+
+    # Boot to the console, not the graphical target.
+    if [ "$(systemctl get-default 2>/dev/null)" != "multi-user.target" ]; then
+        systemctl set-default multi-user.target >/dev/null 2>&1 \
+            && log_success "Default boot target set to multi-user (console)" \
+            || log_warn "Could not set default target to multi-user.target"
+    else
+        log_info "Already booting to console (multi-user.target)"
+    fi
+
+    # Disable any display manager that would grab the console before beo-ui.
+    local dm found=0
+    for dm in lightdm gdm gdm3 sddm lxdm wdm nodm; do
+        if systemctl list-unit-files "${dm}.service" >/dev/null 2>&1 \
+           && systemctl is-enabled "${dm}.service" >/dev/null 2>&1; then
+            systemctl disable "${dm}.service" >/dev/null 2>&1 \
+                && log_success "Disabled display manager: ${dm}" \
+                || log_warn "Could not disable ${dm}"
+            found=1
+        fi
+    done
+    # NOTE: must be if/fi, not `[ ... ] && log`. With a display manager found
+    # (found=1) the bare && list would make this function return 1, and under
+    # the installer's set -e that aborts the entire install right after
+    # disabling the desktop — on precisely the image this function exists for.
+    if [ "$found" -eq 0 ]; then
+        log_info "No enabled display manager found (Lite image or already disabled)"
+    fi
+}
