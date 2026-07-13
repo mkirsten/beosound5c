@@ -1,9 +1,33 @@
-"""Startup beacon — sends a single anonymous POST to beosound5c.com/api/beacon.
+"""Startup beacon — a tiny anonymous "hello" to beosound5c.com.
 
-Payload: device_id (stable UUID), version, sources, player_type, volume_type.
-The server adds IP and country via Cloudflare headers.
+Why this exists: it is genuinely delightful to watch old BeoSound 5s come
+back to life around the world, and every new dot on that map makes the
+developer's day. That's the entire reason. There is no analytics platform
+behind this, no tracking across services, and nothing is ever shared or
+sold.
 
-Opt-out: create a file called NO_TELEMETRY in the repo root.
+What is sent (one POST per service startup — everything is listed here):
+
+  device_id    uuid5 hash of the Pi's onboard MAC. One-way, so the MAC
+               itself never leaves the device. Derived rather than random
+               so a re-imaged device keeps its identity instead of
+               appearing on the map twice.
+  version      software version string (e.g. "v0.9.2")
+  sources      names of enabled sources (e.g. "spotify", "cd") — names
+               only, never credentials or config values
+  player_type  "sonos", "bluesound", or "local"
+  volume_type  volume adapter name (e.g. "beolab5", "powerlink")
+
+The server infers a country from the request IP (via Cloudflare) and keeps
+only the country name. What is never sent: hostnames, device names,
+account names, credentials, IPs from config, or anything about what you
+listen to.
+
+Opting out is one command and everything else works exactly the same:
+
+    touch ~/beosound5c/NO_TELEMETRY
+
+(The installer also asks — answering "no" creates this file for you.)
 """
 
 import json

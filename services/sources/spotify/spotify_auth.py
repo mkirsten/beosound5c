@@ -357,6 +357,9 @@ class SpotifyAuth:
             task.cancel()
             self._keepalive_task = None
 
+    async def close(self):
+        pass  # no persistent session — parity with RemoteSpotifyAuth
+
     @property
     def is_configured(self):
         return bool(self._client_id and self._refresh_token)

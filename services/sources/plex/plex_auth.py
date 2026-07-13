@@ -97,10 +97,15 @@ class PlexAuth:
                              pinlogin.expired, bool(pinlogin.token))
                 return False
         except Exception as e:
-            log.warning("PIN check exception: %s", e)
             if '429' in str(e) or 'rate' in str(e).lower():
                 log.debug("Plex PIN check rate-limited, will retry")
                 return False
+            if '404' in str(e) or 'not_found' in str(e):
+                # Normal PIN lifecycle — plex.tv expires unused PINs after
+                # ~15 min; a fresh one is created on the next view open.
+                log.info("Plex PIN %s expired — a new PIN will be issued", pinlogin._id)
+            else:
+                log.warning("PIN check exception: %s", e)
             pinlogin.expired = True
             raise
 

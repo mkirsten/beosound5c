@@ -1,7 +1,7 @@
 """Tests for lib.audio_outputs — pactl output parsing + classification.
 
 This module was the subject of commit 27cb774 (async conversion from
-``subprocess.run``) and 5e79b24 (USB DAC S/PDIF profile on Reimers).
+``subprocess.run``) and 5e79b24 (USB DAC S/PDIF profile support).
 It had zero direct tests before this file, so the behaviour lived
 entirely in code.
 

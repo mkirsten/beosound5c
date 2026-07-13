@@ -108,6 +108,7 @@ source "$SCRIPT_ROOT/install/configure/spotify.sh"
 source "$SCRIPT_ROOT/install/configure/transport.sh"
 source "$SCRIPT_ROOT/install/configure/audio.sh"
 source "$SCRIPT_ROOT/install/configure/menu.sh"
+source "$SCRIPT_ROOT/install/configure/telemetry.sh"
 source "$SCRIPT_ROOT/install/configure/generate.sh"
 source "$SCRIPT_ROOT/install/configure/wizard.sh"
 
@@ -135,7 +136,7 @@ show_help() {
     echo ""
     echo "Configure via the web UI at http://<device-ip>/ after install."
     echo ""
-    echo "Advanced: sudo $0 configure [bluetooth|player|ha|audio|spotify|transport|menu]"
+    echo "Advanced: sudo $0 configure [bluetooth|player|ha|audio|spotify|transport|menu|telemetry]"
 }
 
 # =============================================================================
@@ -374,6 +375,7 @@ case "$SUBCOMMAND" in
         run_system_setup
         ensure_default_config
         install_services
+        configure_telemetry
         run_verification || true
         show_summary
 

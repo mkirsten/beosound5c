@@ -44,6 +44,7 @@ run_wizard() {
             configure_transport
             configure_audio
             configure_menu
+            configure_telemetry
             generate_config
             ;;
         device)
@@ -76,10 +77,13 @@ run_wizard() {
         menu)
             configure_menu
             ;;
+        telemetry)
+            configure_telemetry
+            ;;
         *)
             log_error "Unknown configure step: $step"
             echo ""
-            echo "Available steps: device, player, ha, bluetooth, spotify, transport, audio, menu"
+            echo "Available steps: device, player, ha, bluetooth, spotify, transport, audio, menu, telemetry"
             exit 1
             ;;
     esac

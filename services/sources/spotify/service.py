@@ -56,6 +56,7 @@ PLAYLISTS_FILE = os.path.join(
 
 POLL_INTERVAL = 3  # seconds between now-playing polls
 PLAYLIST_REFRESH_COOLDOWN = 5 * 60  # don't re-sync if last sync was <5 min ago
+REFRESH_ATTEMPT_COOLDOWN = 60  # min gap between refresh attempts, even failed ones
 NIGHTLY_REFRESH_HOUR = 2  # refresh playlists at 2am
 FETCH_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fetch.py')
 
@@ -139,6 +140,7 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
         self._track_gen = 0           # incremented on every track change; background tasks abort if stale
         self._last_play_time = 0      # monotonic time of last play command (debounce)
         self._last_refresh = 0  # monotonic timestamp of last completed refresh
+        self._last_refresh_attempt = 0  # monotonic timestamp of last attempt (incl. failed)
         self._last_refresh_wall = None  # wall-clock datetime of last completed refresh
         self._last_refresh_duration = None  # seconds the last refresh took
         self._display_name = None  # Spotify display name from /v1/me
@@ -206,6 +208,7 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
 
     async def on_stop(self):
         self.auth.stop_keepalive()
+        await self.auth.close()
         for task in (self._poll_task, self._refresh_task, self._nightly_task):
             if task:
                 task.cancel()
@@ -825,6 +828,7 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
             return
         self._refresh_running = True
         self._fetching_playlists = True
+        self._last_refresh_attempt = time.monotonic()
         t0 = time.monotonic()
         try:
             # Get a valid access token to pass to the subprocess
@@ -904,8 +908,18 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
             return
 
     def _should_refresh(self):
-        """True if enough time has passed since last refresh."""
-        return time.monotonic() - self._last_refresh > PLAYLIST_REFRESH_COOLDOWN
+        """True if enough time has passed since last refresh.
+
+        Also throttles on the last *attempt*: a failing refresh (e.g. token
+        master briefly down) returns in milliseconds and doesn't advance
+        _last_refresh, so without this every /playlists request would
+        immediately re-trigger it — observed as several attempts per second
+        hammering the token master while a view opens.
+        """
+        now = time.monotonic()
+        if now - self._last_refresh_attempt < REFRESH_ATTEMPT_COOLDOWN:
+            return False
+        return now - self._last_refresh > PLAYLIST_REFRESH_COOLDOWN
 
     async def _logout(self):
         """Clear Spotify tokens and playlists, return to setup mode."""

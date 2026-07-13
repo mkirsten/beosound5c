@@ -1113,12 +1113,22 @@ class PC2Device:
 
     # --- Mixer HTTP API (port 8768) ---
 
+    def _mixer_unavailable(self, e):
+        """503 for commands that need the PC2 while it's not connected.
+        Without this the RuntimeError from send_message() escapes as an
+        HTTP 500 with a full traceback in the journal per request."""
+        logger.warning("Mixer command failed: %s", e)
+        return web.json_response({'ok': False, 'error': str(e)}, status=503)
+
     async def _handle_mixer_volume(self, request):
         """POST /mixer/volume  {"volume": 0-70}"""
         data = await request.json()
         vol = int(data.get('volume', 0))
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self.set_volume, vol)
+        try:
+            await loop.run_in_executor(None, self.set_volume, vol)
+        except RuntimeError as e:
+            return self._mixer_unavailable(e)
         return web.json_response({
             'ok': True,
             'volume': self.mixer_state['volume'],
@@ -1130,11 +1140,14 @@ class PC2Device:
         data = await request.json()
         on = data.get('on', False)
         loop = asyncio.get_running_loop()
-        if on:
-            vol = data.get('volume', None)
-            await loop.run_in_executor(None, self.audio_on, vol)
-        else:
-            await loop.run_in_executor(None, self.audio_off)
+        try:
+            if on:
+                vol = data.get('volume', None)
+                await loop.run_in_executor(None, self.audio_on, vol)
+            else:
+                await loop.run_in_executor(None, self.audio_off)
+        except RuntimeError as e:
+            return self._mixer_unavailable(e)
         return web.json_response({'ok': True, 'speakers_on': on})
 
     async def _handle_mixer_mute(self, request):
@@ -1142,7 +1155,10 @@ class PC2Device:
         data = await request.json()
         muted = data.get('muted', False)
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self.speaker_mute, muted)
+        try:
+            await loop.run_in_executor(None, self.speaker_mute, muted)
+        except RuntimeError as e:
+            return self._mixer_unavailable(e)
         return web.json_response({'ok': True, 'muted': muted})
 
     async def _handle_mixer_status(self, request):
@@ -1160,9 +1176,12 @@ class PC2Device:
         data = await request.json()
         on = bool(data.get('on', False))
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None, self.set_routing,
-            self.mixer_state['local'], on, self.mixer_state['from_ml'])
+        try:
+            await loop.run_in_executor(
+                None, self.set_routing,
+                self.mixer_state['local'], on, self.mixer_state['from_ml'])
+        except RuntimeError as e:
+            return self._mixer_unavailable(e)
         return web.json_response({'ok': True, 'distribute': on})
 
     async def _handle_mixer_tone(self, request):

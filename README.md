@@ -66,11 +66,11 @@ To edit scenes (names, icons, HA scripts), edit `/etc/beosound5c/config.json` di
 
 Honestly, I just find it delightful to see where BeoSound 5cs are showing up in the world. There are already installations in the US, across Europe, here in Stockholm, in Asia, and in Australia — and every time a new one appears on the map it makes my day.
 
-To make that possible, each BS5c sends a small anonymous ping to `beosound5c.com` on startup. Your public IP is used to infer a country (via Cloudflare — never stored beyond the country name). No hostname, device name, MAC address, or credentials are ever sent. Feel free to read exactly what gets posted in [`services/lib/beacon.py`](services/lib/beacon.py).
+To make that possible, each BS5c sends a small anonymous ping to `beosound5c.com` on startup. The installer asks you about this during setup — saying no is completely fine and changes nothing else. Your public IP is used to infer a country (via Cloudflare — never stored beyond the country name). No hostname, device name, MAC address, or credentials are ever sent. Feel free to read exactly what gets posted in [`services/lib/beacon.py`](services/lib/beacon.py).
 
 | Field | Value |
 |---|---|
-| `device_id` | Random UUID generated at install time — not linked to any personal identifier |
+| `device_id` | Stable anonymous ID — a one-way UUIDv5 hash of the Pi's onboard MAC address (the MAC itself is never sent). Derived from the MAC so a re-imaged device keeps the same identity instead of counting twice; falls back to a random UUID if no onboard interface exists |
 | `version` | Software version string |
 | `sources` | Names of enabled sources (e.g. `spotify`, `cd`) — no credentials or config values |
 | `player_type` | Player backend: `sonos`, `bluesound`, or `local` |

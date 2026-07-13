@@ -31,7 +31,7 @@ Using AI for code assistance is fine. Please:
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the same terms as the project (GPL-3.0 — see [LICENSE](../LICENSE)).
 
 ## Local Development
 
@@ -79,14 +79,12 @@ docs/                       # Documentation
 
 ## Deploying to a Device
 
-`deploy.sh` syncs files and restarts services without touching device-specific data (playlists, config.json):
+The simplest way to test changes on a device is to push your branch and pull it there:
 
 ```bash
-./deploy.sh                              # Sync + restart beo-http and beo-ui
-./deploy.sh beo-player-sonos             # Restart a specific service
-./deploy.sh beo-*                        # Restart all beo-* services
-./deploy.sh --no-restart                 # Sync files only
-BEOSOUND5C_HOSTS="my-device.local" ./deploy.sh  # Target a specific device
+ssh <user>@<device> "cd ~/beosound5c && git pull && sudo systemctl restart beo-ui"
 ```
 
-Device hostnames are configured in `my-hosts.env` (see `my-hosts.env.example`).
+Restart whichever services your change touches (`beo-router`, `beo-player-sonos`, `beo-http`, `beo-ui`, …). For UI changes, restart `beo-ui` last so backends are ready when the browser loads.
+
+For rapid iteration you can rsync your working tree instead — but never sync over device-local data (`web/json/config.json`, playlists). Exclude those paths, or keep test changes on a branch and use `git pull` as above.
