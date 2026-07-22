@@ -1,10 +1,10 @@
 # Web-Based Setup Interface for BeoSound 5c
 
+> **Status: implemented.** The CLI wizard (`install.sh configure` and `install/configure/`) has been removed. `install.sh` handles OS/system setup only; after reboot the device shows a QR code and all configuration happens in the web UI at `http://<device-ip>/config`. This document is kept as design reference — file paths under `install/configure/` no longer exist.
+
 ## Context
 
-The BS5c currently requires SSH + CLI wizard (`install.sh configure`) to set up and reconfigure. This is friction for initial setup and ongoing changes. A web-based setup page lets users configure from a phone or laptop by pointing a browser at the BS5c's IP — both for first-time setup and later changes (source visibility, button mappings, HA connection, etc.).
-
-**The web setup fully replaces `install.sh configure`.** After `install.sh` handles OS/system setup (packages, boot config, SD hardening, X11, services), the user opens a browser to configure everything. The CLI wizard becomes optional/legacy.
+The BS5c originally required SSH + CLI wizard (`install.sh configure`) to set up and reconfigure. This was friction for initial setup and ongoing changes. A web-based setup page lets users configure from a phone or laptop by pointing a browser at the BS5c's IP — both for first-time setup and later changes (source visibility, button mappings, HA connection, etc.).
 
 ## Architecture
 

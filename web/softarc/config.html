@@ -388,23 +388,24 @@ const CFG_SOURCE_DEFS = [
 // [id, label, compatible-player-types (space-separated)]
 const VOLUME_TYPES = [
     ['sonos',     'Sonos',          'sonos'],
-    ['beolab5',   'BeoLab 5',       'sonos bluesound local'],
-    ['powerlink', 'PowerLink',      'local'],
+    ['beolab5',   'BeoLab 5',       'sonos bluesound heos local none'],
+    ['powerlink', 'PowerLink',      'local none'],
     ['bluesound', 'Bluesound',      'bluesound'],
-    ['hdmi',      'HDMI',           'local'],
-    ['spdif',     'S/PDIF',         'local'],
-    ['rca',       'RCA',            'local'],
-    ['c4amp',     'C4 Amplifier',   'local'],
-    ['local',     'Software / none','local'],
+    ['heos',      'Denon HEOS',     'heos'],
+    ['hdmi',      'HDMI',           'local none'],
+    ['spdif',     'S/PDIF',         'local none'],
+    ['rca',       'RCA',            'local none'],
+    ['c4amp',     'C4 Amplifier',   'local none'],
+    ['local',     'Software / none','local none'],
 ];
 // Volume adapters that need a host/IP field
-const VOLUME_HOST_TYPES = ['beolab5', 'bluesound', 'c4amp'];
+const VOLUME_HOST_TYPES = ['beolab5', 'bluesound', 'heos', 'c4amp'];
 // Volume adapters that do NOT expose a local DSP (the other device
 // handles bass/treble/loudness) — hide those tone controls for these.
 // Balance is broader: it's applied pre-output in our PipeWire chain
 // even for beolab5, so only the truly remote outputs exclude it.
-const TONE_EXCLUDED_TYPES = ['sonos', 'bluesound', 'beolab5'];
-const BALANCE_EXCLUDED_TYPES = ['sonos', 'bluesound'];
+const TONE_EXCLUDED_TYPES = ['sonos', 'bluesound', 'heos', 'beolab5'];
+const BALANCE_EXCLUDED_TYPES = ['sonos', 'bluesound', 'heos'];
 
 const CFG_SOURCE_VIEWS = {
     'PLAYING':'playing','JOIN':'join','SPOTIFY':'spotify','TIDAL':'tidal',
@@ -442,6 +443,7 @@ function render(cfg) {
     updateVolumeOptions();
     loadRadioFavourites();
     loadSpotifyFavourites();
+    loadTelemetryState();
 }
 
 function renderDevice(cfg) {
@@ -449,19 +451,48 @@ function renderDevice(cfg) {
         <h2>Device</h2>
         <label for="cfg-device">Device name</label>
         <input id="cfg-device" type="text" value="${esc(cfg.device)}" placeholder="e.g. Living Room">
+        <div style="display:flex;align-items:center;gap:10px;margin-top:14px">
+            <input id="cfg-telemetry" type="checkbox" checked onchange="_telemetryLoaded=true"
+                   style="width:20px;height:20px;accent-color:#0af;cursor:pointer;flex-shrink:0">
+            <label for="cfg-telemetry" style="cursor:pointer;margin:0">Anonymous startup ping</label>
+        </div>
+        <div style="font-size:12px;color:#555;margin-top:6px;line-height:1.5">
+            On startup, send a tiny anonymous hello to beosound5c.com for the world
+            map of revived BeoSound 5s — version, source names, player/volume type,
+            and a one-way hash of the device MAC. No names, accounts, or credentials.
+        </div>
     </div>`;
+}
+
+// Telemetry state is a file on the device (NO_TELEMETRY), not a config.json
+// field — loaded from /info and saved via the _telemetry side-channel. Only
+// send it when we actually know the current state, so an offline /info can't
+// silently flip the user's choice.
+let _telemetryLoaded = false;
+async function loadTelemetryState() {
+    try {
+        const resp = await fetch(API + '/info');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (typeof data.telemetry === 'boolean') {
+            const cb = document.getElementById('cfg-telemetry');
+            if (cb) { cb.checked = data.telemetry; _telemetryLoaded = true; }
+        }
+    } catch(e) { /* dev mode / beo-input unreachable — leave untouched */ }
 }
 
 function renderPlayer(cfg) {
     const p = cfg.player || {};
-    const showIp = p.type === 'sonos' || p.type === 'bluesound';
+    const showIp = p.type === 'sonos' || p.type === 'bluesound' || p.type === 'heos';
     return `<div class="cfg-card">
         <h2>Player</h2>
         <label for="cfg-player-type">Type</label>
         <select id="cfg-player-type">
             <option value="sonos" ${p.type==='sonos'?'selected':''}>Sonos</option>
             <option value="bluesound" ${p.type==='bluesound'?'selected':''}>Bluesound</option>
+            <option value="heos" ${p.type==='heos'?'selected':''}>Denon HEOS</option>
             <option value="local" ${p.type==='local'?'selected':''}>Local (mpv)</option>
+            <option value="none" ${p.type==='none'?'selected':''}>None</option>
         </select>
         <div id="cfg-player-ip-cond" class="cfg-cond${showIp?' show':''}">
             <label for="cfg-player-ip">IP address</label>
@@ -1474,7 +1505,7 @@ function setupListeners() {
         if (link) link.href = (e.target.value.trim().replace(/\/$/, '') || '') + '/profile';
     });
     document.getElementById('cfg-player-type')?.addEventListener('change', e => {
-        const show = ['sonos','bluesound'].includes(e.target.value);
+        const show = ['sonos','bluesound','heos'].includes(e.target.value);
         document.getElementById('cfg-player-ip-cond').classList.toggle('show', show);
         const r = document.getElementById('cfg-player-results');
         if (r) { r.innerHTML = ''; r.classList.remove('show'); }
@@ -1653,7 +1684,9 @@ function updateIrDropdowns() {
 async function discoverPlayer(event) {
     const btn = event.currentTarget;
     const playerType = document.getElementById('cfg-player-type')?.value || 'sonos';
-    const endpoint = playerType === 'bluesound' ? '/discover/bluesound' : '/discover/sonos';
+    const endpoint = playerType === 'bluesound' ? '/discover/bluesound'
+        : playerType === 'heos' ? '/discover/heos'
+        : '/discover/sonos';
     const resultEl = document.getElementById('cfg-player-results');
     btn.textContent = 'Scanning...'; btn.disabled = true;
     resultEl.classList.remove('show');
@@ -1748,9 +1781,12 @@ async function testHAConn(event) {
 function buildConfig() {
     const cfg = JSON.parse(JSON.stringify(_cfg || {}));
     cfg.device = document.getElementById('cfg-device')?.value || cfg.device;
+    if (_telemetryLoaded) {
+        cfg._telemetry = !!document.getElementById('cfg-telemetry')?.checked;
+    }
     const pt = document.getElementById('cfg-player-type')?.value;
     cfg.player = cfg.player || {}; cfg.player.type = pt;
-    if (['sonos','bluesound'].includes(pt)) { cfg.player.ip = document.getElementById('cfg-player-ip')?.value || ''; }
+    if (['sonos','bluesound','heos'].includes(pt)) { cfg.player.ip = document.getElementById('cfg-player-ip')?.value || ''; }
     else { delete cfg.player.ip; }
     const vt = document.getElementById('cfg-volume-type')?.value;
     cfg.volume = cfg.volume || {}; cfg.volume.type = vt;

@@ -54,7 +54,7 @@ class ConfigError(RuntimeError):
 
 
 _VALID_VOLUME_TYPES = {
-    "beolab5", "sonos", "bluesound", "powerlink",
+    "beolab5", "sonos", "bluesound", "heos", "powerlink",
     "c4amp", "hdmi", "spdif", "rca",
 }
 

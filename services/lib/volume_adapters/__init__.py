@@ -9,6 +9,7 @@ Supported types:
   - ``beolab5``                 – BeoLab 5 via controller REST API (default)
   - ``sonos``                  – Sonos speaker via SoCo library
   - ``bluesound``              – BlueSound speaker via BluOS HTTP API
+  - ``heos``                   – Denon HEOS device via HEOS CLI protocol
   - ``powerlink``              – B&O speakers via masterlink.py mixer HTTP API
   - ``c4amp``                  – Control4 amplifier via UDP
   - ``hdmi``                   – HDMI1 audio output (ALSA software volume)
@@ -26,6 +27,7 @@ from .beolab5 import BeoLab5Volume
 from .bluesound import BluesoundVolume
 from .c4amp import C4AmpVolume
 from .hdmi import HdmiVolume
+from .heos import HeosVolume
 from .local import LocalVolume
 from .powerlink import PowerLinkVolume
 from .rca import RcaVolume
@@ -41,6 +43,7 @@ __all__ = [
     "BluesoundVolume",
     "C4AmpVolume",
     "HdmiVolume",
+    "HeosVolume",
     "PowerLinkVolume",
     "RcaVolume",
     "SonosVolume",
@@ -54,13 +57,13 @@ def infer_volume_type() -> str:
     """Infer the volume adapter type from config.json.
 
     Returns the explicit ``volume.type`` if set, otherwise derives it from
-    ``player.type``: sonos/bluesound map to themselves, local/powerlink map
-    to "powerlink", everything else defaults to "beolab5".
+    ``player.type``: sonos/bluesound/heos map to themselves, local/powerlink
+    map to "powerlink", everything else defaults to "beolab5".
     """
     vol_type = cfg("volume", "type")
     if vol_type is None:
         player_type = str(cfg("player", "type", default="")).lower()
-        if player_type in ("sonos", "bluesound"):
+        if player_type in ("sonos", "bluesound", "heos"):
             vol_type = player_type
         elif player_type in ("local", "powerlink"):
             vol_type = "powerlink"
@@ -73,10 +76,11 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
     """Create the right volume adapter based on config.json.
 
     Reads from config.json "volume" section:
-      type        – "beolab5", "sonos", "bluesound",
+      type        – "beolab5", "sonos", "bluesound", "heos",
                     "powerlink", "c4amp", "hdmi", "spdif", or "rca".
-                    If omitted, defaults to player.type for sonos/bluesound,
-                    "powerlink" for local/powerlink, otherwise "beolab5".
+                    If omitted, defaults to player.type for
+                    sonos/bluesound/heos, "powerlink" for local/powerlink,
+                    otherwise "beolab5".
       host        – target host/IP (not used by hdmi/spdif/rca/powerlink-localhost)
       max         – max volume percentage (default 70)
       zone        – C4 amp output zone, e.g. "01" (c4amp only, default "01")
@@ -84,9 +88,9 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
       mixer_port  – masterlink.py mixer HTTP port (default 8768, powerlink only)
     """
     vol_type = infer_volume_type()
-    # Default host: use player IP for sonos/bluesound, otherwise beolab5 controller
+    # Default host: use player IP for sonos/bluesound/heos, otherwise beolab5 controller
     vol_host_default = "beolab5-controller.local"
-    if vol_type in ("sonos", "bluesound") and not cfg("volume", "host"):
+    if vol_type in ("sonos", "bluesound", "heos") and not cfg("volume", "host"):
         vol_host_default = cfg("player", "ip", default="")
     elif vol_type == "powerlink" and not cfg("volume", "host"):
         vol_host_default = "localhost"
@@ -109,6 +113,9 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
     elif vol_type == "bluesound":
         logger.info("Volume adapter: BlueSound @ %s (max %d%%)", vol_host, vol_max)
         return BluesoundVolume(vol_host, vol_max, session)
+    elif vol_type == "heos":
+        logger.info("Volume adapter: HEOS @ %s (max %d%%)", vol_host, vol_max)
+        return HeosVolume(vol_host, vol_max)
     elif vol_type == "sonos":
         logger.info("Volume adapter: Sonos @ %s (max %d%%)", vol_host, vol_max)
         return SonosVolume(vol_host, vol_max)

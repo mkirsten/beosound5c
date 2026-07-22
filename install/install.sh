@@ -3,18 +3,13 @@
 # BeoSound 5c Installation Script
 # =============================================================================
 # Takes a vanilla Raspberry Pi 5 running Raspberry Pi OS to a fully
-# operational BeoSound 5c system with interactive configuration.
+# operational BeoSound 5c system. No interactive configuration — after
+# install + reboot the device shows a QR code; scan it with a phone to
+# finish setup in the web config UI.
 #
 # Usage (from repo root):
 #   sudo ./install/install.sh                      Full install (all steps)
 #   sudo ./install/install.sh system               System packages, boot, SD card, X11, Plymouth
-#   sudo ./install/install.sh configure            Full interactive configuration wizard
-#   sudo ./install/install.sh configure player     Reconfigure player only
-#   sudo ./install/install.sh configure ha         Reconfigure Home Assistant only
-#   sudo ./install/install.sh configure bluetooth  Pair/re-pair BT remote
-#   sudo ./install/install.sh configure transport  Reconfigure webhook/MQTT
-#   sudo ./install/install.sh configure audio      Reconfigure volume output
-#   sudo ./install/install.sh configure menu       Choose which menu items to show
 #   sudo ./install/install.sh services             Install/restart systemd services
 #   sudo ./install/install.sh verify               Run verification checks
 #        ./install/install.sh status               Show current config + service status
@@ -37,7 +32,6 @@ source "$SCRIPT_ROOT/install/lib/common.sh"
 # =============================================================================
 INSTALL_USER="${SUDO_USER:-$(whoami)}"
 SUBCOMMAND=""
-SUBSTEP=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -49,14 +43,9 @@ while [[ $# -gt 0 ]]; do
             SUBCOMMAND="help"
             shift
             ;;
-        system|configure|services|update|verify|status)
+        system|services|update|verify|status)
             SUBCOMMAND="$1"
             shift
-            # Grab optional sub-step for configure
-            if [[ "$SUBCOMMAND" == "configure" && $# -gt 0 && ! "$1" =~ ^-- ]]; then
-                SUBSTEP="$1"
-                shift
-            fi
             ;;
         *)
             log_error "Unknown option: $1"
@@ -83,7 +72,6 @@ PLYMOUTH_THEME_DIR="/usr/share/plymouth/themes/beosound5c"
 # Source all modules (they define functions, don't execute anything)
 # =============================================================================
 source "$SCRIPT_ROOT/install/lib/checks.sh"
-source "$SCRIPT_ROOT/install/lib/network.sh"
 source "$SCRIPT_ROOT/install/lib/config-utils.sh"
 
 source "$SCRIPT_ROOT/install/modules/system-packages.sh"
@@ -99,18 +87,6 @@ source "$SCRIPT_ROOT/install/modules/librespot.sh"
 source "$SCRIPT_ROOT/install/modules/piper.sh"
 source "$SCRIPT_ROOT/install/modules/ytdlp.sh"
 source "$SCRIPT_ROOT/install/modules/verify.sh"
-
-source "$SCRIPT_ROOT/install/configure/device.sh"
-source "$SCRIPT_ROOT/install/configure/player.sh"
-source "$SCRIPT_ROOT/install/configure/homeassistant.sh"
-source "$SCRIPT_ROOT/install/configure/bluetooth.sh"
-source "$SCRIPT_ROOT/install/configure/spotify.sh"
-source "$SCRIPT_ROOT/install/configure/transport.sh"
-source "$SCRIPT_ROOT/install/configure/audio.sh"
-source "$SCRIPT_ROOT/install/configure/menu.sh"
-source "$SCRIPT_ROOT/install/configure/telemetry.sh"
-source "$SCRIPT_ROOT/install/configure/generate.sh"
-source "$SCRIPT_ROOT/install/configure/wizard.sh"
 
 # =============================================================================
 # Helper: show usage
@@ -134,9 +110,9 @@ show_help() {
     echo "  git pull && sudo ./install/install.sh update  # After updating"
     echo "  ./install/install.sh status             # View current config"
     echo ""
-    echo "Configure via the web UI at http://<device-ip>/ after install."
-    echo ""
-    echo "Advanced: sudo $0 configure [bluetooth|player|ha|audio|spotify|transport|menu|telemetry]"
+    echo "All configuration happens in the web UI: after install + reboot the"
+    echo "device shows a QR code — scan it (or open http://<device-ip>/config)"
+    echo "to set up player, audio, Home Assistant, and sources from any browser."
 }
 
 # =============================================================================
@@ -275,6 +251,21 @@ install_services() {
 }
 
 # =============================================================================
+# Helper: telemetry notice (consent is managed in the web config UI)
+# =============================================================================
+show_telemetry_notice() {
+    local optout_file="$INSTALL_DIR/NO_TELEMETRY"
+    if [ -f "$optout_file" ]; then
+        log_info "Anonymous startup ping: disabled (NO_TELEMETRY present)"
+    else
+        log_info "Anonymous startup ping: enabled — a tiny anonymous hello to"
+        log_info "beosound5c.com on startup (version, source names, player/volume"
+        log_info "type, hashed device id — see services/lib/beacon.py)."
+        log_info "Turn it off in the web config UI, or: touch $optout_file"
+    fi
+}
+
+# =============================================================================
 # Helper: run system setup (all modules)
 # =============================================================================
 run_system_setup() {
@@ -327,17 +318,6 @@ case "$SUBCOMMAND" in
         log_success "System setup complete"
         ;;
 
-    configure)
-        show_banner
-        # configure doesn't need full preflight (may not be root for read-only steps)
-        if [ "$EUID" -ne 0 ]; then
-            log_error "Configuration requires root (use sudo)"
-            exit 1
-        fi
-        run_wizard "$SUBSTEP"
-        show_summary
-        ;;
-
     services|update)
         show_banner
         if [ "$EUID" -ne 0 ]; then
@@ -375,7 +355,7 @@ case "$SUBCOMMAND" in
         run_system_setup
         ensure_default_config
         install_services
-        configure_telemetry
+        show_telemetry_notice
         run_verification || true
         show_summary
 
@@ -396,7 +376,8 @@ case "$SUBCOMMAND" in
         echo -e "${CYAN}║${NC}  1. Reboot to apply all changes:                          ${CYAN}║${NC}"
         echo -e "${CYAN}║${NC}     ${GREEN}sudo reboot${NC}                                             ${CYAN}║${NC}"
         echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}  2. Open the config UI to set up player, HA, audio:       ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}  2. The device will show a QR code — scan it with a       ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}     phone to finish setup in the browser, or open:        ${CYAN}║${NC}"
         echo -e "${CYAN}║${NC}     ${GREEN}http://${DEVICE_IP:-<device-ip>}/config${NC}                            ${CYAN}║${NC}"
         echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
         echo -e "${CYAN}║${NC}  3. After reboot, verify services are running:            ${CYAN}║${NC}"

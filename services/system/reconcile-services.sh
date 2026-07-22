@@ -40,12 +40,13 @@ OPTIONAL_FAILED=()
 PLAYER_TYPE=$(python3 -c "import json;print(json.load(open('$CONFIG_FILE')).get('player',{}).get('type','sonos'))" 2>/dev/null || echo "sonos")
 echo "ℹ️  Configured player type: $PLAYER_TYPE"
 
-ALL_PLAYERS=(beo-player-sonos beo-player-bluesound beo-player-local beo-librespot)
+ALL_PLAYERS=(beo-player-sonos beo-player-bluesound beo-player-heos beo-player-local beo-librespot)
 
 case "$PLAYER_TYPE" in
     local)     WANT_PLAYERS=(beo-librespot beo-player-local) ;;
     sonos)     WANT_PLAYERS=(beo-player-sonos) ;;
     bluesound) WANT_PLAYERS=(beo-player-bluesound) ;;
+    heos)      WANT_PLAYERS=(beo-player-heos) ;;
     none)      WANT_PLAYERS=() ;;
     *)
         echo "⚠️  Unknown player type '$PLAYER_TYPE' — defaulting to sonos"

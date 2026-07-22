@@ -629,7 +629,9 @@ async def handle_qrcode(request):
         )
         qr.add_data(url)
         qr.make(fit=True)
-        img = qr.make_image(fill_color='white', back_color='black')
+        # Standard black-on-white — inverted QR codes scan poorly on many
+        # phone cameras.
+        img = qr.make_image(fill_color='black', back_color='white')
         buf = io.BytesIO()
         img.save(buf, format='PNG')
         return web.Response(
@@ -722,6 +724,70 @@ async def handle_discover_bluesound(request):
         return web.json_response([], headers={'Access-Control-Allow-Origin': '*'})
 
 
+async def handle_discover_heos(request):
+    """GET /discover/heos — find Denon HEOS devices via SSDP.
+
+    HEOS announces over SSDP (not mDNS), so avahi is useless here. Send an
+    M-SEARCH for the Denon device type and collect responder IPs, then read
+    each device's friendly name from its UPnP description XML (port 60006).
+    """
+    import socket
+
+    ssdp_request = (
+        'M-SEARCH * HTTP/1.1\r\n'
+        'HOST: 239.255.255.250:1900\r\n'
+        'MAN: "ssdp:discover"\r\n'
+        'MX: 2\r\n'
+        'ST: urn:schemas-denon-com:device:ACT-Denon:1\r\n'
+        '\r\n'
+    ).encode()
+
+    found_ips: list = []
+
+    class _SsdpProtocol(asyncio.DatagramProtocol):
+        def connection_made(self, transport):
+            transport.sendto(ssdp_request, ('239.255.255.250', 1900))
+
+        def datagram_received(self, data, addr):
+            if addr[0] not in found_ips:
+                found_ips.append(addr[0])
+
+    try:
+        loop = asyncio.get_event_loop()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        sock.bind(('', 0))
+        transport, _ = await loop.create_datagram_endpoint(
+            _SsdpProtocol, sock=sock)
+        try:
+            await asyncio.sleep(3)
+        finally:
+            transport.close()
+
+        devices = []
+        async with ClientSession() as session:
+            for ip in found_ips:
+                name = 'HEOS Device'
+                try:
+                    url = f'http://{ip}:60006/upnp/desc/aios_device/aios_device.xml'
+                    async with session.get(
+                        url, timeout=aiohttp.ClientTimeout(total=3)
+                    ) as resp:
+                        text = await resp.text()
+                    import re
+                    m = re.search(r'<friendlyName>([^<]+)</friendlyName>', text)
+                    if m:
+                        name = m.group(1)
+                except Exception as e:
+                    logger.debug('HEOS friendlyName fetch failed for %s: %s', ip, e)
+                devices.append({'ip': ip, 'name': name})
+        devices.sort(key=lambda x: x['name'])
+        return web.json_response(devices, headers={'Access-Control-Allow-Origin': '*'})
+    except Exception as e:
+        logger.warning('HEOS discovery failed: %s', e)
+        return web.json_response([], headers={'Access-Control-Allow-Origin': '*'})
+
+
 async def _write_secrets(updates: dict) -> None:
     """Update specific env vars in /etc/beosound5c/secrets.env, preserving others."""
     secrets_path = '/etc/beosound5c/secrets.env'
@@ -799,6 +865,20 @@ async def handle_config_save(request):
     # Saving via the web UI implies setup is done — flip the first-boot flag so
     # the BS5 stops auto-opening System/Config on the next reload.
     body['setup_complete'] = True
+
+    # Telemetry consent — controls the NO_TELEMETRY opt-out file, not config.json
+    telemetry = body.pop('_telemetry', None)
+    if telemetry is not None:
+        optout_path = os.path.join(BS5C_BASE_PATH, 'NO_TELEMETRY')
+        try:
+            if telemetry:
+                if os.path.isfile(optout_path):
+                    os.remove(optout_path)
+            else:
+                with open(optout_path, 'a'):
+                    pass
+        except OSError as e:
+            logger.warning('Could not update NO_TELEMETRY: %s', e)
 
     # Extract secrets — they go to secrets.env, not config.json
     raw_secrets = body.pop('_secrets', None) or {}
@@ -1450,9 +1530,13 @@ async def handle_health(request):
     })
 
 async def handle_info(request):
-    """GET /info — device info (IP, hostname) for UI use."""
+    """GET /info — device info (IP, hostname, telemetry state) for UI use."""
     return web.json_response(
-        {'ip_address': _get_device_ip(), 'hostname': subprocess.run(['hostname'], capture_output=True, text=True).stdout.strip()},
+        {
+            'ip_address': _get_device_ip(),
+            'hostname': subprocess.run(['hostname'], capture_output=True, text=True).stdout.strip(),
+            'telemetry': not os.path.isfile(os.path.join(BS5C_BASE_PATH, 'NO_TELEMETRY')),
+        },
         headers={'Access-Control-Allow-Origin': '*'},
     )
 
@@ -1922,6 +2006,7 @@ async def main():
     app.router.add_get('/qrcode', handle_qrcode)
     app.router.add_get('/discover/sonos', handle_discover_sonos)
     app.router.add_get('/discover/bluesound', handle_discover_bluesound)
+    app.router.add_get('/discover/heos', handle_discover_heos)
     app.router.add_post('/config', handle_config_save)
     app.router.add_options('/config', handle_config_save)
     runner = web.AppRunner(app, access_log=None)

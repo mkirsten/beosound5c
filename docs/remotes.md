@@ -2,13 +2,7 @@
 
 ## BeoRemote One (Bluetooth)
 
-BeoRemote One connects over BLE and is handled by the `beo-bluetooth` service. Pairing requires a CLI step (it needs a button press on the remote):
-
-```bash
-sudo ./install/install.sh configure bluetooth
-```
-
-Follow the on-screen instructions. The remote MAC is stored in `config.json` under `bluetooth.remote_mac`.
+BeoRemote One connects over BLE and is handled by the `beo-bluetooth` service. Pair it on the device: open the **SYSTEM** menu, go to the **Remotes** tab, select **Pair New Remote** (GO), and follow the on-screen instructions (it needs a button press on the remote). The remote MAC is stored in `config.json` under `bluetooth.remote_mac`.
 
 ## IR Source Buttons (Beo4 / BeoRemote One)
 

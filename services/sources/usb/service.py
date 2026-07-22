@@ -14,6 +14,7 @@ import asyncio
 import logging
 import os
 import re
+import socket
 import sys
 import urllib.parse
 from pathlib import Path
@@ -109,33 +110,22 @@ class USBService(SourceBase):
                 if self.mount_manager.available:
                     break
 
-        # Transcode cache — lossless FLAC for Bluesound, MP3 for Sonos
+        # Transcode cache — lossless FLAC for Bluesound/HEOS, MP3 for Sonos
         player_type = cfg("player", "type", default="sonos")
-        target_format = 'flac' if player_type == 'bluesound' else 'mp3'
+        target_format = 'flac' if player_type in ('bluesound', 'heos') else 'mp3'
         self.transcode_cache = TranscodeCache(target_format=target_format)
         self.transcode_cache.init()
 
-        # Detect playback mode
+        # Detect playback mode (retries in the background while the
+        # player service isn't answering yet)
         self._detect_player()
-        caps = await self.player_capabilities()
-        if "url_stream" in caps:
-            self._playback_mode = "remote"
-            self.remote_player = RemotePlayer(self)
-            self.remote_player._on_track_end = self._on_track_end
-            self.remote_player._on_pause_timeout = self._on_pause_timeout
-            self.remote_player._on_external_pause = self._on_external_pause
-            self.remote_player._on_external_resume = self._on_external_resume
-            self.remote_player._on_external_takeover = self._on_external_takeover
-            log.info("Playback mode: remote (player supports url_stream)")
-        else:
-            self._playback_mode = "local"
-            log.info("Playback mode: local (mpv)")
+        self._spawn(self._init_playback_mode(), name="usb_playback_mode")
 
         self.file_player._on_track_end = self._on_track_end
         self.file_player._on_pause_timeout = self._on_pause_timeout
 
-        # Determine device IP for stream URLs
-        self._device_ip = await self._get_device_ip()
+        # Resolve device IP for stream URLs (re-resolved lazily on failure)
+        self._device_stream_ip()
 
         if self.mount_manager.available:
             await self.register('available')
@@ -145,9 +135,6 @@ class USBService(SourceBase):
 
         # Watch for USB hot-plug events
         self._hotplug_task = asyncio.create_task(self._watch_hotplug())
-
-        if self._playback_mode == "local":
-            self._spawn(self._set_default_airplay(), name="set_default_airplay")
 
     async def on_stop(self):
         if self._hotplug_task:
@@ -164,21 +151,69 @@ class USBService(SourceBase):
             if isinstance(browser, BM5Library):
                 browser.close()
 
-    async def _get_device_ip(self):
-        """Determine this device's IP address reachable by the player."""
+    async def _init_playback_mode(self):
+        """Decide local-mpv vs remote-player playback from the player's
+        capabilities.
+
+        Must keep retrying while the player service is unreachable: this
+        was a single probe in on_start, and a boot race (player HTTP not
+        up yet) silently locked USB into local mpv — no streaming to
+        Sonos/BlueSound — until a service restart. The mode stays "local"
+        while undecided so USB still works standalone, and the upgrade to
+        remote only lands while local playback is idle.
+        """
+        delay = 2
+        while True:
+            data = await self._player_get("capabilities")
+            if data is not None:
+                if "url_stream" in data.get("capabilities", []):
+                    if self.file_player.get_status().get('state') in ("playing", "paused"):
+                        # Flipping _player mid-track would strand the
+                        # local playback — check again later.
+                        await asyncio.sleep(delay)
+                        continue
+                    self.remote_player = RemotePlayer(self)
+                    self.remote_player._on_track_end = self._on_track_end
+                    self.remote_player._on_pause_timeout = self._on_pause_timeout
+                    self.remote_player._on_external_pause = self._on_external_pause
+                    self.remote_player._on_external_resume = self._on_external_resume
+                    self.remote_player._on_external_takeover = self._on_external_takeover
+                    self._playback_mode = "remote"
+                    log.info("Playback mode: remote (player supports url_stream)")
+                else:
+                    log.info("Playback mode: local (mpv)")
+                    self._spawn(self._set_default_airplay(), name="set_default_airplay")
+                return
+            log.info("Player service not answering — retrying playback-mode probe in %ds", delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60)
+
+    def _device_stream_ip(self) -> str:
+        """This device's IP as reachable by the player, for stream/artwork URLs.
+
+        Cached only on success: at early boot the route lookup can fail
+        (interface has no address yet), and a "localhost" URL handed to a
+        remote player is unplayable — so a failure must fall back per-call
+        and be retried on the next one, never cached. The lookup is a local
+        routing decision (UDP connect sends no packets), cheap enough to
+        repeat until it succeeds.
+        """
+        if self._device_ip:
+            return self._device_ip
         player_ip = cfg("player", "ip", default="")
         if not player_ip:
-            return "localhost"
+            self._device_ip = "localhost"  # local playback — URLs stay on-host
+            return self._device_ip
         try:
-            import socket
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect((player_ip, 80))
             ip = s.getsockname()[0]
             s.close()
-            log.info("Device IP for streaming: %s", ip)
-            return ip
         except Exception:
             return "localhost"
+        log.info("Device IP for streaming: %s", ip)
+        self._device_ip = ip
+        return ip
 
     async def _set_default_airplay(self):
         sonos_ip = cfg("player", "ip", default="")
@@ -269,10 +304,10 @@ class USBService(SourceBase):
         track_id = track_meta.get('id')
         mount_idx = track_meta.get('mount_idx', self._current_mount_idx)
         if track_id:
-            return f"http://{self._device_ip}:{self.port}/stream/track.{ext}?track_id={track_id}&mount={mount_idx}"
+            return f"http://{self._device_stream_ip()}:{self.port}/stream/track.{ext}?track_id={track_id}&mount={mount_idx}"
         file_path = track_meta.get('file_path')
         if file_path:
-            return f"http://{self._device_ip}:{self.port}/stream/track.{ext}?path={urllib.parse.quote(file_path)}"
+            return f"http://{self._device_stream_ip()}:{self.port}/stream/track.{ext}?path={urllib.parse.quote(file_path)}"
         return None
 
     def add_routes(self, app):
@@ -815,7 +850,7 @@ class USBService(SourceBase):
         artwork_url = None
         album_id = meta.get('album_id')
         if album_id:
-            artwork_url = f"http://{self._device_ip}:{self.port}/artwork?mount={self._current_mount_idx}&album_id={album_id}"
+            artwork_url = f"http://{self._device_stream_ip()}:{self.port}/artwork?mount={self._current_mount_idx}&album_id={album_id}"
         elif isinstance(self._player, FilePlayer) and self._player.folder_path:
             artwork_url = f"http://localhost:{self.port}/artwork?path={urllib.parse.quote(self._player.folder_path)}"
 

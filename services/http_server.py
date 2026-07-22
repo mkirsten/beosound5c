@@ -18,7 +18,7 @@ from lib.endpoints import input_url  # noqa: E402
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
 
 # Paths proxied to beo-input (port 8767)
-_PROXY_PREFIXES = ('/config', '/update/', '/discover/')
+_PROXY_PREFIXES = ('/config', '/update/', '/discover/', '/info')
 
 
 def _proxy_to_input(handler, method: str) -> bool:

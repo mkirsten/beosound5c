@@ -15,7 +15,7 @@ What is sent (one POST per service startup — everything is listed here):
   version      software version string (e.g. "v0.9.2")
   sources      names of enabled sources (e.g. "spotify", "cd") — names
                only, never credentials or config values
-  player_type  "sonos", "bluesound", or "local"
+  player_type  "sonos", "bluesound", "heos", or "local"
   volume_type  volume adapter name (e.g. "beolab5", "powerlink")
 
 The server infers a country from the request IP (via Cloudflare) and keeps
@@ -27,7 +27,8 @@ Opting out is one command and everything else works exactly the same:
 
     touch ~/beosound5c/NO_TELEMETRY
 
-(The installer also asks — answering "no" creates this file for you.)
+(The web config UI has a toggle for this — unchecking "Anonymous startup
+ping" creates this file for you.)
 """
 
 import json

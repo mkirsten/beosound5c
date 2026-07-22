@@ -12,23 +12,15 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Define service files
-SERVICES=(
-    "beo-ui.service"
-    "beo-source-tidal.service"
-    "beo-source-apple-music.service"
-    "beo-source-spotify.service"
-    "beo-source-news.service"
-    "beo-source-usb.service"
-    "beo-source-cd.service"
-    "beo-bluetooth.service"
-    "beo-masterlink.service"
-    "beo-router.service"
-    "beo-input.service"
-    "beo-player-bluesound.service"
-    "beo-player-sonos.service"
-    "beo-http.service"
-)
+# Service list comes from the registry (single source of truth), removed in
+# reverse install order so beo-ui and sources stop before the backends.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/service-registry.sh"
+
+SERVICES=()
+for ((i=${#ALL_SERVICES[@]}-1; i>=0; i--)); do
+    SERVICES+=("${ALL_SERVICES[$i]}")
+done
 
 SERVICE_DIR="/etc/systemd/system"
 

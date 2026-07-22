@@ -5,6 +5,9 @@
 # Sonos player integration
 soco>=0.30.0
 
+# Denon HEOS player integration (1.x API — 0.x is incompatible)
+pyheos>=1.0.2,<2
+
 # Artwork processing
 pillow>=10.0.0
 

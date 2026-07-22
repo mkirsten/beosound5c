@@ -4,7 +4,7 @@ A modern recreation of the Bang & Olufsen BeoSound 5 experience using web techno
 
 **Website: [www.beosound5c.com](https://www.beosound5c.com)**
 
-This project replaces the original BeoSound 5 software with a circular arc-based touch UI that integrates with Sonos players, music services (Spotify, Apple Music, TIDAL, Plex), and Home Assistant. It works with the original BS5 hardware (rotary encoder, laser pointer, display) and supports BeoRemote One for wireless control.
+This project replaces the original BeoSound 5 software with a circular arc-based touch UI that integrates with Sonos, Bluesound, and Denon HEOS players, music services (Spotify, Apple Music, TIDAL, Plex), and Home Assistant. It works with the original BS5 hardware (rotary encoder, laser pointer, display) and supports BeoRemote One for wireless control.
 
 ## Quick Start
 
@@ -21,13 +21,9 @@ cd ~/beosound5c
 sudo ./install/install.sh
 ```
 
-The installer handles everything: packages, display config, service installation. It will prompt for a reboot when complete.
+The installer handles everything: packages, display config, service installation. No questions asked — it only prompts for a reboot when complete.
 
-3. After rebooting, open the config UI to set up your player, Home Assistant, and sources:
-
-```
-http://<device-ip>/config
-```
+3. After rebooting, the device shows a QR code. Scan it with your phone (or open `http://<device-ip>/config` in any browser) to finish setup: device name, player, audio output, Home Assistant, and sources.
 
 ### Updating
 
@@ -66,14 +62,14 @@ To edit scenes (names, icons, HA scripts), edit `/etc/beosound5c/config.json` di
 
 Honestly, I just find it delightful to see where BeoSound 5cs are showing up in the world. There are already installations in the US, across Europe, here in Stockholm, in Asia, and in Australia — and every time a new one appears on the map it makes my day.
 
-To make that possible, each BS5c sends a small anonymous ping to `beosound5c.com` on startup. The installer asks you about this during setup — saying no is completely fine and changes nothing else. Your public IP is used to infer a country (via Cloudflare — never stored beyond the country name). No hostname, device name, MAC address, or credentials are ever sent. Feel free to read exactly what gets posted in [`services/lib/beacon.py`](services/lib/beacon.py).
+To make that possible, each BS5c sends a small anonymous ping to `beosound5c.com` on startup. There's a toggle for it in the web config UI — turning it off is completely fine and changes nothing else. Your public IP is used to infer a country (via Cloudflare — never stored beyond the country name). No hostname, device name, MAC address, or credentials are ever sent. Feel free to read exactly what gets posted in [`services/lib/beacon.py`](services/lib/beacon.py).
 
 | Field | Value |
 |---|---|
 | `device_id` | Stable anonymous ID — a one-way UUIDv5 hash of the Pi's onboard MAC address (the MAC itself is never sent). Derived from the MAC so a re-imaged device keeps the same identity instead of counting twice; falls back to a random UUID if no onboard interface exists |
 | `version` | Software version string |
 | `sources` | Names of enabled sources (e.g. `spotify`, `cd`) — no credentials or config values |
-| `player_type` | Player backend: `sonos`, `bluesound`, or `local` |
+| `player_type` | Player backend: `sonos`, `bluesound`, `heos`, or `local` |
 | `volume_type` | Volume adapter type: `sonos`, `beolab5`, `powerlink`, etc. |
 
 If you'd rather opt out, just create a `NO_TELEMETRY` file in the repo root:

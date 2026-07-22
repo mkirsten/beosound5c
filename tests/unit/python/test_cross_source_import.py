@@ -41,12 +41,14 @@ PLAYER_MODULES = [
     "players.sonos",
     "players.local",
     "players.bluesound",
+    "players.heos",
 ]
 
 OPTIONAL_MODULES = {
     "sources.cd": "pyudev",          # Linux-only udev bindings
     "players.local": "mpv",          # optional mpv python binding
     "players.bluesound": "aiohttp",  # always present, kept as example
+    "players.heos": "pyheos",        # HEOS CLI client
 }
 
 

@@ -67,9 +67,9 @@ class UIStore {
         // Fetch menu from router (async, non-blocking)
         this.menu.fetchMenu();
 
-        // First-boot: jump straight to SYSTEM so the user sees the Config QR
-        // without having to scroll the wheel. system.html reads the same flag
-        // and starts on its Config tab.
+        // First-boot: show a dedicated setup screen with a config QR code so
+        // the user can complete setup from a phone. Saving from the config UI
+        // flips setup_complete and restarts the kiosk, which removes it.
         this._maybeOpenSetup();
     }
 
@@ -79,10 +79,64 @@ class UIStore {
             if (!resp.ok) return;
             const cfg = await resp.json();
             if (cfg.setup_complete === false) {
-                this.navigateToView('menu/system');
+                this._showSetupScreen();
             }
         } catch (e) {
             // Config unreachable — fall through to normal boot
+        }
+    }
+
+    async _showSetupScreen() {
+        // Device IP/hostname for the config URL. beo-input may still be
+        // starting when the kiosk loads (ui.sh waits for beo-http and the
+        // router, not beo-input) — retry before falling back, because a QR
+        // encoding "http://localhost/config" is useless on a phone.
+        let ip = null, hostname = null;
+        for (let attempt = 0; attempt < 10; attempt++) {
+            try {
+                const resp = await fetch('http://localhost:8767/info');
+                const data = await resp.json();
+                ip = data.ip_address || null;
+                hostname = data.hostname || null;
+                if (ip) break;
+            } catch (e) { /* beo-input not up yet */ }
+            await new Promise(r => setTimeout(r, 2000));
+        }
+        const url = `http://${ip || location.hostname}/config`;
+        const displayUrl = hostname ? `http://${hostname}.local/config` : url;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'setup-overlay';
+        // The aluminium wheel hides content beyond x≈870 — keep everything
+        // inside the visible window (x 180–870) by centering in that band.
+        overlay.style.cssText =
+            'position:fixed;inset:0;z-index:10000;background:#000;';
+        overlay.innerHTML = `
+            <div style="position:absolute;top:0;bottom:0;left:180px;width:690px;
+                        display:flex;flex-direction:column;align-items:center;
+                        justify-content:center;color:#fff;text-align:center;">
+                <div style="font-size:28px;letter-spacing:3px;margin-bottom:6px;">BEOSOUND 5c</div>
+                <div style="font-size:15px;color:#999;margin-bottom:28px;">Scan with your phone to complete setup</div>
+                <div id="setup-overlay-qr" style="background:#fff;padding:16px;
+                            border-radius:8px;line-height:0;"></div>
+                <div style="font-size:15px;color:#ccc;margin-top:24px;">${displayUrl}</div>
+                ${ip && hostname ? `<div style="font-size:12px;color:#666;margin-top:6px;">${url}</div>` : ''}
+            </div>`;
+        document.body.appendChild(overlay);
+
+        const qrEl = document.getElementById('setup-overlay-qr');
+        if (typeof QRCode !== 'undefined') {
+            new QRCode(qrEl, {
+                text: url,
+                width: 280,
+                height: 280,
+                colorDark: '#000000',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M,
+            });
+        } else {
+            qrEl.innerHTML =
+                '<img src="http://localhost:8767/qrcode" style="width:280px;height:280px;">';
         }
     }
 

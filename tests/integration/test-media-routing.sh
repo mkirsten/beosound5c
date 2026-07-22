@@ -372,7 +372,7 @@ vol_type = c.get('volume',{}).get('type','')
 player_type = c.get('player',{}).get('type','')
 # If no explicit volume.type, the adapter auto-detects from player.type
 if not vol_type:
-    if player_type in ('sonos','bluesound'):
+    if player_type in ('sonos','bluesound','heos'):
         vol_type = player_type
     elif player_type in ('local','powerlink'):
         vol_type = 'powerlink'

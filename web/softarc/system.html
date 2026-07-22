@@ -1044,6 +1044,8 @@
                     if (plr.player) {
                         const info = plr.player === 'sonos'
                             ? `Sonos — ${plr.speaker_name || '?'} (${plr.speaker_ip || '?'})`
+                            : plr.player === 'heos'
+                            ? `HEOS${plr.speaker_ip ? ` (${plr.speaker_ip})` : ''}`
                             : plr.player;
                         html += row('Player', info);
                     } else if (rtr.active_player) {

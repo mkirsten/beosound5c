@@ -61,7 +61,7 @@ config/                     # Per-device configuration
 └── <device>.json           #   One per device (deployed to /etc/beosound5c/)
 services/                   # Backend Python services
 ├── sources/                #   Music sources (Spotify, Plex, CD, USB, Radio, News…)
-├── players/                #   Playback backends (Sonos, BlueSound, Local/mpv)
+├── players/                #   Playback backends (Sonos, BlueSound, HEOS, Local/mpv)
 ├── lib/                    #   Shared libs (player_base, source_base, volume_adapters…)
 ├── router.py               #   Event router (beo-router)
 ├── input.py                #   USB HID input (beo-input)

@@ -8,6 +8,8 @@ Each BeoSound 5c is configured with a **player** (how audio is played) and a **v
 
 - **BluOS player?** Use BlueSound as your player. Plex, CD, and USB work. Spotify, Apple Music, and TIDAL do not — they send share links that only Sonos handles via ShareLink. Set `player.type` to `"bluesound"` and `volume.type` to `"bluesound"`.
 
+- **Denon HEOS device?** Use HEOS as your player. Same source support as BlueSound: Plex, CD, and USB work; Spotify, Apple Music, and TIDAL-via-ShareLink do not. Works with any HEOS-enabled device (HEOS speakers, Denon/Marantz AVRs and amps). Set `player.type` to `"heos"` and `volume.type` to `"heos"`.
+
 - **B&O PowerLink speakers?** Use PowerLink for volume. Local sources (CD, USB) play on the Pi and output to PowerLink speakers via the MasterLink bus. Streaming sources need a Sonos or BlueSound player. Set `volume.type` to `"powerlink"`.
 
 - **Other speakers or amplifier?** Connect via HDMI, optical/Toslink, or RCA (with the appropriate HAT). Local sources play directly. Streaming sources need a Sonos or BlueSound player. Pick whichever output matches your cable.
@@ -20,6 +22,7 @@ The player service handles network-based playback. Sources send play commands to
 |---|---|---|
 | Sonos | `spotify`, `url_stream` | ShareLink (Spotify, Apple Music, TIDAL) or `play_uri` (URLs) |
 | BlueSound | `url_stream` | BluOS HTTP API with stream URLs |
+| HEOS | `url_stream` | HEOS CLI protocol (TCP 1255) with stream URLs |
 | Local | `spotify`, `url_stream` | mpv via PipeWire/PulseAudio; Spotify via go-librespot |
 
 Only one player is active — determined by `player.type` in config.json. The type guard in PlayerBase ensures only the matching player service starts.
@@ -28,17 +31,17 @@ Only one player is active — determined by `player.type` in config.json. The ty
 
 Sources check the player's capabilities at startup to determine how to play content.
 
-| Source | Sonos | BlueSound | No Player |
-|---|---|---|---|
-| **Spotify** | Yes — ShareLink queues Spotify URIs natively | No | No |
-| **Apple Music** | Yes — ShareLink handles Apple Music share URLs | No | No |
-| **TIDAL** | Yes — ShareLink handles TIDAL share URLs | Yes — direct stream URLs | No |
-| **Plex** | Yes — `play_uri` with direct stream URLs | Yes — direct stream URLs | No |
-| **CD** | Yes — plays on Pi via mpv | Yes — plays on Pi via mpv | Yes |
-| **USB** | Yes — streams track URLs to Sonos | Yes — streams track URLs | Yes — falls back to local mpv |
+| Source | Sonos | BlueSound | HEOS | No Player |
+|---|---|---|---|---|
+| **Spotify** | Yes — ShareLink queues Spotify URIs natively | No | No | No |
+| **Apple Music** | Yes — ShareLink handles Apple Music share URLs | No | No | No |
+| **TIDAL** | Yes — ShareLink handles TIDAL share URLs | Yes — direct stream URLs | Yes — direct stream URLs | No |
+| **Plex** | Yes — `play_uri` with direct stream URLs | Yes — direct stream URLs | Yes — direct stream URLs | No |
+| **CD** | Yes — plays on Pi via mpv | Yes — plays on Pi via mpv | Yes — plays on Pi via mpv | Yes |
+| **USB** | Yes — streams track URLs to Sonos | Yes — streams track URLs | Yes — streams track URLs | Yes — falls back to local mpv |
 
 **Key points:**
-- Spotify and Apple Music send share links via the `uri` parameter. Only Sonos handles these (via its ShareLink plugin). BlueSound ignores `uri` — it only supports direct stream URLs via `url`.
+- Spotify and Apple Music send share links via the `uri` parameter. Only Sonos handles these (via its ShareLink plugin). BlueSound and HEOS ignore `uri` — they only support direct stream URLs via `url`.
 - TIDAL works with both players: on Sonos it uses ShareLink (player manages queue); on BlueSound it resolves direct stream URLs via tidalapi and manages its own queue (like Plex)
 - Plex works with both players because it sends direct stream URLs (via `url`), not share links
 - Plex and TIDAL (on BlueSound) manage their own queues (next/prev build new stream URLs) while Spotify and Apple Music let the player handle queue advancement after the initial share link is queued
@@ -63,6 +66,16 @@ The BluOS player handles playback via its HTTP/XML API. The BS5c sends commands 
 ```json
 "player": { "type": "bluesound", "ip": "192.168.1.100" },
 "volume": { "type": "bluesound", "host": "192.168.1.100", "max": 70 }
+```
+
+### HEOS
+
+The Denon HEOS device handles playback natively. The BS5c talks to it over the HEOS CLI protocol (TCP port 1255, via the pyheos library) and receives push events for track, state, and volume changes. Works with any HEOS-enabled device — HEOS speakers, Denon Home, and Denon/Marantz AVRs and amplifiers.
+
+**Config:**
+```json
+"player": { "type": "heos", "ip": "192.168.1.100" },
+"volume": { "type": "heos", "host": "192.168.1.100", "max": 70 }
 ```
 
 ### PowerLink
@@ -153,6 +166,7 @@ The router sends volume commands through whichever adapter matches the configure
 |---|---|---|---|---|
 | `sonos` | 50ms | No | No | `player.ip` (default) |
 | `bluesound` | 50ms | No | No | `player.ip` (default) |
+| `heos` | 80ms | No | No | `player.ip` (default) |
 | `beolab5` | 100ms | Yes | Yes | `beolab5-controller.local` (default) |
 | `powerlink` | 50ms | Yes | Yes | `localhost:8768` (default) |
 | `c4amp` | 50ms | Yes | No | Required (`volume.host`) |
@@ -168,8 +182,8 @@ The `volume` section in `config.json`:
 
 ```json
 "volume": {
-  "type": "sonos",          // "sonos", "bluesound", "beolab5", "powerlink", "c4amp", "hdmi", "spdif", or "rca"
-  "host": "192.168.1.100",  // Target IP/hostname (sonos, bluesound, beolab5, c4amp)
+  "type": "sonos",          // "sonos", "bluesound", "heos", "beolab5", "powerlink", "c4amp", "hdmi", "spdif", or "rca"
+  "host": "192.168.1.100",  // Target IP/hostname (sonos, bluesound, heos, beolab5, c4amp)
   "max": 70,                // Maximum volume percentage
   "step": 3,                // Volume step per wheel click
   "output_name": "Sonos"    // Name shown in the UI

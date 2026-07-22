@@ -273,6 +273,8 @@ class MediaServer(PlayerBase):
     port = 8766
 
     DEFAULT_PLAYER_POLL_INTERVAL = 15  # seconds between default-player checks
+    DISCOVERY_RETRY_INTERVAL = 60      # seconds between scans while none found
+    DISCOVERY_REFRESH_INTERVAL = 900   # seconds between scans once speakers are known
 
     def __init__(self):
         super().__init__()
@@ -291,7 +293,7 @@ class MediaServer(PlayerBase):
         # Unifies the old _suppress_until_track / _suppress_set_time / _last_play_was_radio.
         self._suppress: _SuppressState | None = None
         self._queue_backfill_task: asyncio.Task | None = None
-        # JOIN feature: one-time discovery map + default-player monitor
+        # JOIN feature: discovery map + default-player monitor
         self._sonos_devices: dict[str, str] = {}   # player_name → ip
         self._default_player_playing: bool = False
         self._default_player_task: asyncio.Task | None = None
@@ -858,7 +860,7 @@ class MediaServer(PlayerBase):
     async def on_start(self):
         logger.info("Starting media server for Sonos at %s", SONOS_IP)
         self._monitor_task = self._spawn(self.monitor_sonos(), name="sonos_monitor")
-        # One-time network discovery, then start polling default player
+        # Network discovery loop + default-player polling
         self._spawn(self._startup_and_monitor(), name="sonos_startup")
 
     async def on_ws_connect(self, ws):
@@ -1045,33 +1047,57 @@ class MediaServer(PlayerBase):
         return results
 
     async def _startup_and_monitor(self):
-        """One-time discovery, then start the default-player polling loop."""
+        """Discovery loop, then default-player polling.
+
+        Discovery must loop, not run once: the boot-time scan races WiFi
+        bring-up and can come back empty, which would otherwise hide JOIN
+        until a service restart. Once speakers are found the map is still
+        refreshed periodically so zones added later appear without a
+        restart. An empty rescan never clears a non-empty map (speakers
+        may be transiently unreachable).
+        """
         loop = asyncio.get_running_loop()
-        self._sonos_devices = await loop.run_in_executor(
-            executor, self._discover_all_sync)
-        logger.info("Discovered %d Sonos devices: %s",
-                     len(self._sonos_devices), list(self._sonos_devices.keys()))
-
-        # Show JOIN in menu when other speakers exist on the network
-        if len(self._sonos_devices) > 0:
-            for attempt in range(10):
-                ok = await self._register_join_source("available")
-                if ok:
-                    logger.info("JOIN source registered (found %d other speakers)",
-                                len(self._sonos_devices))
-                    break
-                if attempt < 9:
-                    await asyncio.sleep(3)
-                else:
-                    logger.warning("Failed to register JOIN source after retries")
-
+        join_registered = False
         default_player = cfg("join", "default_player", default="")
-        if default_player and default_player in self._sonos_devices:
-            self._default_player_task = asyncio.create_task(
-                self._monitor_default_player(default_player))
-        elif default_player:
-            logger.warning("JOIN default_player '%s' not found on network",
-                           default_player)
+        warned_missing_default = False
+
+        while self.running:
+            devices = await loop.run_in_executor(
+                executor, self._discover_all_sync)
+            if devices:
+                self._sonos_devices = devices
+                logger.info("Discovered %d Sonos devices: %s",
+                            len(devices), list(devices.keys()))
+            elif not self._sonos_devices:
+                logger.info("Sonos discovery found no other zones — retrying in %ds",
+                            self.DISCOVERY_RETRY_INTERVAL)
+
+            # Show JOIN in menu when other speakers exist on the network
+            if self._sonos_devices and not join_registered:
+                for attempt in range(10):
+                    ok = await self._register_join_source("available")
+                    if ok:
+                        join_registered = True
+                        logger.info("JOIN source registered (found %d other speakers)",
+                                    len(self._sonos_devices))
+                        break
+                    if attempt < 9:
+                        await asyncio.sleep(3)
+                    else:
+                        logger.warning("Failed to register JOIN source after retries")
+
+            if default_player and not self._default_player_task:
+                if default_player in self._sonos_devices:
+                    self._default_player_task = asyncio.create_task(
+                        self._monitor_default_player(default_player))
+                elif self._sonos_devices and not warned_missing_default:
+                    warned_missing_default = True
+                    logger.warning("JOIN default_player '%s' not found on network",
+                                   default_player)
+
+            await asyncio.sleep(self.DISCOVERY_REFRESH_INTERVAL
+                                if self._sonos_devices
+                                else self.DISCOVERY_RETRY_INTERVAL)
 
     async def _monitor_default_player(self, player_name: str):
         """Poll a single device to drive JOIN menu visibility."""

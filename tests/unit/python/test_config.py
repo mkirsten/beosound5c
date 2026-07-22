@@ -163,7 +163,7 @@ class TestValidation:
         assert any("unknown volume.type 'banana'" in r.message for r in caplog.records)
 
     def test_no_warning_for_valid_volume_types(self, write_config, caplog):
-        for vtype in ("beolab5", "sonos", "bluesound", "powerlink",
+        for vtype in ("beolab5", "sonos", "bluesound", "heos", "powerlink",
                        "c4amp", "hdmi", "spdif", "rca"):
             with caplog.at_level(logging.WARNING):
                 caplog.clear()
