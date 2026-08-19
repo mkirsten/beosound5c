@@ -81,6 +81,9 @@ ROUTER_OUTPUT_ON = f"{_ROUTER_BASE}/output/on"
 ROUTER_OUTPUT_OFF = f"{_ROUTER_BASE}/output/off"
 ROUTER_TOUCH = f"{_ROUTER_BASE}/touch"
 ROUTER_STATUS = f"{_ROUTER_BASE}/status"
+# Re-create the volume adapter from the current active target (after a
+# SPEAKERS "Play here" retarget) so volume control follows the new room live.
+ROUTER_TARGET_RELOAD = f"{_ROUTER_BASE}/target/reload"
 
 # beo-masterlink mixer HTTP API (only present on devices with a PC2 card)
 MIXER_ML_STANDBY = "http://localhost:8768/ml/standby"

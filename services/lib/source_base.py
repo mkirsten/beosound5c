@@ -466,7 +466,11 @@ class SourceBase:
 
         # Start systemd watchdog heartbeat before on_start — sends READY=1
         # immediately so Type=notify doesn't fail if on_start blocks/crashes
-        asyncio.create_task(watchdog_loop())
+        self._watchdog_task = asyncio.create_task(watchdog_loop())
+        self._watchdog_task.add_done_callback(
+            lambda t: t.cancelled() or t.exception() is None or log.error(
+                "Watchdog heartbeat task died — systemd will restart the "
+                "service in WatchdogSec: %s", t.exception()))
 
         await self.on_start()
 

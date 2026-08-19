@@ -342,9 +342,9 @@ const BEO4_SOURCES = [
 
 const CFG_SOURCE_DEFS = [
     { key: 'PLAYING', label: 'Playing', fixed: true },
-    { key: 'JOIN', label: 'Join (multi-room)', fields: [
+    { key: 'SPEAKERS', label: 'Speakers (multi-room)', fields: [
         { fid: 'ir_source', label: 'IR trigger', path: ['join','source'], isIr: true, optional: true },
-        { fid: 'default_player', label: 'Default Sonos group', path: ['join','default_player'], placeholder: 'e.g. Kitchen and Dining', optional: true },
+        { fid: 'default_player', label: 'Default group', path: ['join','default_player'], placeholder: 'e.g. Kitchen and Dining', optional: true },
     ]},
     { key: 'SPOTIFY', label: 'Spotify', authPort: 8772, authScheme: 'https',
       infoHtml: `Go to <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer">developer.spotify.com/dashboard</a> → Create app. Add this Redirect URI:<br><code>https://${location.hostname}:8772/callback</code><br>Paste your Client ID below, then click <em>Authenticate →</em> to log in.`,
@@ -386,13 +386,20 @@ const CFG_SOURCE_DEFS = [
     ]},
 ];
 
+// Player types that drive a network speaker at an IP (need the IP field, and
+// their IP is persisted on save). Keep this the single source of truth.
+const NETWORK_PLAYER_TYPES = ['sonos', 'bluesound', 'heos', 'wiim', 'mozart', 'ase'];
+
 // [id, label, compatible-player-types (space-separated)]
 const VOLUME_TYPES = [
     ['sonos',     'Sonos',          'sonos'],
-    ['beolab5',   'BeoLab 5',       'sonos bluesound heos local none'],
+    ['beolab5',   'BeoLab 5',       'sonos bluesound heos wiim mozart ase local none'],
     ['powerlink', 'PowerLink',      'local none'],
     ['bluesound', 'Bluesound',      'bluesound'],
     ['heos',      'Denon HEOS',     'heos'],
+    ['wiim',      'WiiM / LinkPlay','wiim'],
+    ['mozart',    'B&O Mozart',     'mozart'],
+    ['ase',       'B&O ASE',        'ase'],
     ['hdmi',      'HDMI',           'local none'],
     ['spdif',     'S/PDIF',         'local none'],
     ['rca',       'RCA',            'local none'],
@@ -400,16 +407,16 @@ const VOLUME_TYPES = [
     ['local',     'Software / none','local none'],
 ];
 // Volume adapters that need a host/IP field
-const VOLUME_HOST_TYPES = ['beolab5', 'bluesound', 'heos', 'c4amp'];
+const VOLUME_HOST_TYPES = ['beolab5', 'bluesound', 'heos', 'wiim', 'mozart', 'ase', 'c4amp'];
 // Volume adapters that do NOT expose a local DSP (the other device
 // handles bass/treble/loudness) — hide those tone controls for these.
 // Balance is broader: it's applied pre-output in our PipeWire chain
 // even for beolab5, so only the truly remote outputs exclude it.
-const TONE_EXCLUDED_TYPES = ['sonos', 'bluesound', 'heos', 'beolab5'];
-const BALANCE_EXCLUDED_TYPES = ['sonos', 'bluesound', 'heos'];
+const TONE_EXCLUDED_TYPES = ['sonos', 'bluesound', 'heos', 'wiim', 'mozart', 'ase', 'beolab5'];
+const BALANCE_EXCLUDED_TYPES = ['sonos', 'bluesound', 'heos', 'wiim', 'mozart', 'ase'];
 
 const CFG_SOURCE_VIEWS = {
-    'PLAYING':'playing','JOIN':'join','SPOTIFY':'spotify','TIDAL':'tidal',
+    'PLAYING':'playing','SPEAKERS':'join','JOIN':'join','SPOTIFY':'spotify','TIDAL':'tidal',
     'APPLE MUSIC':'apple_music','PLEX':'plex','RADIO':'radio','CD':'cd',
     'USB':'usb','NEWS':'news','SCENES':'scenes','SYSTEM':'system','SHOWING':'showing',
 };
@@ -485,7 +492,7 @@ async function loadTelemetryState() {
 
 function renderPlayer(cfg) {
     const p = cfg.player || {};
-    const showIp = p.type === 'sonos' || p.type === 'bluesound' || p.type === 'heos';
+    const showIp = NETWORK_PLAYER_TYPES.includes(p.type);
     return `<div class="cfg-card">
         <h2>Player</h2>
         <label for="cfg-player-type">Type</label>
@@ -493,6 +500,9 @@ function renderPlayer(cfg) {
             <option value="sonos" ${p.type==='sonos'?'selected':''}>Sonos</option>
             <option value="bluesound" ${p.type==='bluesound'?'selected':''}>Bluesound</option>
             <option value="heos" ${p.type==='heos'?'selected':''}>Denon HEOS</option>
+            <option value="wiim" ${p.type==='wiim'?'selected':''}>WiiM / LinkPlay (experimental)</option>
+            <option value="mozart" ${p.type==='mozart'?'selected':''}>B&O Mozart (experimental)</option>
+            <option value="ase" ${p.type==='ase'?'selected':''}>B&O ASE (experimental)</option>
             <option value="local" ${p.type==='local'?'selected':''}>Local (mpv)</option>
             <option value="none" ${p.type==='none'?'selected':''}>None</option>
         </select>
@@ -731,7 +741,11 @@ function renderSources(cfg) {
 
     const rows = CFG_SOURCE_DEFS.map(src => {
         const kn = src.key.replace(/ /g,'_').toLowerCase();
-        const enabled = src.fixed || (src.key in menu);
+        // Accept the legacy 'JOIN' menu key for the renamed SPEAKERS entry so
+        // configs written before the rename still load enabled (save rewrites
+        // them as SPEAKERS).
+        const enabled = src.fixed || (src.key in menu) ||
+            (src.key === 'SPEAKERS' && 'JOIN' in menu);
         const hasFields = !!(src.fields && src.fields.length);
 
         const checkHtml = src.fixed
@@ -1507,7 +1521,7 @@ function setupListeners() {
         if (link) link.href = (e.target.value.trim().replace(/\/$/, '') || '') + '/profile';
     });
     document.getElementById('cfg-player-type')?.addEventListener('change', e => {
-        const show = ['sonos','bluesound','heos'].includes(e.target.value);
+        const show = NETWORK_PLAYER_TYPES.includes(e.target.value);
         document.getElementById('cfg-player-ip-cond').classList.toggle('show', show);
         const r = document.getElementById('cfg-player-results');
         if (r) { r.innerHTML = ''; r.classList.remove('show'); }
@@ -1686,10 +1700,18 @@ function updateIrDropdowns() {
 async function discoverPlayer(event) {
     const btn = event.currentTarget;
     const playerType = document.getElementById('cfg-player-type')?.value || 'sonos';
-    const endpoint = playerType === 'bluesound' ? '/discover/bluesound'
-        : playerType === 'heos' ? '/discover/heos'
-        : '/discover/sonos';
+    const DISCOVER_ENDPOINTS = {
+        sonos: '/discover/sonos', bluesound: '/discover/bluesound', heos: '/discover/heos',
+        wiim: '/discover/wiim', mozart: '/discover/mozart', ase: '/discover/ase',
+    };
+    const endpoint = DISCOVER_ENDPOINTS[playerType];
     const resultEl = document.getElementById('cfg-player-results');
+    if (!endpoint) {
+        // local/none have nothing to discover — point at the manual IP field.
+        resultEl.innerHTML = '<span class="cfg-discover-empty">Auto-discovery isn\'t available for this player — enter the IP manually (find it in the speaker\'s app), then Test.</span>';
+        resultEl.classList.add('show');
+        return;
+    }
     btn.textContent = 'Scanning...'; btn.disabled = true;
     resultEl.classList.remove('show');
     try {
@@ -1750,9 +1772,16 @@ async function testPlayerConn(event) {
     const btn = event.target;
     const ip = document.getElementById('cfg-player-ip')?.value?.trim();
     if (!ip) { btn.textContent = 'No IP'; return; }
+    // Reachability is a no-cors connect to the player's control port — the
+    // path/response don't matter, only that the port answers. Per-type so a
+    // reachable BlueSound/HEOS/WiiM/Mozart/ASE isn't falsely "Unreachable"
+    // against the Sonos port.
+    const ptype = document.getElementById('cfg-player-type')?.value || 'sonos';
+    const TEST_PORT = { sonos: 1400, bluesound: 11000, heos: 60006, wiim: 80, mozart: 8080, ase: 8080 };
+    const port = TEST_PORT[ptype] || 1400;
     btn.textContent = 'Testing...';
     try {
-        await fetch(`http://${ip}:1400/xml/device_description.xml`, { signal: AbortSignal.timeout(3000), mode: 'no-cors' });
+        await fetch(`http://${ip}:${port}/`, { signal: AbortSignal.timeout(3000), mode: 'no-cors' });
         btn.textContent = 'Reachable ✓'; btn.className = 'btn-subtle ok';
     } catch(e) {
         btn.textContent = e.name === 'TimeoutError' ? 'Timed out' : 'Unreachable'; btn.className = 'btn-subtle fail';
@@ -1788,7 +1817,7 @@ function buildConfig() {
     }
     const pt = document.getElementById('cfg-player-type')?.value;
     cfg.player = cfg.player || {}; cfg.player.type = pt;
-    if (['sonos','bluesound','heos'].includes(pt)) { cfg.player.ip = document.getElementById('cfg-player-ip')?.value || ''; }
+    if (NETWORK_PLAYER_TYPES.includes(pt)) { cfg.player.ip = document.getElementById('cfg-player-ip')?.value || ''; }
     else { delete cfg.player.ip; }
     const vt = document.getElementById('cfg-volume-type')?.value;
     cfg.volume = cfg.volume || {}; cfg.volume.type = vt;

@@ -46,6 +46,21 @@ looks exactly like user-token revocation. Set `APPLE_MUSIC_DEV_TOKEN` in
 `/etc/beosound5c/secrets.env` to supply a fresh token without waiting for a
 release.
 
+## B&O Mozart Open API + other speaker network APIs
+
+- **Mozart Open API**: <https://github.com/bang-olufsen/mozart-open-api>
+  (B&O's official, publicly published local API; the repo is Apache-2.0).
+- The Mozart player (`services/players/mozart.py`) and volume adapter talk to
+  the documented REST endpoints (`/api/v1/playback/*`, `/sound/volume/level`,
+  `/beolink/*`) directly over HTTP. Only the endpoint paths and JSON field
+  names — protocol facts — are used; no upstream code is copied and the
+  `mozart-api` Python package is **not** a dependency.
+- The same applies to the WiiM/LinkPlay (`httpapi.asp`), BluOS Custom
+  Integration API, and B&O ASE (BeoZone/BeoNotify) players: each uses the
+  vendor's documented network API over raw HTTP, with no vendor code bundled.
+- The HEOS player depends on **pyheos** (Apache-2.0, pinned in
+  `install/requirements.txt`) — a normal library dependency, GPL-3.0-compatible.
+
 ## B&O MLGW02 specification
 
 - **Source**: "MLGW Protocol specification, MLGW02, rev 3, 12-Nov-2014"

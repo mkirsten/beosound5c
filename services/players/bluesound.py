@@ -25,6 +25,7 @@ import aiohttp
 
 # Ensure services/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.active_target import effective_player_ip
 from lib.config import cfg
 from lib.player_base import PlayerBase
 from lib.timings import USER_ACTION_HORIZON
@@ -51,11 +52,15 @@ class BluesoundPlayer(PlayerBase):
 
     def __init__(self):
         super().__init__()
-        self.ip = BLUESOUND_IP
-        self.base_url = f"http://{BLUESOUND_IP}:{BLUOS_PORT}"
+        # Active target (override or configured) so a restart after "Play here"
+        # keeps driving the retargeted room; BLUESOUND_IP is only the guard.
+        self.ip = effective_player_ip()
+        self.base_url = f"http://{self.ip}:{BLUOS_PORT}"
         # BluOS-specific state
         self._etag = ""
         self._current_track_id = None
+        self._peers = {}                  # ip -> name (mDNS-discovered BluOS)
+        self._speakers_registered = False
 
     # ── BluOS HTTP helpers ──
 
@@ -169,8 +174,13 @@ class BluesoundPlayer(PlayerBase):
     async def get_status(self) -> dict:
         base = await super().get_status()
         cached = self._cached_media_data or {}
+        master_ip, slaves = await self._our_sync_status()
         base.update({
             "speaker_ip": self.ip,
+            # Drives the UNJOIN row / LEFT binding in the SPEAKERS view.
+            "is_grouped": bool(master_ip or slaves),
+            "coordinator_name": (self._peers.get(master_ip, "") if master_ip
+                                 else (self.name if slaves else "")),
             "state": self._current_playback_state or "stopped",
             "volume": cached.get("volume"),
             "current_track": {
@@ -181,6 +191,180 @@ class BluesoundPlayer(PlayerBase):
             "artwork_cache_size": len(self._artwork_cache),
         })
         return base
+
+    # ── SPEAKERS grouping capability (BluOS backend) ──
+    # Discovery: mDNS _musc._tcp via avahi-browse (same source input.py uses).
+    # Grouping: BluOS /AddSlave & /RemoveSlave (HTTP GET, XML). "us" in a group
+    # is the controlled BlueSound at effective_player_ip(); AddSlave is issued
+    # on the primary with the secondary's IP.
+
+    def supports_grouping(self) -> bool:
+        return True
+
+    def group_peers_known(self) -> bool:
+        return len(self._peers) > 1
+
+    def group_resolve_name(self, name: str):
+        for ip, n in self._peers.items():
+            if n == name:
+                return ip
+        return None
+
+    async def _discover_peers(self) -> dict:
+        """Return {ip: name} of BluOS players on the LAN via mDNS (_musc._tcp)."""
+        peers = {}
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                'avahi-browse', '-r', '-t', '-p', '_musc._tcp',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+            for line in stdout.decode(errors='replace').splitlines():
+                parts = line.split(';')
+                # =;<iface>;IPv4;<name>;<type>;<domain>;<host>;<addr>;<port>;<txt>
+                if len(parts) < 9 or parts[0] != '=' or parts[2] != 'IPv4':
+                    continue
+                name, addr = parts[3], parts[7]
+                if addr:
+                    peers[addr] = name
+        except (asyncio.TimeoutError, FileNotFoundError):
+            pass
+        except Exception as e:
+            logger.debug("BluOS peer discovery failed: %s", e)
+        return peers
+
+    async def _peer_status(self, ip: str) -> dict:
+        """GET a peer's /Status for now-playing (best-effort)."""
+        try:
+            async with self._http_session.get(
+                f"http://{ip}:{BLUOS_PORT}/Status",
+                timeout=aiohttp.ClientTimeout(total=4)) as resp:
+                resp.raise_for_status()
+                root = ElementTree.fromstring(await resp.text())
+        except Exception:
+            return {}
+        raw = self._xml_text(root, "state", "stop")
+        image = self._xml_text(root, "image")
+        if image.startswith("/"):
+            image = f"http://{ip}:{BLUOS_PORT}{image}"
+        return {
+            "state": "playing" if raw in ("play", "stream") else "stopped",
+            "title": self._xml_text(root, "name") or self._xml_text(root, "title1"),
+            "artist": self._xml_text(root, "artist") or self._xml_text(root, "title2"),
+            "album": self._xml_text(root, "album") or self._xml_text(root, "title3"),
+            "artwork_url": image,
+        }
+
+    async def group_list_devices(self) -> list:
+        peers = await self._discover_peers()
+        self._peers = peers
+        cur_ip = effective_player_ip()
+        items = dict(peers)
+        if cur_ip and cur_ip not in items:
+            items[cur_ip] = self.name  # ensure the current target is listed
+        ips = list(items)
+        # Per peer, in parallel: /Status (now-playing) + /SyncStatus (group).
+        statuses, syncs = await asyncio.gather(
+            asyncio.gather(*[self._peer_status(ip) for ip in ips],
+                           return_exceptions=True),
+            asyncio.gather(*[self._peer_slaves(ip) for ip in ips],
+                           return_exceptions=True),
+        )
+        current, others = None, []
+        for ip, st, slaves in zip(ips, statuses, syncs):
+            st = st if isinstance(st, dict) else {}
+            slaves = slaves if isinstance(slaves, list) else []
+            dev = {
+                "name": items[ip], "ip": ip,
+                "state": st.get("state", "stopped"),
+                "title": st.get("title", ""), "artist": st.get("artist", ""),
+                "album": st.get("album", ""), "artwork_url": st.get("artwork_url", ""),
+                "group": [items.get(s, s) for s in slaves],
+                "current": ip == cur_ip,
+            }
+            if ip == cur_ip:
+                current = dev
+            else:
+                others.append(dev)
+        others.sort(key=lambda d: d["name"])
+        return ([current] if current else []) + others
+
+    async def _peer_slaves(self, ip: str) -> list:
+        """Return the secondary IPs grouped under ``ip`` (empty if not a primary)."""
+        try:
+            async with self._http_session.get(
+                f"http://{ip}:{BLUOS_PORT}/SyncStatus",
+                timeout=aiohttp.ClientTimeout(total=4)) as resp:
+                resp.raise_for_status()
+                root = ElementTree.fromstring(await resp.text())
+        except Exception:
+            return []
+        return [s.get("id") for s in root.findall("slave") if s.get("id")]
+
+    async def _our_sync_status(self):
+        """Parse our /SyncStatus → (master_ip or None, [slave_ips])."""
+        try:
+            async with self._http_session.get(
+                f"http://{effective_player_ip()}:{BLUOS_PORT}/SyncStatus",
+                timeout=aiohttp.ClientTimeout(total=4)) as resp:
+                resp.raise_for_status()
+                root = ElementTree.fromstring(await resp.text())
+        except Exception:
+            return None, []
+        master = root.find("master")
+        master_ip = master.text if master is not None and master.text else None
+        slaves = [s.get("id") for s in root.findall("slave") if s.get("id")]
+        return master_ip, slaves
+
+    async def group_join(self, ip: str, media: dict) -> str:
+        """Group with the target. If we're playing we're the primary (target
+        joins us); otherwise we join the target's group as a secondary."""
+        our_ip = effective_player_ip()
+        we_lead = self._current_playback_state == "playing"
+        primary, secondary = (our_ip, ip) if we_lead else (ip, our_ip)
+        async with self._http_session.get(
+            f"http://{primary}:{BLUOS_PORT}/AddSlave"
+            f"?slave={secondary}&port={BLUOS_PORT}",
+            timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            resp.raise_for_status()
+        return self._peers.get(primary, primary)
+
+    async def group_unjoin(self) -> None:
+        our_ip = effective_player_ip()
+        master_ip, slaves = await self._our_sync_status()
+        if master_ip:
+            async with self._http_session.get(
+                f"http://{master_ip}:{BLUOS_PORT}/RemoveSlave"
+                f"?slave={our_ip}&port={BLUOS_PORT}",
+                timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                resp.raise_for_status()
+        elif slaves:
+            # We're the primary — drop every secondary to disband the group.
+            for s in slaves:
+                try:
+                    async with self._http_session.get(
+                        f"http://{our_ip}:{BLUOS_PORT}/RemoveSlave"
+                        f"?slave={s}&port={BLUOS_PORT}",
+                        timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                        resp.raise_for_status()
+                except Exception as e:
+                    logger.debug("RemoveSlave %s failed: %s", s, e)
+
+    async def on_target_changed(self, ip: str, name: str) -> None:
+        self.ip = ip
+        self.base_url = f"http://{ip}:{BLUOS_PORT}"
+        self._etag = ""  # force a fresh long-poll against the new device
+        logger.info("Retargeted BlueSound to %s (%s)", name or "?", ip)
+
+    async def _register_speakers_when_found(self):
+        """Advertise the SPEAKERS menu entry once other BluOS rooms appear."""
+        for _ in range(10):
+            self._peers = await self._discover_peers()
+            if len(self._peers) > 1 and not self._speakers_registered:
+                if await self.register_speakers_source("available"):
+                    self._speakers_registered = True
+                return
+            await asyncio.sleep(15)
 
     # ── PlayerBase hooks ──
 
@@ -204,6 +388,7 @@ class BluesoundPlayer(PlayerBase):
             sys.exit(0)
         logger.info("Starting BlueSound player for %s", self.base_url)
         self._monitor_task = self._spawn(self._monitor_bluos(), name="bluos_monitor")
+        self._spawn(self._register_speakers_when_found(), name="speakers_register")
 
     # ── Monitoring (long-poll loop) ──
 

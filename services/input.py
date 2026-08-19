@@ -882,6 +882,100 @@ async def handle_discover_heos(request):
         return web.json_response([], headers={'Access-Control-Allow-Origin': '*'})
 
 
+async def handle_discover_wiim(request):
+    """GET /discover/wiim — find WiiM/LinkPlay players via SSDP.
+
+    LinkPlay announces as a generic UPnP MediaRenderer (not mDNS), so we
+    M-SEARCH for that, then confirm each responder is LinkPlay by reading
+    getStatusEx (only LinkPlay answers with a uuid + wmrm_version)."""
+    import socket
+
+    ssdp_request = (
+        'M-SEARCH * HTTP/1.1\r\n'
+        'HOST: 239.255.255.250:1900\r\n'
+        'MAN: "ssdp:discover"\r\n'
+        'MX: 2\r\n'
+        'ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n'
+        '\r\n'
+    ).encode()
+
+    found_ips: list = []
+
+    class _SsdpProtocol(asyncio.DatagramProtocol):
+        def connection_made(self, transport):
+            transport.sendto(ssdp_request, ('239.255.255.250', 1900))
+
+        def datagram_received(self, data, addr):
+            if addr[0] not in found_ips:
+                found_ips.append(addr[0])
+
+    try:
+        loop = asyncio.get_event_loop()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        sock.bind(('', 0))
+        transport, _ = await loop.create_datagram_endpoint(_SsdpProtocol, sock=sock)
+        try:
+            await asyncio.sleep(3)
+        finally:
+            transport.close()
+
+        devices = []
+        async with ClientSession() as session:
+            for ip in found_ips:
+                for scheme in ('https', 'http'):
+                    try:
+                        url = f'{scheme}://{ip}/httpapi.asp?command=getStatusEx'
+                        async with session.get(
+                            url, ssl=False,
+                            timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                            info = await resp.json(content_type=None)
+                    except Exception:
+                        continue
+                    if isinstance(info, dict) and info.get('uuid'):
+                        devices.append({'ip': ip,
+                                        'name': info.get('ssid')
+                                        or info.get('DeviceName') or ip})
+                    break
+        devices.sort(key=lambda x: x['name'])
+        return web.json_response(devices, headers={'Access-Control-Allow-Origin': '*'})
+    except Exception as e:
+        logger.warning('WiiM discovery failed: %s', e)
+        return web.json_response([], headers={'Access-Control-Allow-Origin': '*'})
+
+
+async def handle_discover_bno(request):
+    """GET /discover/mozart and /discover/ase — find Bang & Olufsen network
+    speakers via mDNS (_bangolufsen._tcp). Covers Mozart products; older ASE
+    products may not advertise it (fall back to manual IP)."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            'avahi-browse', '-r', '-t', '-p', '_bangolufsen._tcp',
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL)
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        devices = []
+        seen: set = set()
+        for line in stdout.decode(errors='replace').splitlines():
+            parts = line.split(';')
+            if len(parts) < 9 or parts[0] != '=' or parts[2] != 'IPv4':
+                continue
+            name, addr = parts[3], parts[7]
+            if addr and addr not in seen:
+                seen.add(addr)
+                devices.append({'name': name, 'ip': addr})
+        devices.sort(key=lambda x: x['name'])
+        return web.json_response(devices, headers={'Access-Control-Allow-Origin': '*'})
+    except asyncio.TimeoutError:
+        return web.json_response([], headers={'Access-Control-Allow-Origin': '*'})
+    except FileNotFoundError:
+        logger.debug('avahi-browse not found — B&O discovery unavailable')
+        return web.json_response([], headers={'Access-Control-Allow-Origin': '*'})
+    except Exception as e:
+        logger.warning('B&O discovery failed: %s', e)
+        return web.json_response([], headers={'Access-Control-Allow-Origin': '*'})
+
+
 SECRETS_PATH = '/etc/beosound5c/secrets.env'
 
 
@@ -2157,6 +2251,9 @@ async def main():
     app.router.add_get('/discover/sonos', handle_discover_sonos)
     app.router.add_get('/discover/bluesound', handle_discover_bluesound)
     app.router.add_get('/discover/heos', handle_discover_heos)
+    app.router.add_get('/discover/wiim', handle_discover_wiim)
+    app.router.add_get('/discover/mozart', handle_discover_bno)
+    app.router.add_get('/discover/ase', handle_discover_bno)
     app.router.add_post('/config', handle_config_save)
     app.router.add_options('/config', handle_config_save)
     runner = web.AppRunner(app, access_log=None)

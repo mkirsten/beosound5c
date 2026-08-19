@@ -128,3 +128,10 @@ class HeosVolume(VolumeAdapter):
 
     async def is_on(self) -> bool:
         return True  # HEOS is network standby — always reachable
+
+    async def close(self) -> None:
+        # Cancel pending debounce/flush, then drop the persistent TCP
+        # connection so a SPEAKERS retarget doesn't leak a socket per swap.
+        await super().close()
+        async with self._io_lock:
+            self._close()

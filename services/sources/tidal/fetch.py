@@ -82,7 +82,9 @@ def fetch_playlist_tracks(playlist):
             track_url = f'https://tidal.com/browse/track/{track.id}' if track.id else None
 
             # Resolve direct stream URL for players without ShareLink (e.g. BlueSound).
-            # These are time-limited tokens; nightly + startup refresh keeps them fresh.
+            # These embed time-limited tokens and go stale — the service
+            # re-resolves at play time (_fresh_stream_url); this one is only
+            # the fallback when that re-resolution fails.
             stream_url = None
             try:
                 stream_url = track.get_url()

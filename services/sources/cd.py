@@ -40,6 +40,7 @@ import pyudev
 
 # Shared library
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.active_target import effective_player_ip
 from lib.audio_outputs import AudioOutputs
 from lib.config import cfg
 from lib.source_base import SourceBase
@@ -73,6 +74,11 @@ class CDDrive:
         self._on_drive_change = on_drive_change
         self._on_disc_change = on_disc_change
         self._monitor_task = asyncio.create_task(self._udev_monitor())
+        # If the monitor dies, disc insert/eject detection silently stops —
+        # make sure that at least leaves a trace in the journal.
+        self._monitor_task.add_done_callback(
+            lambda t: t.cancelled() or t.exception() is None or log.error(
+                "udev monitor died — disc detection stopped: %s", t.exception()))
 
     async def stop(self):
         if self._monitor_task:
@@ -849,7 +855,7 @@ class CDService(SourceBase):
             'playback': self.cdplayer.get_status(),
             'audio_outputs': await self.audio.get_outputs(),
             'current_sink': self.audio.current_sink,
-            'has_external_drive': self._detect_external_drive(),
+            'has_external_drive': await self._detect_external_drive(),
             'ripping': self._rip_process is not None and self._rip_process.poll() is None,
             'capabilities': {
                 'discid': HAS_DISCID,
@@ -978,8 +984,8 @@ class CDService(SourceBase):
     # ── AirPlay default ──
 
     async def _set_default_airplay(self):
-        """Set the default audio output to the local Sonos AirPlay sink."""
-        sonos_ip = cfg("player", "ip", default="")
+        """Set the default audio output to the active target's AirPlay sink."""
+        sonos_ip = effective_player_ip()
         if not sonos_ip:
             return
         # Wait for PipeWire to discover AirPlay sinks
@@ -994,7 +1000,7 @@ class CDService(SourceBase):
 
     async def _ensure_airplay(self):
         """Pre-play check: ensure the AirPlay sink is still alive."""
-        sonos_ip = cfg("player", "ip", default="")
+        sonos_ip = effective_player_ip()
         if not sonos_ip:
             return
         ok = await self.audio.ensure_output(ip=sonos_ip)
@@ -1018,6 +1024,9 @@ class CDService(SourceBase):
             await self.register('available', navigate=navigate)
             self._metadata_task = asyncio.create_task(
                 self._fetch_and_update_metadata(autoplay=autoplay, navigate=navigate))
+            self._metadata_task.add_done_callback(
+                lambda t: t.cancelled() or t.exception() is None or log.error(
+                    "Metadata fetch died: %s", t.exception()))
         else:
             # Cancel in-flight metadata fetch to prevent phantom playback
             if self._metadata_task and not self._metadata_task.done():
@@ -1102,7 +1111,7 @@ class CDService(SourceBase):
             'alternatives': self.metadata.get('alternatives', []),
             'shuffle': self.cdplayer.shuffle,
             'repeat': self.cdplayer.repeat,
-            'has_external_drive': self._detect_external_drive()
+            'has_external_drive': await self._detect_external_drive()
         }
         await self.broadcast('cd_update', cd_data)
         # Unified PLAYING view metadata via router (only when we have active metadata)
@@ -1156,13 +1165,18 @@ class CDService(SourceBase):
         await tts_announce(text, volume=volume)
         await self.cdplayer.fade_volume(100, duration=0.8)
 
-    def _detect_external_drive(self):
-        """Check if an external USB drive is mounted (for ripping). Cached for 30s."""
+    async def _detect_external_drive(self):
+        """Check if an external USB drive is mounted (for ripping). Cached for 30s.
+
+        Runs lsblk in an executor: this is called on every track change via
+        _broadcast_cd_update, and a slow USB enumeration would otherwise block
+        the event loop (and starve the systemd watchdog heartbeat)."""
         import time as _time
         now = _time.monotonic()
         if now - self._external_drive_cache_time < 30:
             return self._external_drive_cache
-        try:
+
+        def _scan():
             result = subprocess.run(
                 ['lsblk', '-nro', 'MOUNTPOINT,TRAN'],
                 capture_output=True, text=True, timeout=3
@@ -1170,14 +1184,16 @@ class CDService(SourceBase):
             for line in result.stdout.strip().split('\n'):
                 parts = line.strip().split()
                 if len(parts) >= 2 and parts[1] == 'usb' and parts[0].startswith('/'):
-                    self._external_drive_cache = parts[0]
-                    self._external_drive_cache_time = now
                     return parts[0]
+            return None
+
+        try:
+            mount = await asyncio.get_running_loop().run_in_executor(None, _scan)
         except Exception:
-            pass
-        self._external_drive_cache = None
+            mount = None
+        self._external_drive_cache = mount
         self._external_drive_cache_time = now
-        return None
+        return mount
 
     # ── CD button action ──
 
@@ -1263,7 +1279,7 @@ class CDService(SourceBase):
 
     async def _start_rip(self):
         """Rip the CD to an external USB drive using cdparanoia + lame."""
-        mount = self._detect_external_drive()
+        mount = await self._detect_external_drive()
         if not mount:
             log.warning("No external drive for ripping")
             return

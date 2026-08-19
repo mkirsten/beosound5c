@@ -1,10 +1,18 @@
 /**
- * JOIN View Controller
+ * SPEAKERS View Controller
  *
- * Discovers Sonos devices playing on the network and lets the user
- * join this speaker to another group. Arc browser pattern matches CD view.
+ * Discovers other rooms on the network (Sonos today; any grouping-capable
+ * network player) and lets the user act on them. The room the BS5c is
+ * currently driving is pinned at the top (flagged `current`), rendered like
+ * the others with artwork/now-playing.
  *
- * Context: menu/join — Arc list of playing Sonos devices. GO joins selected.
+ * Buttons on a highlighted room:
+ *   GO    = Group/Join  — link the room with what's playing here
+ *   RIGHT = Target      — "Play here": re-point the BS5c to this room
+ *   LEFT  = Ungroup (when grouped) / back
+ *
+ * Route id stays `menu/join` for menu-config back-compat; the label reads
+ * SPEAKERS.
  */
 window.JoinView = (() => {
     const PLAYER_URL = window.AppConfig?.playerUrl || 'http://localhost:8766';
@@ -14,6 +22,8 @@ window.JoinView = (() => {
     let mountGen = 0;   // increments per init(); suspended stale inits bail
     let devices = [];
     let isGrouped = false;
+    let configuredIp = '';     // the "home" room (from /player/status)
+    let overridden = false;    // a runtime target override is active
     let defaultPlayer = null;  // from config (fetched once)
     let loading = false;
     let pollTimer = null;
@@ -112,6 +122,7 @@ window.JoinView = (() => {
                 if (statusResp.ok) {
                     const status = await statusResp.json();
                     isGrouped = !!status.is_grouped;
+                    applyVolumeNote(status);
                 }
             } catch (e) {
                 console.warn('[JOIN] Network fetch failed:', e);
@@ -153,6 +164,7 @@ window.JoinView = (() => {
             if (statusResp.ok) {
                 const status = await statusResp.json();
                 isGrouped = !!status.is_grouped;
+                applyVolumeNote(status);
             }
         } catch { return; }
 
@@ -287,7 +299,11 @@ window.JoinView = (() => {
             if (d.title || d.artwork_url) return 1;
             return 2;
         }
-        const sorted = [...devices].sort((a, b) => {
+        // The active target (the room we're driving) is pinned at the top,
+        // separate from the sortable list of other rooms.
+        const current = devices.find(d => d.current);
+        const others = devices.filter(d => !d.current);
+        const sorted = [...others].sort((a, b) => {
             if (defaultPlayer) {
                 if (a.name === defaultPlayer && b.name !== defaultPlayer) return -1;
                 if (b.name === defaultPlayer && a.name !== defaultPlayer) return 1;
@@ -297,15 +313,36 @@ window.JoinView = (() => {
             return a.name.localeCompare(b.name);
         });
 
+        const toItem = (d, { current = false } = {}) => ({
+            id: current ? `cur-${d.ip}` : `join-${d.ip}`,
+            label: d.name || 'This room',
+            sublabel: d.artist ? `${d.artist} \u2014 ${d.title}` : d.title,
+            type: current ? 'current' : 'device',
+            current,
+            home: !!configuredIp && d.ip === configuredIp,
+            ip: d.ip,
+            state: d.state,
+            hasContent: !!(d.title || d.artwork_url),
+            artworkUrl: d.artwork_url || '',
+            title: d.title || '',
+            artist: d.artist || '',
+            album: d.album || '',
+            group: d.group || [],
+        });
+
         arcItems = [];
 
-        // Prepend UNJOIN when this speaker is in a group
+        // Current target first \u2014 the room you're playing on right now.
+        if (current) arcItems.push(toItem(current, { current: true }));
+
+        // UNJOIN affordance when this speaker is in a group.
         if (isGrouped) {
             arcItems.push({
                 id: 'unjoin',
                 label: 'UNJOIN',
                 sublabel: '',
                 type: 'unjoin',
+                current: false,
                 ip: '',
                 state: '',
                 hasContent: true,
@@ -315,20 +352,7 @@ window.JoinView = (() => {
             });
         }
 
-        arcItems.push(...sorted.map(d => ({
-            id: `join-${d.ip}`,
-            label: d.name,
-            sublabel: d.artist ? `${d.artist} \u2014 ${d.title}` : d.title,
-            type: 'device',
-            ip: d.ip,
-            state: d.state,
-            hasContent: !!(d.title || d.artwork_url),
-            artworkUrl: d.artwork_url || '',
-            title: d.title || '',
-            artist: d.artist || '',
-            album: d.album || '',
-            group: d.group || [],
-        })));
+        arcItems.push(...sorted.map(d => toItem(d)));
     }
 
     function getVisibleItems() {
@@ -381,6 +405,7 @@ window.JoinView = (() => {
             el.dataset.itemId = item.id;
             if (item.isSelected) el.classList.add('cd-arc-item-selected');
             if (!item.hasContent) el.classList.add('join-no-content');
+            if (item.current) el.classList.add('join-current');
             el.style.transform = `translate(${item.x}px, ${item.y}px) scale(${item.scale})`;
 
             // Text wrapper
@@ -391,6 +416,20 @@ window.JoinView = (() => {
             nameEl.className = 'cd-arc-item-name';
             if (item.isSelected) nameEl.classList.add('selected');
             nameEl.textContent = item.label;
+
+            // Mark the room we're currently driving, and the configured HOME
+            // room (targeting HOME clears the override — the way back).
+            if (item.current) {
+                const badge = document.createElement('span');
+                badge.className = 'join-current-badge';
+                badge.textContent = 'HERE';
+                nameEl.appendChild(badge);
+            } else if (item.home && overridden) {
+                const badge = document.createElement('span');
+                badge.className = 'join-current-badge';
+                badge.textContent = 'HOME';
+                nameEl.appendChild(badge);
+            }
 
             // EQ bars for playing
             if (item.state === 'playing') {
@@ -456,8 +495,21 @@ window.JoinView = (() => {
         container.innerHTML = '';
         const msg = document.createElement('div');
         msg.className = 'join-empty';
-        msg.innerHTML = 'No speakers found<br><span style="font-size:13px;opacity:0.5">Check that other Sonos speakers are on the network</span>';
+        msg.innerHTML = 'No other speakers found<br><span style="font-size:13px;opacity:0.5">Check that other speakers are on the network</span>';
         container.appendChild(msg);
+    }
+
+    /** Absorb /player/status: home room, override state, and the notes. */
+    function applyVolumeNote(status) {
+        if (status) {
+            configuredIp = status.configured_ip || '';
+            overridden = !!status.overridden;
+        }
+        const vnote = document.getElementById('speakers-vol-note');
+        if (vnote) vnote.style.display = (status && status.volume_follows_target === false) ? '' : 'none';
+        const rnote = document.getElementById('speakers-reset-note');
+        // Only nudge "reset" when we've actually moved off the home room.
+        if (rnote) rnote.style.display = overridden ? '' : 'none';
     }
 
     function checkForSelectionClick() {
@@ -554,10 +606,19 @@ window.JoinView = (() => {
     function handleButton(button) {
         if (!menuActive || !arcItems.length) return false;
 
-        if (button === 'go') {
+        if (button === 'go' || button === 'right') {
             snapToNearest();
             const item = arcItems[arcTargetIndex];
             if (!item) return true;
+
+            // The current-target row is a status anchor — acting on it is a
+            // no-op; just drop into PLAYING.
+            if (item.type === 'current') {
+                if (window.uiStore?.navigateToView) {
+                    window.uiStore.navigateToView('menu/playing');
+                }
+                return true;
+            }
 
             // Blue highlight on selected item (matches CD pattern)
             const container = document.getElementById('join-arc-container');
@@ -570,11 +631,16 @@ window.JoinView = (() => {
 
             if (item.type === 'unjoin') {
                 unjoinDevice();
+            } else if (button === 'right') {
+                targetDevice(item);   // control this room (re-point the BS5c)
             } else {
-                joinDevice(item);
+                joinDevice(item);     // GO — group with current playback
             }
             return true;
         }
+
+        // LEFT is always back — ungroup is the discoverable UNJOIN row, not a
+        // hidden button binding (keeps LEFT consistent with the rest of the UI).
 
         return false;
     }
@@ -593,6 +659,42 @@ window.JoinView = (() => {
             }
         } catch (e) {
             console.warn('[JOIN] Unjoin failed:', e);
+        }
+    }
+
+    async function targetDevice(item) {
+        console.log(`[SPEAKERS] Targeting ${item.label} (${item.ip})`);
+        try {
+            const resp = await fetch(`${PLAYER_URL}/player/target`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: item.ip, name: item.label }),
+            });
+            if (resp.ok) {
+                console.log(`[SPEAKERS] Now playing on ${item.label}`);
+                // Pre-populate media info so PLAYING renders instantly
+                if (window.uiStore) {
+                    window.uiStore.mediaInfo = {
+                        title: item.title || '—',
+                        artist: item.artist || '—',
+                        album: item.album || '—',
+                        artwork: item.artworkUrl || '',
+                        state: item.state === 'playing' ? 'playing' : 'stopped',
+                        position: '0:00',
+                        duration: '0:00'
+                    };
+                }
+                if (item.artworkUrl && window.ArtworkManager) {
+                    window.ArtworkManager.preloadImage(item.artworkUrl);
+                }
+                if (window.uiStore?.navigateToView) {
+                    window.uiStore.navigateToView('menu/playing');
+                }
+            } else {
+                console.error(`[SPEAKERS] Target failed: HTTP ${resp.status}`);
+            }
+        } catch (e) {
+            console.warn('[SPEAKERS] Target failed:', e);
         }
     }
 
@@ -649,17 +751,24 @@ window.JoinView = (() => {
     };
 })();
 
-// ── JOIN Source Preset ──
+// ── SPEAKERS Source Preset ──
+// Route id stays `join`/`menu/join` for menu-config back-compat; label is SPEAKERS.
 window.SourcePresets = window.SourcePresets || {};
 window.SourcePresets.join = {
     controller: window.JoinView,
-    item: { title: 'JOIN', path: 'menu/join' },
+    item: { title: 'SPEAKERS', path: 'menu/join' },
     after: 'menu/playing',
     view: {
-        title: 'JOIN',
+        title: 'SPEAKERS',
         content: `
             <div id="join-view" class="media-view" style="background: black;">
                 <div id="join-arc-container" class="cd-arc-container"></div>
+                <div class="speakers-legend">
+                    <span><span class="speakers-key">GO</span> group</span>
+                    <span><span class="speakers-key">RIGHT</span> control here</span>
+                    <span id="speakers-reset-note" class="speakers-legend-note" style="display:none">RIGHT the HOME room to reset</span>
+                    <span id="speakers-vol-note" class="speakers-legend-note" style="display:none">control moves the room only — volume stays on this speaker</span>
+                </div>
             </div>`
     },
 

@@ -54,11 +54,14 @@ from aiohttp import web
 
 from .background_tasks import BackgroundTaskSet
 from .config import cfg
+from .active_target import clear_active_target, is_overridden, save_active_target
 from .endpoints import (
     INPUT_WEBHOOK,
     ROUTER_MEDIA,
     ROUTER_OUTPUT_ON,
     ROUTER_PLAYBACK_OVERRIDE,
+    ROUTER_SOURCE,
+    ROUTER_TARGET_RELOAD,
     ROUTER_VOLUME_REPORT,
 )
 from .loop_monitor import LoopMonitor
@@ -372,8 +375,14 @@ class PlayerBase:
         log.info("Player %s: HTTP + WebSocket on port %d", self.name, self.port)
 
         # Start systemd watchdog heartbeat before on_start — sends READY=1
-        # immediately so Type=notify doesn't fail if on_start blocks/crashes
-        asyncio.create_task(watchdog_loop())
+        # immediately so Type=notify doesn't fail if on_start blocks/crashes.
+        # Observe it: a silently-dead heartbeat gets the whole service killed
+        # by WatchdogSec 60s later, so at least leave a trace.
+        self._watchdog_task = asyncio.create_task(watchdog_loop())
+        self._watchdog_task.add_done_callback(
+            lambda t: t.cancelled() or t.exception() is None or log.error(
+                "Watchdog heartbeat task died — systemd will restart the "
+                "service in WatchdogSec: %s", t.exception()))
 
         await self.on_start()
 
@@ -695,7 +704,23 @@ class PlayerBase:
             "name": self.name,
             "ws_clients": len(self._ws_clients),
             "latest_action_ts": self._latest_action_ts,
+            # Whether "Play here" also moves volume control. False when the
+            # volume adapter is a different platform (e.g. beolab5/powerlink):
+            # audio follows the target room but the wheel keeps driving the
+            # configured output — the UI warns before retargeting.
+            "volume_follows_target": self._volume_follows_target(),
+            # The configured "home" room, and whether a runtime override is
+            # active — the SPEAKERS view marks HOME and offers a reset.
+            "configured_ip": str(cfg("player", "ip", default="") or ""),
+            "overridden": is_overridden(),
         }
+
+    def _volume_follows_target(self) -> bool:
+        try:
+            from .volume_adapters import infer_volume_type
+            return infer_volume_type() == self.id
+        except Exception:
+            return True
 
     # ── Queue support ──
 
@@ -745,7 +770,262 @@ class PlayerBase:
         """
 
     def add_routes(self, app: web.Application):
-        """Add extra aiohttp routes to the app."""
+        """Add extra aiohttp routes to the app.
+
+        Grouping-capable players (``supports_grouping()`` → True) get the
+        shared SPEAKERS endpoints registered here; subclasses that override
+        this method must call ``super().add_routes(app)`` to keep them.
+        """
+        if self.supports_grouping():
+            app.router.add_get("/player/network", self._handle_group_network)
+            app.router.add_post("/player/join", self._handle_group_join)
+            app.router.add_post("/player/unjoin", self._handle_group_unjoin)
+            app.router.add_get("/player/resync", self._handle_group_resync)
+            app.router.add_post("/player/target", self._handle_group_target)
+
+    # ── SPEAKERS grouping capability ─────────────────────────────────────
+    # A player is "grouping-capable" when the speaker platform can link rooms
+    # (Sonos groups, B&O Beolink, …).  The HTTP surface, caching, source
+    # registration, and join media-broadcast live here; each platform supplies
+    # only the primitives below.  The web SPEAKERS view consumes these
+    # endpoints by shape, so any backend that fills them works unchanged.
+
+    SPEAKERS_SOURCE_ID = "join"      # router source id (kept as 'join' for
+    SPEAKERS_SOURCE_NAME = "Speakers"  # menu-config compatibility; label reads SPEAKERS
+
+    def supports_grouping(self) -> bool:
+        """Override → True in a player that can group/target other rooms."""
+        return False
+
+    # -- primitives to override in grouping-capable subclasses --
+
+    async def group_list_devices(self) -> list:
+        """Return the SPEAKERS device list (dicts with name/ip/state/title/
+        artist/album/artwork_url/group).  Push blocking work to an executor."""
+        return []
+
+    def group_resolve_name(self, name: str):
+        """Map a device display name → ip, or None if unknown."""
+        return None
+
+    async def group_join(self, ip: str, media: dict) -> str:
+        """Join this player into the group led by ``ip``; return joined name."""
+        raise NotImplementedError
+
+    async def group_unjoin(self) -> None:
+        """Leave the current group."""
+        raise NotImplementedError
+
+    def group_peers_known(self) -> bool:
+        """True when peer devices are currently known (drives visibility)."""
+        return False
+
+    async def gather_capped(self, items, coro_fn, timeout: float) -> dict:
+        """Run ``coro_fn(item)`` for each item in parallel, capped at
+        ``timeout`` seconds; return ``{item: result}`` for those that finished.
+        Slow/unreachable peers are dropped rather than blocking the whole
+        SPEAKERS list (Sonos caps discovery the same way, DEVICE_TIMEOUT)."""
+        async def _wrap(item):
+            return item, await coro_fn(item)
+
+        tasks = [asyncio.ensure_future(_wrap(i)) for i in items]
+        if not tasks:
+            return {}
+        done, pending = await asyncio.wait(tasks, timeout=timeout)
+        for t in pending:
+            t.cancel()
+        out = {}
+        for t in done:
+            try:
+                item, val = t.result()
+            except Exception:
+                continue
+            out[item] = val
+        return out
+
+    async def on_target_changed(self, ip: str, name: str) -> None:
+        """Re-point the running player at ``ip`` after a "Play here" retarget.
+
+        Same-platform only (the SPEAKERS list is platform-scoped, so any
+        device in it is the same type). Override per player to re-point the
+        controlled device live; the base no-op suffices for players that read
+        the target lazily."""
+
+    # -- shared HTTP handlers --
+
+    async def register_speakers_source(self, state: str = "available") -> bool:
+        """Register/update the SPEAKERS source on the router."""
+        if not self._session_ready():
+            return False
+        try:
+            async with self._http_session.post(
+                ROUTER_SOURCE,
+                json={"id": self.SPEAKERS_SOURCE_ID, "state": state,
+                      "name": self.SPEAKERS_SOURCE_NAME},
+                timeout=aiohttp.ClientTimeout(total=3.0),
+            ) as resp:
+                log.debug("SPEAKERS source %s: HTTP %d", state, resp.status)
+                return True
+        except Exception as e:
+            log.debug("Could not register SPEAKERS source: %s", e)
+            return False
+
+    async def _handle_group_network(self, request) -> web.Response:
+        """GET /player/network — cached device list, background refresh.
+
+        First call (no cache) blocks; later calls return the cache instantly
+        and refresh in the background at most once per cooldown."""
+        REFRESH_COOLDOWN = 10
+        cache = getattr(self, "_network_cache", None)
+        if cache is not None:
+            now = time.time()
+            last = getattr(self, "_network_refresh_time", 0)
+            if now - last >= REFRESH_COOLDOWN:
+                self._network_refresh_time = now
+
+                async def _refresh_network():
+                    # This handler owns the cache — store the full composite
+                    # (current row + others) that group_list_devices builds,
+                    # so the pinned current row survives past the first poll.
+                    # Anti-flap: keep the last good list if a transient failure
+                    # returns []; every backend returns [] on one bad poll, and
+                    # an empty cache also breaks retarget validation (§2).
+                    fresh = await self.group_list_devices()
+                    if fresh:
+                        self._network_cache = fresh
+
+                self._spawn(_refresh_network(), name="group_network_refresh")
+            return web.json_response(cache, headers=self._cors_headers())
+
+        self._network_refresh_time = time.time()
+        devices = await self.group_list_devices()
+        if devices:
+            self._network_cache = devices
+        return web.json_response(devices, headers=self._cors_headers())
+
+    async def _handle_group_join(self, request) -> web.Response:
+        """POST /player/join — join this speaker to another group.
+
+        Accepts {"ip": …} or {"name": …}; optional media fields are
+        pre-broadcast so PLAYING shows content without waiting for a poll."""
+        self._stamp_command()
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json"}, status=400,
+                                     headers=self._cors_headers())
+
+        target_ip = data.get("ip")
+        target_name = data.get("name")
+        if not target_ip and target_name:
+            target_ip = self.group_resolve_name(target_name)
+            if not target_ip:
+                return web.json_response(
+                    {"error": f"unknown device: {target_name}"}, status=404,
+                    headers=self._cors_headers())
+        if not target_ip:
+            return web.json_response({"error": "ip or name required"}, status=400,
+                                     headers=self._cors_headers())
+
+        try:
+            joined_name = await self.group_join(target_ip, data)
+            log.info("Joined group: %s (%s)", joined_name, target_ip)
+            if hasattr(self, "fetch_media_data"):
+                media_data = await self.fetch_media_data()
+                if media_data:
+                    await self.broadcast_media_update(media_data, reason="join")
+            return web.json_response({"status": "ok", "joined": joined_name},
+                                     headers=self._cors_headers())
+        except Exception as e:
+            log.error("Join failed: %s", e)
+            return web.json_response({"error": str(e)}, status=500,
+                                     headers=self._cors_headers())
+
+    async def _handle_group_unjoin(self, request) -> web.Response:
+        """POST /player/unjoin — leave the current group."""
+        self._stamp_command()
+        try:
+            await self.group_unjoin()
+            log.info("Left group (unjoined)")
+            return web.json_response({"status": "ok"}, headers=self._cors_headers())
+        except Exception as e:
+            log.error("Unjoin failed: %s", e)
+            return web.json_response({"error": str(e)}, status=500,
+                                     headers=self._cors_headers())
+
+    async def _handle_group_resync(self, request) -> web.Response:
+        """GET /player/resync — re-register SPEAKERS if peers are known."""
+        if self.group_peers_known():
+            ok = await self.register_speakers_source("available")
+            return web.json_response({"resynced": ok},
+                                     headers=self._cors_headers())
+        return web.json_response({"resynced": False},
+                                 headers=self._cors_headers())
+
+    async def _handle_group_target(self, request) -> web.Response:
+        """POST /player/target {ip,name} — retarget the BS5c to another room
+        ("Play here"). Sticky. Same-platform only: the SPEAKERS list is
+        platform-scoped, so any device in it is the same player type."""
+        self._stamp_command()
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json"}, status=400,
+                                     headers=self._cors_headers())
+
+        ip = data.get("ip")
+        name = data.get("name", "")
+        if not ip and name:
+            ip = self.group_resolve_name(name)
+        if not ip:
+            return web.json_response({"error": "ip or name required"}, status=400,
+                                     headers=self._cors_headers())
+
+        # Validate against the discovered device map — never persist an
+        # arbitrary IP (the override is sticky across reboots). The configured
+        # room is always allowed (it's the reset target).
+        configured_ip = str(cfg("player", "ip", default="") or "")
+        known = {d.get("ip") for d in (getattr(self, "_network_cache", None) or [])}
+        known.add(configured_ip)
+        if known - {None, ""} and ip not in known:
+            return web.json_response(
+                {"error": f"unknown target: {ip}"}, status=404,
+                headers=self._cors_headers())
+
+        # Targeting the configured room clears the override — the way back home.
+        if ip == configured_ip:
+            clear_active_target()
+        else:
+            save_active_target(ip, name)
+        try:
+            await self.on_target_changed(ip, name)
+        except Exception as e:
+            log.error("on_target_changed failed: %s", e)
+        # Router owns the volume adapter — have it re-point at the new room.
+        await self._reload_router_target()
+        if hasattr(self, "fetch_media_data"):
+            try:
+                media_data = await self.fetch_media_data()
+                if media_data:
+                    await self.broadcast_media_update(media_data, reason="target")
+            except Exception as e:
+                log.debug("Post-target media broadcast failed: %s", e)
+        log.info("Retargeted to %s (%s)", name or "?", ip)
+        return web.json_response({"status": "ok", "target": name or ip},
+                                 headers=self._cors_headers())
+
+    async def _reload_router_target(self):
+        """Nudge the router to re-create its volume adapter from the new target."""
+        if not self._session_ready():
+            return
+        try:
+            async with self._http_session.post(
+                ROUTER_TARGET_RELOAD,
+                timeout=aiohttp.ClientTimeout(total=3.0),
+            ) as resp:
+                log.debug("Router target reload: HTTP %d", resp.status)
+        except Exception as e:
+            log.debug("Router target reload failed: %s", e)
 
     # ── Common helpers (used by subclass monitoring loops) ──
 

@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Shared library (services/)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from lib.audio_outputs import AudioOutputs
+from lib.active_target import effective_player_ip
 from lib.config import cfg
 from lib.source_base import SourceBase
 from lib.file_playback import TranscodeCache, FilePlayer, RemotePlayer, AUDIO_EXTENSIONS
@@ -110,9 +111,11 @@ class USBService(SourceBase):
                 if self.mount_manager.available:
                     break
 
-        # Transcode cache — lossless FLAC for Bluesound/HEOS, MP3 for Sonos
+        # Transcode cache — lossless FLAC for players that stream it well
+        # (BluOS/HEOS/WiiM/Mozart), MP3 for Sonos.
         player_type = cfg("player", "type", default="sonos")
-        target_format = 'flac' if player_type in ('bluesound', 'heos') else 'mp3'
+        target_format = ('flac' if player_type in ('bluesound', 'heos', 'wiim', 'mozart')
+                         else 'mp3')
         self.transcode_cache = TranscodeCache(target_format=target_format)
         self.transcode_cache.init()
 
@@ -216,7 +219,7 @@ class USBService(SourceBase):
         return ip
 
     async def _set_default_airplay(self):
-        sonos_ip = cfg("player", "ip", default="")
+        sonos_ip = effective_player_ip()
         if not sonos_ip:
             return
         for _ in range(15):

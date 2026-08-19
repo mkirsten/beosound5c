@@ -4,7 +4,7 @@ A modern recreation of the Bang & Olufsen BeoSound 5 experience using web techno
 
 **Website: [beosound5c.com](https://beosound5c.com)**
 
-This project replaces the original BeoSound 5 software with a circular arc-based touch UI that integrates with Sonos, Bluesound, and Denon HEOS players, music services (Spotify, Apple Music, TIDAL, Plex), and Home Assistant. It works with the original BS5 hardware (rotary encoder, laser pointer, display) and supports BeoRemote One for wireless control.
+This project replaces the original BeoSound 5 software with a circular arc-based touch UI that integrates with Sonos, Bluesound, and Denon HEOS players (plus experimental WiiM/LinkPlay and B&O Mozart/ASE), music services (Spotify, Apple Music, TIDAL, Plex), and Home Assistant. It works with the original BS5 hardware (rotary encoder, laser pointer, display) and supports BeoRemote One for wireless control.
 
 ## Quick Start
 
@@ -89,7 +89,7 @@ To make that possible, each BS5c sends a small anonymous ping to `beosound5c.com
 | `device_id` | A random ID the device makes up for itself on first ping and keeps in a `device_id` file. It isn't derived from your MAC address or any other hardware identifier, so it says nothing about your machine — it exists only so two pings can be recognised as the same dot on the map. Re-image the SD card and you simply get a new one |
 | `version` | Software version string |
 | `sources` | Names of enabled sources (e.g. `spotify`, `cd`) — no credentials or config values |
-| `player_type` | Player backend: `sonos`, `bluesound`, `heos`, or `local` |
+| `player_type` | Player backend: `sonos`, `bluesound`, `heos`, `local`, or (experimental) `wiim`, `mozart`, `ase` |
 | `volume_type` | Volume adapter type: `sonos`, `beolab5`, `powerlink`, etc. |
 
 If you'd rather opt out, just create a `NO_TELEMETRY` file in the repo root:

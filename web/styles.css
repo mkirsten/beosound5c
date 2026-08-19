@@ -981,6 +981,41 @@ html, body {
   letter-spacing: 0.5px;
 }
 
+/* Current-target row (the room we're driving), pinned at the top */
+.cd-arc-item.join-current .cd-arc-item-name { color: #4da3ff; }
+.join-current-badge {
+  font-size: 0.6rem;
+  letter-spacing: 1px;
+  color: #4da3ff;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* Button legend — kept inside x=180–870 so the aluminium wheel can't hide it */
+.speakers-legend {
+  position: absolute;
+  bottom: 22px;
+  left: 190px;
+  right: 160px;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 28px;
+  font-size: 12px;
+  color: #666;
+  pointer-events: none;
+}
+.speakers-legend > span { display: flex; align-items: center; gap: 8px; }
+.speakers-key {
+  background: #1a1a1a;
+  padding: 3px 9px;
+  border-radius: 3px;
+  color: #8a8a8a;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.speakers-legend-note { color: #c07a3a; }
+
 .join-empty {
   position: absolute;
   top: 50%;

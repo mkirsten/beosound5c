@@ -324,9 +324,13 @@ class MusicVideoClient:
                                session: aiohttp.ClientSession) -> str | None:
         """Extract a direct stream URL via yt-dlp.
 
-        Runs in a thread executor (blocking subprocess). yt-dlp uses the
-        Android VR client which bypasses YouTube's PO token requirement.
-        Falls back through known binary locations.
+        Runs in a thread executor (blocking subprocess). Forces the plain
+        Android client: yt-dlp's default (Android VR) hands back DASH URLs
+        that googlevideo only serves for bounded Range requests under ~10 MB,
+        which a <video> element can't produce — Chromium's open-ended fetch
+        gets a 403 and the element reports a format error. The Android client
+        returns a progressive muxed stream (itag 18, 360p) that plays from a
+        plain src. Falls back through known binary locations.
         """
         loop = asyncio.get_running_loop()
         for ytdlp in _YTDLP_BINS:
@@ -335,6 +339,7 @@ class MusicVideoClient:
                     None,
                     lambda b=ytdlp: subprocess.run(
                         [b, "--get-url",
+                         "--extractor-args", "youtube:player_client=android",
                          "-f", "best[ext=mp4][height<=720]/best[height<=720]",
                          "--no-playlist", "--quiet", "--no-warnings",
                          "--", video_id],

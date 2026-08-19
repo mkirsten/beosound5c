@@ -192,6 +192,10 @@ class TestMissingIpGuard:
 class TestPlayerSelection:
     def _service(self, monkeypatch, players):
         monkeypatch.setattr(heos_module, "HEOS_IP", "192.168.1.60")
+        # _attach_player() resolves the target via effective_player_ip() (so a
+        # SPEAKERS retarget is honoured); pin it for the test.
+        monkeypatch.setattr(heos_module, "effective_player_ip",
+                            lambda: "192.168.1.60")
         svc = HeosPlayerService()
         svc.ip = "192.168.1.60"
         svc._heos = _FakeHeos(players)

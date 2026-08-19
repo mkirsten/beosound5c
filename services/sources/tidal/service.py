@@ -102,7 +102,8 @@ class TidalService(DigitPlaylistMixin, SourceBase):
         self._last_refresh = 0
         self._last_refresh_wall = None
         self._last_refresh_duration = None
-        self._pending_login = None  # (session, future) during device login
+        self._pending_login = None  # (session, login, future, created) during device login
+        self._login_lock = asyncio.Lock()  # collapse concurrent start-login calls
         # Source-managed track advancement (for players without ShareLink)
         self._source_managed = False
         self._current_playlist = None  # full playlist dict with tracks
@@ -375,7 +376,8 @@ class TidalService(DigitPlaylistMixin, SourceBase):
             return
 
         track = tracks[self._current_index]
-        url = track.get('stream_url') or track.get('url')
+        url = (await self._fresh_stream_url(track)
+               or track.get('stream_url') or track.get('url'))
 
         if not url:
             log.warning("Track %s has no stream URL, skipping",
@@ -418,6 +420,35 @@ class TidalService(DigitPlaylistMixin, SourceBase):
             log.error("Player failed to start '%s' — reverting optimistic state",
                       track.get('name', '?'))
             await self._revert_failed_play(prev_np)
+
+    async def _fresh_stream_url(self, track):
+        """Re-resolve the track's stream URL at play time.
+
+        Cached stream_urls in tidal_playlists.json embed time-limited tokens
+        and are carried forward verbatim across incremental refreshes, so by
+        play time they may be hours or days stale. The player just gets a URL
+        string, so an expired token surfaces as a silently dead stream."""
+        track_id = track.get('id')
+        if not track_id or not self.auth.is_configured:
+            return None
+
+        def _resolve():
+            try:
+                return self.auth.session.track(track_id).get_url()
+            except Exception:
+                if not self.auth.refresh_if_needed():
+                    raise
+                return self.auth.session.track(track_id).get_url()
+
+        loop = asyncio.get_running_loop()
+        try:
+            url = await loop.run_in_executor(None, _resolve)
+            track['stream_url'] = url
+            return url
+        except Exception as e:
+            log.warning("Could not re-resolve stream URL for '%s' (%s) — "
+                        "falling back to cached URL", track.get('name', '?'), e)
+            return None
 
     async def _revert_failed_play(self, prev_np):
         """A play command failed — the player still plays whatever it played
@@ -858,29 +889,45 @@ startBtn.addEventListener('click', async () => {{
         return web.Response(text=html, content_type='text/html')
 
     async def _handle_start_login(self, request):
-        """Start the TIDAL device login flow."""
-        if self._pending_login:
-            self._pending_login = None
+        """Start the TIDAL device login flow.
 
-        try:
-            loop = asyncio.get_running_loop()
-            session, login, future = await loop.run_in_executor(
-                None, self.auth.start_device_login)
-            self._pending_login = (session, future)
+        Reuses a pending, unexpired device code instead of minting a new one:
+        the setup iframe auto-calls this on every mount, and each navigation
+        to the source view remounts the iframe — without the guard, the QR
+        the user is scanning gets invalidated mid-scan (same debounce Plex
+        has in its _handle_start_login)."""
+        async with self._login_lock:
+            if self._pending_login:
+                _, login, future, created = self._pending_login
+                lifetime = getattr(login, 'expires_in', 300)
+                age = time.monotonic() - created
+                if not future.done() and age < lifetime - 30:
+                    return web.json_response({
+                        'url': login.verification_uri_complete,
+                        'user_code': getattr(login, 'user_code', ''),
+                        'expires_in': max(int(lifetime - age), 0),
+                    }, headers=self._cors_headers())
+                self._pending_login = None
 
-            url = login.verification_uri_complete
+            try:
+                loop = asyncio.get_running_loop()
+                session, login, future = await loop.run_in_executor(
+                    None, self.auth.start_device_login)
+                self._pending_login = (session, login, future, time.monotonic())
 
-            log.info("TIDAL device login started — URL: %s", url)
-            return web.json_response({
-                'url': url,
-                'user_code': getattr(login, 'user_code', ''),
-                'expires_in': getattr(login, 'expires_in', 300),
-            }, headers=self._cors_headers())
-        except Exception as e:
-            log.error("Failed to start TIDAL login: %s", e)
-            return web.json_response(
-                {'error': str(e)},
-                status=500, headers=self._cors_headers())
+                url = login.verification_uri_complete
+
+                log.info("TIDAL device login started — URL: %s", url)
+                return web.json_response({
+                    'url': url,
+                    'user_code': getattr(login, 'user_code', ''),
+                    'expires_in': getattr(login, 'expires_in', 300),
+                }, headers=self._cors_headers())
+            except Exception as e:
+                log.error("Failed to start TIDAL login: %s", e)
+                return web.json_response(
+                    {'error': str(e)},
+                    status=500, headers=self._cors_headers())
 
     async def _handle_check_login(self, request):
         """Check if the TIDAL device login has completed."""
@@ -889,7 +936,7 @@ startBtn.addEventListener('click', async () => {{
                 {'status': 'no_pending'},
                 headers=self._cors_headers())
 
-        session, future = self._pending_login
+        session, _login, future, _created = self._pending_login
 
         if not future.done():
             return web.json_response(

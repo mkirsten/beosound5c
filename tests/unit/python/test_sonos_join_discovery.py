@@ -32,7 +32,7 @@ def sonos_player():
     from players.sonos import MediaServer
     p = MediaServer()
     p.running = True
-    p._register_join_source = AsyncMock(return_value=True)
+    p.register_speakers_source = AsyncMock(return_value=True)
     return p
 
 
@@ -68,8 +68,8 @@ class TestJoinDiscoveryLoop:
         delays = _run_loop(p, [{}, {"Loft bedroom": "192.168.1.50"}])
 
         assert p._sonos_devices == {"Loft bedroom": "192.168.1.50"}
-        assert p._register_join_source.await_count == 1
-        p._register_join_source.assert_awaited_with("available")
+        assert p.register_speakers_source.await_count == 1
+        p.register_speakers_source.assert_awaited_with("available")
         # First wait uses the fast retry interval (nothing found yet),
         # the wait after success uses the slower refresh interval.
         assert delays == [p.DISCOVERY_RETRY_INTERVAL,
@@ -83,14 +83,14 @@ class TestJoinDiscoveryLoop:
         assert p._sonos_devices == {"Loft bedroom": "192.168.1.50"}
         # JOIN registered once — the empty rescan doesn't re-register
         # (or unregister) anything.
-        assert p._register_join_source.await_count == 1
+        assert p.register_speakers_source.await_count == 1
 
     def test_join_registered_only_once_across_refreshes(self, sonos_player):
         p = sonos_player
         scan = {"Loft bedroom": "192.168.1.50"}
         _run_loop(p, [scan, scan, scan])
 
-        assert p._register_join_source.await_count == 1
+        assert p.register_speakers_source.await_count == 1
 
     def test_refresh_picks_up_new_speaker(self, sonos_player):
         """User adds a speaker after boot — it must appear on refresh."""

@@ -69,6 +69,14 @@ INPUT_WEBHOOK_URL = INPUT_WEBHOOK
 # Static menu IDs — these are built-in views (not dynamic sources)
 STATIC_VIEWS = {"showing", "system", "scenes", "playing"}
 
+# Player types whose speakers can group/target other rooms — these surface the
+# SPEAKERS menu entry. Local/powerlink produce audio on-device and never do.
+# Must stay in sync with players that return supports_grouping() → True; add
+# each type here as its grouping primitives land (bluesound/heos/mozart/ase).
+# ASE is intentionally absent: its Beolink grouping API is unverified, so it
+# ships as a standalone player (no SPEAKERS) until confirmed on hardware.
+GROUPING_PLAYER_TYPES = {"sonos", "heos", "bluesound", "wiim", "mozart"}
+
 
 # ---------------------------------------------------------------------------
 # Router
@@ -132,9 +140,13 @@ class EventRouter:
                 entry_cfg = value
             items.append({"id": entry_id, "title": title, "config": entry_cfg})
 
+        # Grouping-capable network players advertise a SPEAKERS menu entry
+        # (group/target other rooms). Local/powerlink players never do — their
+        # audio doesn't leave the device. Kept under id "join" for menu-config
+        # back-compat; the label reads SPEAKERS.
         player_type = str(cfg("player", "type", default="")).lower()
-        if player_type == "sonos" and not any(i["id"] == "join" for i in items):
-            join_entry = {"id": "join", "title": "JOIN", "config": {}}
+        if player_type in GROUPING_PLAYER_TYPES and not any(i["id"] == "join" for i in items):
+            join_entry = {"id": "join", "title": "SPEAKERS", "config": {}}
             playing_idx = next((i for i, e in enumerate(items) if e["id"] == "playing"), -1)
             items.insert(playing_idx + 1, join_entry)
 
@@ -176,14 +188,19 @@ class EventRouter:
 
     # ── Lifecycle ──
 
-    async def start(self):
-        self._session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=2.0),
-        )
-        self._lydbro.setup()
-        await self.transport.start()
-        self._parse_menu()
-
+    async def _init_volume_adapter(self):
+        """(Re)create the volume adapter and sync self.volume to the target's
+        actual level. Called at start() and on a SPEAKERS retarget, so the arc
+        reflects the room now being driven instead of the previous one."""
+        old = getattr(self, "_volume", None)
+        if old is not None:
+            # Dispose the previous adapter first: cancel its pending debounce
+            # (else it could apply a level to the old room) and close any
+            # persistent connection (HEOS TCP) so retargets don't leak sockets.
+            try:
+                await old.close()
+            except Exception as e:
+                logger.debug("Old volume adapter close failed: %s", e)
         self._volume = create_volume_adapter(self._session)
         default_vol = int(cfg("volume", "default", default=30))
         # Adapter returns the hardware value (0..max_volume). Convert to
@@ -194,6 +211,16 @@ class EventRouter:
         else:
             logger.info("Volume read as %s — using default %d", initial_vol_hw, default_vol)
             self.volume = default_vol
+
+    async def start(self):
+        self._session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=2.0),
+        )
+        self._lydbro.setup()
+        await self.transport.start()
+        self._parse_menu()
+
+        await self._init_volume_adapter()
 
         adapter_type = infer_volume_type()
         player_type = str(cfg("player", "type", default="")).lower()
@@ -1185,6 +1212,22 @@ async def handle_resync(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "resynced": resynced})
 
 
+async def handle_target_reload(request: web.Request) -> web.Response:
+    """Re-create the volume adapter so control follows a new active target
+    (SPEAKERS "Play here"). The adapter host resolves via effective_player_ip()."""
+    try:
+        await router_instance._init_volume_adapter()
+        logger.info("Volume adapter reloaded for new active target (level %d%%)",
+                    router_instance.volume)
+        # Push the retargeted room's real level to the UI so the arc doesn't
+        # keep showing the previous room's volume until the next wheel tick.
+        await router_instance._broadcast_volume()
+        return web.json_response({"status": "ok", "volume": router_instance.volume})
+    except Exception as e:
+        logger.error("Volume adapter reload failed: %s", e)
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
+
+
 async def handle_status(request: web.Request) -> web.Response:
     active = router_instance.registry.active_source
     result = {
@@ -1371,6 +1414,7 @@ def create_app() -> web.Application:
     app.router.add_post("/router/output/off", handle_output_off)
     app.router.add_post("/router/output/on", handle_output_on)
     app.router.add_post("/router/resync", handle_resync)
+    app.router.add_post("/router/target/reload", handle_target_reload)
     app.router.add_get("/router/status", handle_status)
     app.router.add_get("/router/ws", router_instance._handle_ws)
     app.router.add_post("/router/media", router_instance._handle_media_post)

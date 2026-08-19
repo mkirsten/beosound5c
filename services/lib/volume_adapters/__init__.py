@@ -10,6 +10,7 @@ Supported types:
   - ``sonos``                  – Sonos speaker via SoCo library
   - ``bluesound``              – BlueSound speaker via BluOS HTTP API
   - ``heos``                   – Denon HEOS device via HEOS CLI protocol
+  - ``wiim``                   – WiiM / LinkPlay speaker via LinkPlay HTTP API
   - ``powerlink``              – B&O speakers via masterlink.py mixer HTTP API
   - ``c4amp``                  – Control4 amplifier via UDP
   - ``hdmi``                   – HDMI1 audio output (ALSA software volume)
@@ -21,6 +22,7 @@ import logging
 
 import aiohttp
 
+from ..active_target import effective_player_ip
 from ..config import cfg
 from .base import VolumeAdapter
 from .beolab5 import BeoLab5Volume
@@ -30,9 +32,12 @@ from .hdmi import HdmiVolume
 from .heos import HeosVolume
 from .local import LocalVolume
 from .powerlink import PowerLinkVolume
+from .ase import AseVolume
+from .mozart import MozartVolume
 from .rca import RcaVolume
 from .sonos import SonosVolume
 from .spdif import SpdifVolume
+from .wiim import WiimVolume
 
 logger = logging.getLogger("beo-router.volume")
 
@@ -48,6 +53,9 @@ __all__ = [
     "RcaVolume",
     "SonosVolume",
     "SpdifVolume",
+    "WiimVolume",
+    "MozartVolume",
+    "AseVolume",
     "infer_volume_type",
     "create_volume_adapter",
 ]
@@ -63,7 +71,7 @@ def infer_volume_type() -> str:
     vol_type = cfg("volume", "type")
     if vol_type is None:
         player_type = str(cfg("player", "type", default="")).lower()
-        if player_type in ("sonos", "bluesound", "heos"):
+        if player_type in ("sonos", "bluesound", "heos", "wiim", "mozart", "ase"):
             vol_type = player_type
         elif player_type in ("local", "powerlink"):
             vol_type = "powerlink"
@@ -88,10 +96,12 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
       mixer_port  – masterlink.py mixer HTTP port (default 8768, powerlink only)
     """
     vol_type = infer_volume_type()
-    # Default host: use player IP for sonos/bluesound/heos, otherwise beolab5 controller
+    # Default host: use the active target IP for sonos/bluesound/heos so volume
+    # follows a SPEAKERS "Play here" retarget; otherwise beolab5 controller.
     vol_host_default = "beolab5-controller.local"
-    if vol_type in ("sonos", "bluesound", "heos") and not cfg("volume", "host"):
-        vol_host_default = cfg("player", "ip", default="")
+    if (vol_type in ("sonos", "bluesound", "heos", "wiim", "mozart", "ase")
+            and not cfg("volume", "host")):
+        vol_host_default = effective_player_ip()
     elif vol_type == "powerlink" and not cfg("volume", "host"):
         vol_host_default = "localhost"
     vol_host = cfg("volume", "host", default=vol_host_default)
@@ -119,6 +129,15 @@ def create_volume_adapter(session: aiohttp.ClientSession) -> VolumeAdapter:
     elif vol_type == "sonos":
         logger.info("Volume adapter: Sonos @ %s (max %d%%)", vol_host, vol_max)
         return SonosVolume(vol_host, vol_max)
+    elif vol_type == "wiim":
+        logger.info("Volume adapter: WiiM / LinkPlay @ %s (max %d%%)", vol_host, vol_max)
+        return WiimVolume(vol_host, vol_max, session)
+    elif vol_type == "mozart":
+        logger.info("Volume adapter: B&O Mozart @ %s (max %d%%)", vol_host, vol_max)
+        return MozartVolume(vol_host, vol_max, session)
+    elif vol_type == "ase":
+        logger.info("Volume adapter: B&O ASE @ %s (max %d%%)", vol_host, vol_max)
+        return AseVolume(vol_host, vol_max, session)
     elif vol_type == "hdmi":
         logger.info("Volume adapter: HDMI1 ALSA software volume (max %d%%)", vol_max)
         return HdmiVolume(vol_max)

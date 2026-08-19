@@ -90,6 +90,25 @@ class VolumeAdapter(ABC):
         Returns None if no cached value is available."""
         return None
 
+    async def close(self) -> None:
+        """Dispose of the adapter before it's replaced (SPEAKERS retarget).
+
+        Cancels a pending debounce and any in-flight flush so the discarded
+        adapter can't apply a level to the *previous* room. Subclasses holding
+        persistent connections (e.g. HEOS TCP) override to also close them,
+        calling super().close()."""
+        if self._debounce_handle is not None:
+            self._debounce_handle.cancel()
+            self._debounce_handle = None
+        self._pending_volume = None
+        task = self._flush_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
     # -- Optional: override in adapters that support power control --
 
     async def power_on(self) -> None:

@@ -62,8 +62,8 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["sonos", "bluesound", "heos", "local", "none"],
-          "description": "Player type. Determines which player service handles playback. beo-player-sonos, beo-player-bluesound, beo-player-heos, and beo-player-local are all installed; the type guard ensures only the matching one runs. 'local' plays on the Pi via mpv/librespot; 'none' runs no player (fresh-install default until setup)."
+          "enum": ["sonos", "bluesound", "heos", "wiim", "mozart", "ase", "local", "none"],
+          "description": "Player type. Determines which player service handles playback; the type guard ensures only the matching one runs. 'wiim' drives a WiiM/LinkPlay speaker via the LinkPlay HTTP API. 'mozart' (experimental) drives a modern B&O speaker via the Mozart Open API (Beolink multiroom). 'ase' (experimental) drives an older B&O speaker via the BeoZone/BeoNotify product API. 'local' plays on the Pi via mpv/librespot; 'none' runs no player (fresh-install default until setup)."
         },
         "ip": {
           "type": "string",
@@ -140,8 +140,8 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["beolab5", "sonos", "bluesound", "heos", "powerlink", "c4amp", "hdmi", "spdif", "rca"],
-          "description": "Volume adapter type. If omitted, inferred from player.type for sonos/bluesound/heos, otherwise defaults to 'beolab5'.",
+          "enum": ["beolab5", "sonos", "bluesound", "heos", "wiim", "mozart", "ase", "powerlink", "c4amp", "hdmi", "spdif", "rca"],
+          "description": "Volume adapter type. If omitted, inferred from player.type for sonos/bluesound/heos/wiim/mozart/ase, otherwise defaults to 'beolab5'.",
           "default": "beolab5"
         },
         "host": {
@@ -229,6 +229,10 @@
         "client_id": {
           "type": "string",
           "description": "Spotify app Client ID from https://developer.spotify.com/dashboard. Leave empty to disable Spotify."
+        },
+        "connect_device": {
+          "type": "string",
+          "description": "Experimental. For network players without ShareLink (bluesound/heos/wiim), the name of the speaker's built-in Spotify Connect device to play to (matched case-insensitively). If omitted, falls back to the device name, then the active/first Connect device. Requires Spotify Premium."
         }
       },
       "additionalProperties": false

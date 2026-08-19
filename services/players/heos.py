@@ -21,6 +21,7 @@ import time
 
 # Ensure services/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.active_target import effective_player_ip
 from lib.config import cfg
 from lib.player_base import PlayerBase
 from lib.timings import USER_ACTION_HORIZON
@@ -54,12 +55,17 @@ class HeosPlayerService(PlayerBase):
 
     def __init__(self):
         super().__init__()
-        self.ip = HEOS_IP
+        # Active target (override or configured) so /player/status and media
+        # payloads report the room actually being driven after a retarget +
+        # restart; on_target_changed keeps it current. HEOS_IP is only the guard.
+        self.ip = effective_player_ip()
         self._heos = None
         self._player = None
         self._current_track_id = None
         self._event_unsubs = []
         self._player_unsub = None
+        self._roster = {}                 # pid -> HeosPlayer (whole HEOS mesh)
+        self._speakers_registered = False
 
     # ── PlayerBase abstract methods ──
 
@@ -161,6 +167,9 @@ class HeosPlayerService(PlayerBase):
             "connected": (self._heos is not None
                           and self._heos.connection_state == ConnectionState.CONNECTED
                           and self._player is not None),
+            # Drives the UNJOIN row / LEFT binding in the SPEAKERS view.
+            "is_grouped": (self._player is not None
+                           and self._player.group_id is not None),
             "state": self._current_playback_state or "stopped",
             "volume": cached.get("volume"),
             "current_track": {
@@ -171,6 +180,94 @@ class HeosPlayerService(PlayerBase):
             "artwork_cache_size": len(self._artwork_cache),
         })
         return base
+
+    # ── SPEAKERS grouping capability (HEOS backend) ──
+    # HEOS meshes: one CLI connection sees every player, so get_players() IS
+    # discovery — no separate protocol needed. group/set_group defines the
+    # full membership (first pid = leader); a single-pid set_group ungroups.
+
+    def supports_grouping(self) -> bool:
+        return True
+
+    def group_peers_known(self) -> bool:
+        return len(self._roster) > 1
+
+    def group_resolve_name(self, name: str):
+        for p in self._roster.values():
+            if p.name == name:
+                return p.ip_address
+        return None
+
+    def _find_pid(self, ip: str):
+        for p in self._roster.values():
+            if p.ip_address == ip:
+                return p.player_id
+        return None
+
+    def _heos_player_to_device(self, p, players, current=False) -> dict:
+        m = p.now_playing_media
+        members = []
+        if p.group_id is not None:
+            members = [q.name for q in players.values()
+                       if q.group_id == p.group_id and q.player_id != p.player_id]
+        return {
+            "name": p.name,
+            "ip": p.ip_address or "",
+            "state": "playing" if p.state == PlayState.PLAY else "stopped",
+            "title": (m.song or m.station or "") if m else "",
+            "artist": (m.artist or "") if m else "",
+            "album": (m.album or "") if m else "",
+            "artwork_url": (m.image_url or "") if m else "",
+            "group": members,
+            "current": current,
+        }
+
+    async def group_list_devices(self) -> list:
+        if self._heos is None:
+            return []
+        try:
+            players = await self._heos.get_players(refresh=True)
+        except Exception as e:
+            logger.warning("HEOS get_players failed: %s", e)
+            return []
+        self._roster = players
+        cur_ip = effective_player_ip()
+        current, others = None, []
+        for p in players.values():
+            is_cur = p.ip_address == cur_ip
+            dev = self._heos_player_to_device(p, players, current=is_cur)
+            if is_cur:
+                current = dev
+            else:
+                others.append(dev)
+        return ([current] if current else []) + others
+
+    async def group_join(self, ip: str, media: dict) -> str:
+        """Group our player with the target. If we're playing, we lead (the
+        target follows); otherwise we adopt the target's playback."""
+        our_pid = self._find_pid(effective_player_ip())
+        target_pid = self._find_pid(ip)
+        if our_pid is None or target_pid is None:
+            raise RuntimeError(
+                f"unknown HEOS player (our={our_pid}, target={target_pid})")
+        we_lead = self._map_state() == "playing"
+        pids = [our_pid, target_pid] if we_lead else [target_pid, our_pid]
+        await self._heos.set_group(pids)
+        leader = next((p.name for p in self._roster.values()
+                       if p.player_id == pids[0]), ip)
+        return leader
+
+    async def group_unjoin(self) -> None:
+        our_pid = self._find_pid(effective_player_ip())
+        if our_pid is not None:
+            # A single-player set_group removes that player from its group.
+            await self._heos.set_group([our_pid])
+
+    async def on_target_changed(self, ip: str, name: str) -> None:
+        self.ip = ip
+        await self._attach_player()
+        await self._sync_now_playing()
+        logger.info("Retargeted HEOS to %s (%s)", name or "?", ip)
 
     # ── PlayerBase hooks ──
 
@@ -279,19 +376,26 @@ class HeosPlayerService(PlayerBase):
             logger.warning("HEOS get_players failed: %s", e)
             return
 
+        self._roster = players
+        # Register SPEAKERS in the menu once we can see other rooms.
+        if len(players) > 1 and not self._speakers_registered:
+            if await self.register_speakers_source("available"):
+                self._speakers_registered = True
+
+        target_ip = effective_player_ip()   # follows a SPEAKERS retarget
         player = None
         for p in players.values():
-            if p.ip_address == HEOS_IP:
+            if p.ip_address == target_ip:
                 player = p
                 break
         if player is None and len(players) == 1:
             player = next(iter(players.values()))
             logger.info("No HEOS player matches ip %s — using the only "
-                        "player on the network: %s", HEOS_IP, player.name)
+                        "player on the network: %s", target_ip, player.name)
         if player is None:
             logger.error(
                 "No HEOS player matches ip %s. Players on network: %s",
-                HEOS_IP,
+                target_ip,
                 ", ".join(f"{p.name} (pid={p.player_id}, ip={p.ip_address})"
                           for p in players.values()) or "none")
             return

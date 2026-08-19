@@ -1,5 +1,9 @@
 # Python test dependencies.
 #
+# Set up the venv the test runner and git hooks look for (stdlib venv,
+# any Python >= 3.11 — CI runs 3.11/3.12, the devices run 3.13):
+#   python3.13 -m venv .venv && .venv/bin/pip install -r tests/requirements.txt
+#
 # The unit tests import the real source and player service modules,
 # which in turn import their runtime deps at module load time. So the
 # test venv needs ~the same packages as a live install, minus the

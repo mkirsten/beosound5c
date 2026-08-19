@@ -59,14 +59,12 @@ install_librespot() {
     mkdir -p "$LIBRESPOT_CONFIG_DIR"
 
     if [ ! -f "$LIBRESPOT_CONFIG_DIR/config.yml" ]; then
-        # Spotify Connect name IS the configured device name — reconcile-services.sh
-        # keeps it in sync when the user renames the device later.
+        # Placeholder only. This module runs inside run_system_setup, ahead of
+        # ensure_default_config, so $CONFIG_FILE does not exist yet and the
+        # device name is unknowable here. reconcile-services.sh owns the real
+        # name (services/lib/librespot_config.py) and runs on every install,
+        # deploy and config save.
         local DEVICE_NAME="BeoSound 5c"
-        if [ -f "$CONFIG_FILE" ]; then
-            local CFG_NAME
-            CFG_NAME=$(python3 -c "import json;print(json.load(open('$CONFIG_FILE')).get('device',''))" 2>/dev/null)
-            [ -n "$CFG_NAME" ] && DEVICE_NAME="$CFG_NAME"
-        fi
 
         log_info "Creating go-librespot config (device: $DEVICE_NAME)..."
         cat > "$LIBRESPOT_CONFIG_DIR/config.yml" << LIBCFG_EOF

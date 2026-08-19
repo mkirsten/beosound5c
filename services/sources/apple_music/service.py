@@ -108,6 +108,11 @@ class AppleMusicService(DigitPlaylistMixin, SourceBase):
         self._last_refresh_duration = None
 
     async def on_start(self):
+        # Self-heal the developer token before anything needs it (setup page,
+        # playlist refresh). Off the loop — it may hit music.apple.com.
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.auth.ensure_fresh_developer_token)
+
         has_creds = self.auth.load()
 
         if has_creds:
@@ -393,6 +398,10 @@ class AppleMusicService(DigitPlaylistMixin, SourceBase):
         self._fetching_playlists = True
         t0 = time.monotonic()
         try:
+            # Re-check before every refresh — on a long-running device the
+            # bundled token can lapse between restarts; this self-heals.
+            await asyncio.get_running_loop().run_in_executor(
+                None, self.auth.ensure_fresh_developer_token)
             developer_token = self.auth.get_developer_token()
             user_token = self.auth.get_user_token()
             if not user_token:
@@ -425,8 +434,8 @@ class AppleMusicService(DigitPlaylistMixin, SourceBase):
                         # 401 caused by the EXPIRED DEVELOPER token — do not
                         # tell the user to re-auth; it can't help.
                         log.error("401 from Apple Music: developer token "
-                                  "expired — set APPLE_MUSIC_DEV_TOKEN or "
-                                  "update BeoSound 5c")
+                                  "expired and auto-fetch failed — set "
+                                  "APPLE_MUSIC_DEV_TOKEN or update BeoSound 5c")
                     else:
                         self.auth.revoked = True
                         log.error("User token expired — re-authentication required")

@@ -96,6 +96,11 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
     id = "spotify"
     name = "Spotify"
     port = 8771
+    # Class-level defaults so partially-constructed instances (tests use
+    # __new__) always have the Connect-mode flags.
+    _connect = None
+    _connect_mode = False
+    _connect_track_uri = None
     DIGIT_PLAYLISTS_FILE = os.path.join(
         os.getenv('BS5C_BASE_PATH', PROJECT_ROOT),
         'web', 'json', 'digit_playlists.json')
@@ -129,6 +134,9 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
         self.playlists = []
         self.state = "stopped"  # stopped | playing | paused
         self.now_playing = None  # current track metadata
+        self._connect = None          # SpotifyConnect helper (network players w/o ShareLink)
+        self._connect_mode = False
+        self._connect_track_uri = None
         self._poll_task = None
         self._refresh_task = None
         self._nightly_task = None
@@ -173,6 +181,16 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
             caps = await self.player_capabilities()
             if "spotify" in caps:
                 log.info("Player service available with Spotify support")
+            elif caps:
+                # A network player without ShareLink (BlueSound/HEOS/WiiM) —
+                # drive its built-in Spotify Connect via the Web API instead.
+                from spotify_connect import SpotifyConnect
+                preferred = (cfg("spotify", "connect_device", default="")
+                             or cfg("device", default=""))
+                self._connect = SpotifyConnect(self.auth, preferred)
+                self._connect_mode = True
+                log.info("Spotify Connect mode (player lacks ShareLink; "
+                         "target='%s') — experimental", preferred or "auto")
             else:
                 log.warning("Player service does not support Spotify playback")
         else:
@@ -660,12 +678,26 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
                     self._fetch_and_broadcast_canvas(track_uri, self._track_gen),
                     name="canvas_fetch")
         self._start_polling()
-        ok = await self.player_play(
-            uri=play_uri, track_uri=track_uri, track_uris=all_track_uris,
-            action_ts=action_ts)
+        if self._connect_mode:
+            ok = await self._connect.play(
+                context_uri=self._playlist_context_uri(playlist_id),
+                offset=track_index)
+        else:
+            ok = await self.player_play(
+                uri=play_uri, track_uri=track_uri, track_uris=all_track_uris,
+                action_ts=action_ts)
         if not ok:
             log.error("Player service failed to start playlist — reverting")
             await self._revert_failed_play()
+
+    @staticmethod
+    def _playlist_context_uri(playlist_id):
+        """Spotify context URI for Connect playback."""
+        if not playlist_id:
+            return None
+        if playlist_id.startswith(("liked", "collection")):
+            return "spotify:collection:tracks"
+        return f"spotify:playlist:{playlist_id}"
 
     async def _play_track(self, uri, action_ts=None):
         """Play a specific track."""
@@ -675,7 +707,10 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
         self.state = "playing"
         await self.register("playing", auto_power=True)
         self._start_polling()
-        ok = await self.player_play(uri=url, action_ts=action_ts)
+        if self._connect_mode:
+            ok = await self._connect.play(uris=[uri])
+        else:
+            ok = await self.player_play(uri=url, action_ts=action_ts)
         if not ok:
             log.error("Player service failed to start track — reverting")
             await self._revert_failed_play()
@@ -758,23 +793,35 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
                 await self._play_playlist(self.playlists[0]['id'])
 
     async def _resume(self):
-        if await self.player_resume():
+        ok = await (self._connect.resume() if self._connect_mode
+                    else self.player_resume())
+        if ok:
             self.state = "playing"
             await self.register("playing", auto_power=True)
             self._start_polling()
 
     async def _pause(self):
-        if await self.player_pause():
+        ok = await (self._connect.pause() if self._connect_mode
+                    else self.player_pause())
+        if ok:
             self.state = "paused"
             await self.register("paused")
 
     async def _next(self):
+        if self._connect_mode:
+            if await self._connect.next():
+                await self._poll_connect_now_playing()
+            return
         if await self.player_next():
             await self._confirm_track_advance()
         else:
             log.warning("player_next() failed — command dropped")
 
     async def _prev(self):
+        if self._connect_mode:
+            if await self._connect.previous():
+                await self._poll_connect_now_playing()
+            return
         if await self.player_prev():
             await self._confirm_track_advance()
         else:
@@ -992,6 +1039,9 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
         we only track play-state here so the router knows we're active.
         Also caches the current Spotify track URI for resume-from-position.
         """
+        if self._connect_mode:
+            await self._poll_connect_now_playing()
+            return
         try:
             state = await self.player_state()
             if state == "playing":
@@ -1015,6 +1065,42 @@ class SpotifyService(DigitPlaylistMixin, SourceBase):
                 await self.register("paused")
         except Exception as e:
             log.warning("Player state poll error: %s", e)
+
+    async def _poll_connect_now_playing(self):
+        """Connect mode: the network player can't see Spotify playback, so poll
+        the Web API for state + track and broadcast metadata to the UI."""
+        try:
+            np = await self._connect.currently_playing()
+        except Exception as e:
+            log.warning("Spotify Connect poll error: %s", e)
+            return
+        if not np:
+            if self.state == "playing":
+                self.state = "paused"
+                await self.register("paused")
+            return
+
+        if np["is_playing"] and self.state != "playing":
+            self.state = "playing"
+            await self.register("playing")
+        elif not np["is_playing"] and self.state == "playing":
+            self.state = "paused"
+            await self.register("paused")
+
+        uri = np.get("uri", "")
+        if uri and uri != self._connect_track_uri:
+            self._connect_track_uri = uri
+            self._last_track_uri = uri
+            self._track_gen += 1
+            self._save_last_played()
+            cached_canvas = (self._canvas.get_cached(uri) or "") if uri else ""
+            await self.post_media_update(
+                title=np["title"], artist=np["artist"], album=np["album"],
+                artwork=np["artwork"], state="playing", reason="track_change",
+                canvas_url=cached_canvas)
+            if self._canvas.configured and uri:
+                self._spawn(self._fetch_and_broadcast_canvas(uri, self._track_gen),
+                            name="canvas_fetch")
 
     # -- Extra routes --
 
