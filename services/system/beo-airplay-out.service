@@ -1,0 +1,25 @@
+[Unit]
+Description=BeoSound5c AirPlay Output (mirror audio to AirPlay receivers)
+After=network-online.target sound.target beo-router.service
+Wants=network-online.target
+OnFailure=beo-notify-failure@%n.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__HOME__/beosound5c/services
+Environment=PYTHONUNBUFFERED=1
+# Needs this user's PipeWire session: it reads the graph with pw-dump and
+# runs one pw-loopback per mirrored receiver.
+Environment=XDG_RUNTIME_DIR=/run/user/__UID__
+ExecStart=/usr/bin/python3 __HOME__/beosound5c/services/airplay_out.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

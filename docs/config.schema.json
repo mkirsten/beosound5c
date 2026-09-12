@@ -199,6 +199,25 @@
       "additionalProperties": false
     },
 
+    "airplay_output": {
+      "type": "object",
+      "description": "Mirror the BeoSound's audio to AirPlay receivers on the network, in parallel with the normal output. See docs/airplay-output.md.",
+      "properties": {
+        "speakers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Friendly names of AirPlay receivers to mirror to, e.g. [\"Marantz\"]. Matched against the receiver's advertised name, so a changed IP address does not break the mapping. Leave empty (or omit the section) to run no mirrors.",
+          "default": []
+        },
+        "follow_volume": {
+          "type": "boolean",
+          "description": "Track the BeoSound's own volume on the mirrored streams. Turn off to let each receiver keep an independent level.",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+
     "radio": {
       "type": "object",
       "description": "Internet radio source settings.",
