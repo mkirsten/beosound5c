@@ -19,6 +19,9 @@ const AppConfig = {
     // Router service
     routerUrl: 'http://localhost:8770',
 
+    // Input service (also proxies the Home Assistant reads: /people, /ha/panel)
+    inputServiceUrl: 'http://localhost:8767',
+
     // CD service
     cdServiceUrl: 'http://localhost:8769',
 

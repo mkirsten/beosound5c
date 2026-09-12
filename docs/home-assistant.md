@@ -42,6 +42,51 @@ Set `transport.mode` to `"webhook"` and configure a webhook URL in the web UI. T
 
 For bidirectional control, use MQTT or `"both"`.
 
+## Showing Home Assistant readings on the device
+
+The HOME view puts entity states on the arc, scrolled with the wheel like any
+other list. It reads through `beo-input`, which already holds a long-lived
+token, so **no Home Assistant configuration is needed** — in particular none of
+the framing and auth changes described in the next section.
+
+List the entities in `config.json`, in the order you want them:
+
+```json
+"home_assistant": {
+  "url": "http://homeassistant.local:8123",
+  "panel": [
+    "sensor.outdoor_temperature",
+    { "entity": "sensor.battery_level", "label": "Battery", "icon": "battery-charging" },
+    { "entity": "sensor.solar_now", "label": "Solar", "icon": "sun-dim" }
+  ]
+}
+```
+
+A bare string uses the entity's own `friendly_name`. The object form overrides
+the label and the [Phosphor](https://phosphoricons.com) icon; without an icon,
+one is picked from the entity domain.
+
+Add the menu item, pointing at the local page:
+
+```json
+"menu": {
+  "HOME": { "url": "softarc/home.html" }
+}
+```
+
+Values refresh every 15 seconds and the selected row is preserved across a
+refresh. Readings are **read-only**: GO does nothing, because a status panel
+that acted on a button press would be a trap. To *control* Home Assistant from
+the device, use SCENES, which already sends actions over the configured
+transport.
+
+An entity that does not resolve is shown dimmed as `unavailable` rather than
+being dropped, since the likeliest cause is a typo in the config.
+
+Requires `HA_TOKEN` in `/etc/beosound5c/secrets.env` (settable from the device's
+own configuration page). Without it the view says so instead of failing
+silently.
+
 ## HA configuration.yaml
 
 Add the following if you want to embed Home Assistant pages in the BS5c UI (e.g. the Security camera view):

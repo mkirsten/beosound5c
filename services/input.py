@@ -1962,6 +1962,79 @@ async def handle_people(request):
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
 
+async def handle_ha_panel(request):
+    """Resolve the entities listed in home_assistant.panel for the HOME view.
+
+    One bulk /api/states call rather than one request per entity: a house
+    typically exposes a few thousand entities, and a handful of sequential
+    round trips across the network costs more than fetching once and
+    filtering here.
+
+    Entities are returned in the order they are configured — the view renders
+    them as listed, not in whatever order Home Assistant answers.
+    """
+    if request.method == 'OPTIONS':
+        return web.Response(headers={
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+        })
+
+    panel = cfg("home_assistant", "panel", default=[]) or []
+    ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
+    ha_token = os.getenv('HA_TOKEN', '')
+
+    # Nothing configured, or HA was never set up: answer empty rather than
+    # probing, so the view can say so and the log stays quiet.
+    if not panel or not ha_token:
+        response = web.json_response([])
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+
+    wanted = {}
+    for item in panel:
+        if isinstance(item, str):
+            wanted.setdefault(item, {})
+        elif isinstance(item, dict) and item.get('entity'):
+            wanted.setdefault(item['entity'], item)
+
+    try:
+        session = await get_http_session()
+        headers = {'Authorization': f'Bearer {ha_token}'}
+        async with session.get(f'{ha_url}/api/states', headers=headers) as resp:
+            if resp.status != 200:
+                response = web.json_response(
+                    {'error': f'Home Assistant returned {resp.status}'},
+                    status=resp.status)
+                response.headers['Access-Control-Allow-Origin'] = '*'
+                return response
+            all_states = await resp.json()
+    except Exception as e:
+        logger.error('HA panel error: %s', e)
+        response = web.json_response({'error': str(e)}, status=502)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+
+    by_id = {e.get('entity_id'): e for e in all_states}
+    result = []
+    for entity_id, conf in wanted.items():
+        entity = by_id.get(entity_id)
+        attrs = (entity or {}).get('attributes', {})
+        # A missing entity is reported rather than dropped: a silently short
+        # list hides a typo in the config, which is the likeliest cause.
+        result.append({
+            'entity_id': entity_id,
+            'label': conf.get('label') or attrs.get('friendly_name') or entity_id,
+            'state': entity.get('state', 'unknown') if entity else 'unavailable',
+            'unit': attrs.get('unit_of_measurement', ''),
+            'icon': conf.get('icon', ''),
+            'available': entity is not None,
+        })
+
+    response = web.json_response(result)
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    return response
+
 async def handle_bt_remotes(request):
     """Get paired Bluetooth remotes."""
     # Handle CORS preflight
@@ -2312,6 +2385,8 @@ async def main():
     app.router.add_options('/appletv', handle_appletv)  # CORS preflight
     app.router.add_get('/people', handle_people)
     app.router.add_options('/people', handle_people)  # CORS preflight
+    app.router.add_get('/ha/panel', handle_ha_panel)
+    app.router.add_options('/ha/panel', handle_ha_panel)  # CORS preflight
     app.router.add_get('/health', handle_health)
     app.router.add_get('/info', handle_info)
     app.router.add_get('/led', handle_led)

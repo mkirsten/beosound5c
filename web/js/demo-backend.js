@@ -63,6 +63,7 @@
             { id: 'plex', title: 'PLEX', preset: 'plex', dynamic: true },
             { id: 'jellyfin', title: 'JELLYFIN', preset: 'jellyfin', dynamic: true },
             { id: 'radio', title: 'RADIO', preset: 'radio', dynamic: true },
+            { id: 'home', title: 'HOME', type: 'webpage', url: 'softarc/home.html' },
             { id: 'scenes', title: 'SCENES' },
             { id: 'security', title: 'SECURITY', type: 'webpage',
               url: 'softarc/security.html' },
@@ -220,6 +221,20 @@
                 active_player: 'sonos', output_device: 'BeoLab 5',
                 volume: 32, transport_mode: 'webhook',
             }));
+        }
+
+        // HOME view readouts. Plausible house readings so the view can be
+        // exercised without a Home Assistant to talk to.
+        if (url.includes('/ha/panel')) {
+            return Promise.resolve(jsonResponse([
+                { entity_id: 'sensor.outdoor_temperature', label: 'Outdoor', state: '4.2', unit: '°C', icon: '', available: true },
+                { entity_id: 'sensor.indoor_temperature', label: 'Living room', state: '21.5', unit: '°C', icon: '', available: true },
+                { entity_id: 'sensor.battery_level', label: 'Battery', state: '68', unit: '%', icon: 'battery-charging', available: true },
+                { entity_id: 'sensor.solar_now', label: 'Solar', state: '1.4', unit: 'kW', icon: 'sun-dim', available: true },
+                { entity_id: 'binary_sensor.front_door', label: 'Front door', state: 'closed', unit: '', icon: 'lock', available: true },
+                { entity_id: 'person.demo', label: 'Someone', state: 'home', unit: '', icon: '', available: true },
+                { entity_id: 'sensor.missing_example', label: 'Unconfigured sensor', state: 'unavailable', unit: '', icon: '', available: false },
+            ]));
         }
 
         if (url.includes('/player/status') || url.includes('/player/state')) {

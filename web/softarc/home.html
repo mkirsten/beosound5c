@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home - Beosound 5c</title>
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/x-icon" href="../assets/favicons/favicon.ico">
+    <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicons/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicons/favicon-32x32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="../assets/favicons/apple-touch-icon.png">
+    <link rel="manifest" href="../assets/favicons/site.webmanifest">
+    <meta name="theme-color" content="#000000">
+
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../assets/phosphor/phosphor.css">
+</head>
+<body>
+    <div id="app">
+        <div class="counter">
+            <div id="counter-path"></div>
+            <span id="current-item">1</span> / <span id="total-items">0</span>
+        </div>
+        <div class="hierarchy-depth-1" id="hierarchy-background"></div>
+        <div class="arc-container" id="arc-container"></div>
+    </div>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/demo-backend.js"></script>
+    <script src="../js/arc-utils.js"></script>
+    <script src="../js/emulator-bridge.js"></script>
+    <script src="script-v2.js"></script>
+    <script>
+        // Home Assistant readouts, rendered as an arc so the wheel scrolls
+        // them like any other list on the device. Values are read-only: the
+        // BeoSound already sends commands to HA through SCENES, and a status
+        // panel that acts on GO would be a trap.
+        const PANEL_URL = getServiceUrl('inputServiceUrl', 8767) + '/ha/panel';
+
+        // How often to re-read. Slow on purpose: these are house readings,
+        // not transport state, and reloadData() keeps the selected row.
+        const REFRESH_MS = 15000;
+
+        // Fallback icon per entity domain. An explicit "icon" in the config
+        // entry always wins.
+        const DOMAIN_ICONS = {
+            sensor: 'gauge',
+            binary_sensor: 'circle',
+            light: 'lightbulb',
+            switch: 'toggle-right',
+            person: 'user',
+            device_tracker: 'user',
+            media_player: 'speaker-high',
+            climate: 'thermometer-simple',
+            lock: 'lock',
+            weather: 'cloud-sun',
+        };
+
+        function iconFor(entityId) {
+            return DOMAIN_ICONS[String(entityId).split('.')[0]] || 'gauge';
+        }
+
+        function mapEntity(entity) {
+            const value = entity.available
+                ? `${entity.state}${entity.unit ? ' ' + entity.unit : ''}`
+                : 'unavailable';
+            return {
+                id: entity.entity_id,
+                // One line per reading: the arc renders a single label, so
+                // the value rides along with it.
+                name: `${entity.label}   ${value}`,
+                icon: entity.icon || iconFor(entity.entity_id),
+                color: entity.available ? '#ffffff' : 'rgba(255,255,255,0.35)',
+                actionable: false,
+            };
+        }
+
+        async function loadPanel() {
+            const resp = await fetch(PANEL_URL);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            if (!Array.isArray(data) || data.length === 0) {
+                // An empty answer means either no entities configured or no
+                // Home Assistant token — say so rather than showing a blank
+                // arc that looks like a failure.
+                return [{
+                    entity_id: 'setup',
+                    label: 'Add entities to home_assistant.panel',
+                    state: '',
+                    unit: '',
+                    icon: 'house',
+                    available: true,
+                }];
+            }
+            return data;
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                window.arcListInstance = new ArcList({
+                    rootLoader: loadPanel,
+                    levels: [{ itemMapper: mapEntity, isContainer: () => false }],
+                    storagePrefix: 'home_arclist',
+                    context: 'home',
+                });
+
+                setInterval(() => {
+                    // reloadData() is a no-op below the root level and keeps
+                    // the selected row by id, so a refresh never moves the
+                    // list under the user.
+                    window.arcListInstance.reloadData().catch(() => {});
+                }, REFRESH_MS);
+            } catch (error) {
+                console.error('Home view initialization error:', error);
+                document.body.innerHTML =
+                    '<div style="color:#ff4444;padding:20px;">Error: ' + error.message + '</div>';
+            }
+        });
+    </script>
+</body>
+</html>

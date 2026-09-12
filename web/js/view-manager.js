@@ -139,6 +139,16 @@ class ViewManager {
                 }
                 iframe.style.cssText = 'width:100%;height:100%;border:none;';
                 container.appendChild(iframe);
+
+                // Local pages are BeoSound pages and can answer wheel and
+                // button events, so route input to them. Remote pages (the
+                // Security camera view, say) are passive: registering them
+                // would swallow navigation into an iframe that never
+                // listens, and the shell would stop responding.
+                const isLocal = !/^[a-z]+:\/\//i.test(url);
+                if (isLocal && window.IframeMessenger) {
+                    IframeMessenger.registerIframe(this.currentRoute, iframeId);
+                }
             }
         }
 
