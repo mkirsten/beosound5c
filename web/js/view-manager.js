@@ -110,6 +110,20 @@ class ViewManager {
             } catch (e) { /* cross-origin or unloaded iframe */ }
         });
 
+        // Unload webpage iframes (external URLs from config, e.g. the HA
+        // camera dashboard) instead of keeping them alive off-screen. An
+        // external page we don't control goes on running in the background
+        // — the HA camera dashboard holds live video streams, and each one
+        // pins Chromium shared-memory segments. Church accumulated 983 of
+        // them over 9 days and hit the renderer's 1024 soft fd limit, which
+        // wedged the whole UI (frozen mid-crossfade, no media WS, main
+        // thread parked in futex_wait). Blanking src unloads the document
+        // now; without it the detached frame keeps streaming until GC.
+        contentArea.querySelectorAll('iframe.webpage-iframe').forEach(iframe => {
+            try { iframe.src = 'about:blank'; } catch (e) { /* already unloaded */ }
+            iframe.remove();
+        });
+
         // Rescue preloaded iframes before replacing content
         const preloadContainer = document.getElementById('iframe-preload-container');
         if (preloadContainer) {
@@ -125,18 +139,18 @@ class ViewManager {
             this.menuManager.attachPreloadedIframe(view.preloadId);
         }
 
-        // Webpage views: reuse existing iframe or create on first visit
+        // Webpage views: build the iframe fresh on every entry. It was torn
+        // down on the way out (see above), so there is nothing to reuse —
+        // and a camera dashboard wants to be live anyway, not restored to
+        // whatever it was showing hours ago.
         if (view._webpage) {
             const { iframeId, containerId, url } = view._webpage;
             const container = document.getElementById(containerId);
             if (container) {
-                let iframe = document.getElementById(iframeId);
-                if (!iframe) {
-                    iframe = document.createElement('iframe');
-                    iframe.id = iframeId;
-                    iframe.className = 'webpage-iframe';
-                    iframe.src = url;
-                }
+                const iframe = document.createElement('iframe');
+                iframe.id = iframeId;
+                iframe.className = 'webpage-iframe';
+                iframe.src = url;
                 iframe.style.cssText = 'width:100%;height:100%;border:none;';
                 container.appendChild(iframe);
             }
@@ -238,4 +252,10 @@ class ViewManager {
 
 }
 
-window.ViewManager = ViewManager;
+if (typeof module !== 'undefined' && module.exports) {
+    // Node.js environment (unit tests)
+    module.exports = { ViewManager };
+} else {
+    // Browser environment
+    window.ViewManager = ViewManager;
+}

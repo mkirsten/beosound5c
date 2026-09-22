@@ -1641,6 +1641,55 @@ async def _forward_to_router(event_type: str, data: dict):
         logger.warning('Router broadcast %s failed: %s', event_type, e)
 
 
+MAX_OVERLAY_CAMERAS = 2
+
+
+def normalize_show_camera_cameras(params: dict) -> list:
+    """Normalize show_camera params into a [{'title','entity'}] list.
+
+    Two accepted forms — the array, which mirrors the "cameras" shape in
+    config.json:
+
+        {"cameras": [{"title": "Front door", "entity": "<entity id>"}, ...]}
+
+    and the older singular pair, kept so existing HA automations keep
+    working:
+
+        {"title": "Doorbell", "camera_entity": "<entity id>"}
+
+    An empty result means "use the cameras from config.json" — every
+    parameter is optional. Entries without an entity are dropped and the
+    list is capped at MAX_OVERLAY_CAMERAS (the overlay has two slots).
+    """
+    raw = params.get('cameras')
+    if isinstance(raw, list):
+        cameras = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            entity = str(item.get('entity') or '').strip()
+            if not entity:
+                continue
+            cameras.append({
+                'entity': entity,
+                'title': str(item.get('title') or '').strip(),
+            })
+            if len(cameras) == MAX_OVERLAY_CAMERAS:
+                break
+        if len(raw) > len(cameras):
+            logger.warning(
+                'show_camera: %d camera(s) given, using %d (max %d, entries '
+                'without an entity are skipped)',
+                len(raw), len(cameras), MAX_OVERLAY_CAMERAS)
+        return cameras
+
+    entity = str(params.get('camera_entity') or '').strip()
+    if entity:
+        return [{'entity': entity,
+                 'title': str(params.get('title') or '').strip()}]
+    return []
+
+
 async def process_command(data: dict) -> dict:
     """Process an incoming command (from HTTP webhook or MQTT).
 
@@ -1721,27 +1770,21 @@ async def process_command(data: dict) -> dict:
         return {'status': 'ok', 'action': 'prev_screen'}
 
     elif command == 'show_camera':
-        title = params.get('title', 'Camera')
-        camera_entity = params.get('camera_entity', '')
-        camera_id = params.get('camera_id', 'camera')
-        actions = params.get('actions', {})
+        cameras = normalize_show_camera_cameras(params)
 
-        if not camera_entity:
-            # The automation has to say which camera; the device has no
-            # opinion about what a home's cameras are called.
-            logger.warning('show_camera without camera_entity — ignoring')
-            return {'status': 'error', 'message': 'camera_entity is required'}
-
-        logger.info('Showing camera overlay: %s (%s)', title, camera_entity)
+        if cameras:
+            logger.info('Showing camera overlay: %s',
+                        ', '.join(c['entity'] for c in cameras))
+        else:
+            # No cameras named — the overlay falls back to config.json.
+            logger.info('Showing camera overlay: cameras from config')
         set_backlight(True)
-        await _forward_to_router('camera_overlay', {
-            'action': 'show',
-            'title': title,
-            'camera_entity': camera_entity,
-            'camera_id': camera_id,
-            'actions': actions
-        })
-        return {'status': 'ok', 'command': 'show_camera', 'title': title}
+        payload = {'action': 'show', 'actions': params.get('actions', {})}
+        if cameras:
+            payload['cameras'] = cameras
+        await _forward_to_router('camera_overlay', payload)
+        return {'status': 'ok', 'command': 'show_camera',
+                'cameras': len(cameras)}
 
     elif command == 'dismiss_camera':
         logger.info('Dismissing camera overlay')

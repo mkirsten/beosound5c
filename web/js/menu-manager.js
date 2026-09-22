@@ -122,13 +122,19 @@ class MenuManager {
             for (const item of data.items) {
                 const path = `menu/${item.id}`;
 
-                // Webpage items: iframe view (preserved across navigations via rescue logic)
+                // Webpage items: iframe view, rebuilt on each entry and
+                // unloaded on exit by ViewManager. The id deliberately does
+                // NOT start with "preload-" — that prefix is what the
+                // rescue selector in ViewManager matches to keep an iframe
+                // alive off-screen, and an external page left running in
+                // the background leaks resources (see the fd-leak note in
+                // view-manager.js).
                 if (item.type === 'webpage' && item.url) {
                     const containerId = `webpage-container-${item.id}`;
                     this.views[path] = {
                         title: item.title,
                         content: `<div id="${containerId}" class="webpage-container" style="position:absolute;top:0;left:0;width:100%;height:100%;"></div>`,
-                        _webpage: { iframeId: `preload-webpage-${item.id}`, containerId, url: item.url }
+                        _webpage: { iframeId: `webpage-iframe-${item.id}`, containerId, url: item.url }
                     };
                     newItems.push({ title: item.title, path });
                 }

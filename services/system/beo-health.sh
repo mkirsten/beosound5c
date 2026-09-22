@@ -126,6 +126,96 @@ tmp_pressure() {
 }
 tmp_pressure
 
+# Chromium renderer pids.  `pgrep -f -- --type=renderer` alone also matches
+# any shell whose own command line mentions the pattern (a health check run
+# by hand from an ssh one-liner will match itself), so confirm each hit is
+# really a Chromium process before trusting its fd count.
+chromium_renderer_pids() {
+    local pid
+    for pid in $(pgrep -f -- '--type=renderer' 2>/dev/null); do
+        case "$(cat /proc/$pid/comm 2>/dev/null)" in
+            chrom*) echo "$pid" ;;
+        esac
+    done
+}
+
+# Chromium UI watchdog.  Two ways the kiosk dies without the process ever
+# exiting, both seen on Church (Sep 2026) — systemd sees beo-ui "active"
+# throughout, so Restart=always never fires and the screen stays frozen.
+#
+#   1. fd pressure.  A leaky page pins Chromium shared-memory segments, one
+#      fd each.  The HA camera dashboard iframe managed 983 of them over 9
+#      days of uptime.  At the soft RLIMIT_NOFILE a renderer does not crash,
+#      it deadlocks: main thread parked in futex_wait, display frozen
+#      mid-frame.  Nothing in Chromium notices (--disable-hang-monitor), so
+#      catch it here while there is still headroom.
+#
+#   2. Wedged renderer, any cause.  The tell is that the UI's media
+#      WebSocket to beo-router is gone and never returns: the reconnect is
+#      setTimeout-driven (web/js/ws-dispatcher.js) and a hung main thread
+#      can never run it.  Backoff caps at 60s, so a healthy UI is never
+#      without that socket across two consecutive checks five minutes apart.
+#
+# A restart is cheap and near-invisible — Chromium has no state to lose and
+# audio playback is owned by the player service, not the browser.
+ui_watchdog() {
+    systemctl is-active --quiet beo-ui || return 0
+
+    # Ignore the first 10 minutes after a (re)start: Chromium is still
+    # coming up and the media WS legitimately isn't connected yet.
+    local main_pid uptime_s
+    main_pid=$(systemctl show -p MainPID --value beo-ui)
+    [ -n "$main_pid" ] && [ "$main_pid" != "0" ] || return 0
+    uptime_s=$(ps -o etimes= -p "$main_pid" 2>/dev/null | tr -d ' ')
+    [ -n "$uptime_s" ] && [ "$uptime_s" -ge 600 ] || return 0
+
+    local nows_stamp=/run/beo-health-ui-nows
+
+    # --- 1. fd pressure ---------------------------------------------------
+    # Threshold is the lower of 70% of the soft limit and a flat 4000.  A
+    # healthy renderer sits at 30-150 fds, so 4000 is already pathological
+    # while still far from exhausting /dev/shm — it catches a leak early
+    # rather than at the cliff edge.
+    local soft limit worst=0 pid n
+    soft=$(systemctl show -p LimitNOFILESoft --value beo-ui 2>/dev/null)
+    [ -n "$soft" ] && [ "$soft" -gt 0 ] 2>/dev/null || soft=1024
+    limit=$(( soft * 70 / 100 ))
+    [ "$limit" -gt 4000 ] && limit=4000
+
+    for pid in $(chromium_renderer_pids); do
+        n=$(ls /proc/$pid/fd 2>/dev/null | wc -l)
+        [ "$n" -gt "$worst" ] && worst=$n
+    done
+
+    if [ "$worst" -ge "$limit" ]; then
+        logger -t beo-health "Chromium renderer at ${worst} fds (limit ${limit}, soft rlimit ${soft}) — restarting beo-ui before it wedges"
+        rm -f "$nows_stamp"
+        systemctl restart beo-ui
+        return 0
+    fi
+
+    # --- 2. wedged renderer: no media WS to the router --------------------
+    # Only meaningful when the router is up to accept the connection;
+    # otherwise the missing socket says nothing about the UI's health.
+    systemctl is-active --quiet beo-router || { rm -f "$nows_stamp"; return 0; }
+
+    if ss -tnp state established 2>/dev/null | grep ':8770' | grep -q chromium; then
+        rm -f "$nows_stamp"
+        return 0
+    fi
+
+    if [ ! -f "$nows_stamp" ]; then
+        touch "$nows_stamp"
+        logger -t beo-health "UI has no media WS to beo-router — restarting if still missing at next check"
+        return 0
+    fi
+
+    logger -t beo-health "UI still has no media WS to beo-router (renderer wedged) — restarting beo-ui"
+    rm -f "$nows_stamp"
+    systemctl restart beo-ui
+}
+ui_watchdog
+
 # Flight-recorder metrics — one compact line per run so the journal holds
 # the resource trajectory leading up to a lockup (Kitchen: unreachable
 # after 1-3 weeks, power-cycle only; suspects are Chromium memory growth
@@ -139,6 +229,17 @@ flight_metrics() {
     tmp_used=$(df --output=pcent /tmp 2>/dev/null | tail -1 | tr -dc '0-9')
     # Chromium process count + total RSS (matches chromium + chrome_crashpad)
     chrom=$(ps -eo rss=,comm= | awk '$2 ~ /^chrom/ {n++; s+=$1} END {printf "%d/%dM", n, s/1024}')
+
+    # Worst renderer fd count — the number that climbs ahead of a UI wedge.
+    # A renderer sits at 30-150 fds normally; a leaking page walks it upward
+    # over days (Church reached 983 before deadlocking). Chromium's shared
+    # memory lives in /tmp here, not /dev/shm (see the note in ui.sh), so
+    # tmp= below already covers the space side of the same leak.
+    local rfd=0 pid n
+    for pid in $(chromium_renderer_pids); do
+        n=$(ls /proc/$pid/fd 2>/dev/null | wc -l)
+        [ "$n" -gt "$rfd" ] && rfd=$n
+    done
     # Firmware throttle flags: 0x0 = healthy, bits set = undervoltage/thermal
     throttled=$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2)
 
@@ -153,6 +254,6 @@ flight_metrics() {
         net="$net,txerr=$(cat /sys/class/net/$iface/statistics/tx_errors 2>/dev/null || echo '?')"
     fi
 
-    logger -t beo-metrics "mem_avail=${mem_avail}M chromium=${chrom} load=${load1} tmp=${tmp_used}% throttled=${throttled:-n/a} net=${net}"
+    logger -t beo-metrics "mem_avail=${mem_avail}M chromium=${chrom} rfd=${rfd} load=${load1} tmp=${tmp_used}% throttled=${throttled:-n/a} net=${net}"
 }
 flight_metrics

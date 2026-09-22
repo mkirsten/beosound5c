@@ -33,8 +33,9 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.background_tasks import BackgroundTaskSet
 from lib.config import cfg
-from lib.endpoints import PLAYER_PORT, ROUTER_PORT
+from lib.endpoints import PLAYER_PORT, ROUTER_PORT, SPOTIFY_PORT
 from lib.loop_monitor import LoopMonitor
+from lib.source_registry import DEFAULT_SOURCE_PORTS
 from lib.watchdog import watchdog_loop
 
 logging.basicConfig(level=logging.DEBUG, format='[%(levelname)s] %(message)s')
@@ -666,16 +667,13 @@ class Beo6Service:
         self._last_content_fetch = 0
 
     def _get_source_port(self):
-        """Get the HTTP port for the configured source."""
-        ports = {
-            'spotify': 8771,
-            'plex': 8774,
-            'radio': 8773,
-            'usb': 8775,
-            'tidal': 8776,
-            'apple_music': 8777,
-        }
-        return ports.get(self.source_id, 8771)
+        """Get the HTTP port for the configured source.
+
+        Taken from the shared registry rather than a private table: the old
+        copy here had drifted (usb/plex/radio/tidal/apple_music all pointed at
+        the wrong service).
+        """
+        return DEFAULT_SOURCE_PORTS.get(self.source_id, SPOTIFY_PORT)
 
     def remove_session(self, session):
         if session in self.sessions:

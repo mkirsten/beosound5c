@@ -279,10 +279,44 @@ xinit /bin/bash -c '
       DBUS_WRAP=(dbus-run-session --)
     fi
 
+    # NOTE: --enable-features / --disable-features must each appear EXACTLY
+    # ONCE.  Chromium keeps switches in a map, so a repeated switch silently
+    # replaces the earlier one rather than merging.  This list used to carry
+    # four separate --disable-features flags; only the last one
+    # (InfiniteSessionRestore) ever took effect, so TranslateUI,
+    # IsolateOrigins, site-per-process and MediaRouter were all silently
+    # ignored — the stream of "Cast CRL - Verification failed" errors in the
+    # beo-ui journal was MediaRouter running despite the flag.  Add new
+    # features to the lists below — never as a new flag.
+    # tests/unit/python/test_ui_chromium_flags.py enforces this.
+    #
+    # Disabling site-per-process puts the config-driven webpage iframes (the
+    # HA camera dashboard) in the renderer that owns the UI rather than one
+    # of their own.  That is the intended trade: ~300MB back on a swapless
+    # 4GB Pi, where Chromium memory growth is the documented way these
+    # devices die.  The containment argument for a separate renderer did not
+    # survive contact with the Sep 2026 wedge anyway — the camera iframe had
+    # its own process that whole time (the flag was inert) and still took
+    # the UI down with it.  The leak itself is fixed in view-manager.js.
+    #
+    # --disable-dev-shm-usage was dropped from this list because passing it
+    # here is redundant, NOT because Chromium stopped using /tmp for shared
+    # memory.  Debian ships /etc/chromium.d/dev-shm, which adds the flag
+    # whenever /dev/shm has less than 3.8GB available (Debian #1072299); on
+    # a 4GB Pi /dev/shm is 2GB, so it is always added and shm always lands
+    # in the 200MB /tmp tmpfs.  That is worth knowing when reading fd or
+    # /tmp pressure: every Chromium shared-memory segment is a deleted
+    # /tmp/.org.chromium.Chromium.* file.
+    #
+    # Overriding that (a zz-* snippet in /etc/chromium.d stripping the flag)
+    # would give shm 2GB instead of 200MB, but on a swapless 4GB device it
+    # trades a full-/tmp failure for an OOM kill, so it is deliberately not
+    # done.  Revisit only if /tmp pressure becomes the binding constraint.
     "${DBUS_WRAP[@]}" "$CHROMIUM_BIN" \
       --user-data-dir="$CHROMIUM_DATA_DIR" \
       --force-dark-mode \
-      --enable-features=WebUIDarkMode \
+      --enable-features=WebUIDarkMode,OverlayScrollbar \
+      --disable-features=TranslateUI,IsolateOrigins,site-per-process,MediaRouter,InfiniteSessionRestore \
       --disable-application-cache \
       --disable-cache \
       --disable-offline-load-stale-cache \
@@ -299,20 +333,14 @@ xinit /bin/bash -c '
       --disable-infobars \
       --disable-translate \
       --disable-session-crashed-bubble \
-      --disable-features=TranslateUI \
       --no-first-run \
       --disable-default-apps \
       --disable-component-extensions-with-background-pages \
       --disable-background-networking \
       --disable-sync \
       --ignore-certificate-errors \
-      --disable-features=IsolateOrigins,site-per-process \
       --disable-extensions \
-      --disable-dev-shm-usage \
-      --enable-features=OverlayScrollbar \
       --overscroll-history-navigation=0 \
-      --disable-features=MediaRouter \
-      --disable-features=InfiniteSessionRestore \
       --disable-pinch \
       --disable-gesture-typing \
       --disable-hang-monitor \

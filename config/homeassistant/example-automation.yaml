@@ -353,7 +353,14 @@
 #   {"command": "show_page", "params": {"page": "music"}}
 #   {"command": "next_screen"}
 #   {"command": "prev_screen"}
-#   {"command": "show_camera", "params": {"title": "Doorbell", "camera_entity": "camera.doorbell"}}
+#   {"command": "show_camera"}
+#     Shows the cameras from config.json ("cameras"). All params are optional;
+#     to override, name up to 2 cameras (extras are ignored):
+#     {"command": "show_camera", "params": {"cameras": [
+#         {"title": "Front door", "entity": "camera.front_door"},
+#         {"title": "Gate", "entity": "camera.gate"}]}}
+#     A single camera fills the overlay. The older one-camera form still works:
+#     {"command": "show_camera", "params": {"title": "Doorbell", "camera_entity": "camera.doorbell"}}
 #   {"command": "dismiss_camera"}
 #   {"command": "status"}
 #   {"command": "restart", "params": {"target": "all"}}

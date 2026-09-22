@@ -490,6 +490,15 @@ body.playback-paused #now-playing .media-view-artwork img {
   overflow: hidden;
 }
 
+/* One camera: take the width both slots would have used, keeping the 4:3
+   frame and leaving room for the header and button hints. */
+.camera-feeds-dual.single .camera-feed-container {
+  width: min(904px, 92vw);
+  height: auto;
+  aspect-ratio: 4 / 3;
+  max-height: 62vh;
+}
+
 .camera-feed {
   width: 100%;
   height: 100%;

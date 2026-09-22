@@ -9,6 +9,7 @@ const CameraOverlayManager = {
     currentData: null,
     currentCameraIndex: 0,
     cameras: [],
+    maxCameras: 2,  // feed slots in the overlay markup
 
     // Configuration
     config: {
@@ -49,16 +50,16 @@ const CameraOverlayManager = {
                 </div>
                 <div class="camera-feeds-dual">
                     <div class="camera-feed-wrapper">
-                        <div class="camera-feed-label">Front door</div>
+                        <div class="camera-feed-label"></div>
                         <div class="camera-feed-container" data-camera="0">
-                            <img class="camera-feed" alt="Front door" />
+                            <img class="camera-feed" alt="" />
                             <div class="camera-loading">Loading...</div>
                         </div>
                     </div>
                     <div class="camera-feed-wrapper">
-                        <div class="camera-feed-label">Gate</div>
+                        <div class="camera-feed-label"></div>
                         <div class="camera-feed-container" data-camera="1">
-                            <img class="camera-feed" alt="Gate" />
+                            <img class="camera-feed" alt="" />
                             <div class="camera-loading">Loading...</div>
                         </div>
                     </div>
@@ -97,8 +98,11 @@ const CameraOverlayManager = {
 
         this.currentData = data;
 
-        // Cameras from the caller, else from config.
-        this.cameras = data.cameras || this.defaultCameras;
+        // Cameras named in the show_camera command win outright; otherwise
+        // fall back to config. Both are capped at the number of slots.
+        const provided = this.normalizeCameras(data.cameras);
+        this.cameras = provided.length ? provided
+                                       : this.normalizeCameras(this.defaultCameras);
         if (!this.cameras.length) {
             // Nothing configured: an empty overlay, or one wired to guessed
             // entity ids, is worse than no overlay.
@@ -106,6 +110,8 @@ const CameraOverlayManager = {
             this.isActive = false;
             return;
         }
+
+        this.applyCameraLayout();
 
         this.isActive = true;
 
@@ -133,6 +139,39 @@ const CameraOverlayManager = {
         if (window.uiStore && window.uiStore.logWebsocketMessage) {
             window.uiStore.logWebsocketMessage(`Camera overlay: ${this.cameras.map(c => c.title).join(', ')}`);
         }
+    },
+
+    // Keep only usable entries and never more than there are slots. Accepts
+    // the config.json shape ({id, title, entity}) and the show_camera
+    // command's ({title, entity}) — they're the same two fields.
+    normalizeCameras(list) {
+        if (!Array.isArray(list)) return [];
+        return list
+            .filter(cam => cam && typeof cam.entity === 'string' && cam.entity.trim())
+            .slice(0, this.maxCameras)
+            .map(cam => ({ ...cam, entity: cam.entity.trim() }));
+    },
+
+    // Labels come from the camera titles; unused slots are hidden so a
+    // single camera gets the full width instead of a dead "Loading..." box.
+    applyCameraLayout() {
+        const feeds = this.overlayElement.querySelector('.camera-feeds-dual');
+        if (feeds) feeds.classList.toggle('single', this.cameras.length === 1);
+
+        this.overlayElement.querySelectorAll('.camera-feed-wrapper')
+            .forEach((wrapper, index) => {
+                const cam = this.cameras[index];
+                if (!cam) {
+                    wrapper.style.display = 'none';
+                    return;
+                }
+                wrapper.style.display = '';
+                const title = cam.title || `Camera ${index + 1}`;
+                const label = wrapper.querySelector('.camera-feed-label');
+                if (label) label.textContent = title;
+                const img = wrapper.querySelector('.camera-feed');
+                if (img) img.alt = title;
+            });
     },
 
     loadAllCameras() {

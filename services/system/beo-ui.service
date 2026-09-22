@@ -16,6 +16,13 @@ Group=__USER__
 WorkingDirectory=__HOME__/beosound5c/services
 ExecStart=__HOME__/beosound5c/services/ui.sh
 KillMode=mixed
+# systemd's default soft RLIMIT_NOFILE is 1024 (the hard limit is 524288).
+# Chromium spends fds fast — every shared-memory segment is one — and a
+# renderer that hits the soft limit doesn't crash, it wedges: blocked in
+# futex with the page frozen and nothing to restart it. Church hit exactly
+# that at 983 fds. Raise the soft limit so a leak has room to be caught by
+# beo-health's ui_watchdog instead of deadlocking the UI first.
+LimitNOFILE=65536
 # Chromium kiosk has no state to flush — the nightly cron-restart
 # only ever ended in SIGKILL after waiting out the full TimeoutStopSec.
 # Skip the wait: the inner trap below SIGKILLs the process group

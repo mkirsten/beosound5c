@@ -58,10 +58,23 @@ def test_config_json_can_supply_cameras():
     assert "config.cameras" in src and "AppConfig.cameras = config.cameras" in src
 
 
-def test_camera_endpoints_require_an_entity():
+def test_camera_proxy_endpoints_require_an_entity():
     src = (REPO_ROOT / "services" / "input.py").read_text()
     assert src.count('missing "entity" parameter') == 2, "stream and snapshot both need the guard"
-    assert "show_camera without camera_entity" in src
+
+
+def test_show_camera_params_are_optional():
+    """The command itself is the trigger — every parameter is optional.
+
+    show_camera used to reject a message without camera_entity while the
+    overlay ignored the entity it *did* send (it only ever read a "cameras"
+    array), so HA could not actually pick the cameras. Now: no params means
+    fall back to config.json, params override it.
+    """
+    src = (REPO_ROOT / "services" / "input.py").read_text()
+    assert "show_camera without camera_entity" not in src, (
+        "show_camera must not require camera_entity")
+    assert "def normalize_show_camera_cameras" in src
 
 
 def test_demo_config_has_cameras_so_the_emulator_still_shows_them():
