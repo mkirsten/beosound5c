@@ -30,6 +30,7 @@ ALL_SERVICES=(
     "beo-source-usb.service"
     "beo-source-news.service"
     "beo-source-radio.service"
+    "beo-airplay-out.service"
     "beo-source-airplay.service"
     "beo-ui.service"
     "beo-notify-failure@.service"
@@ -62,6 +63,7 @@ STATUS_SERVICES=(
     "beo-source-usb.service"
     "beo-source-news.service"
     "beo-source-radio.service"
+    "beo-airplay-out.service"
     "beo-source-airplay.service"
     "beo-ui.service"
 )
@@ -91,6 +93,9 @@ SERVICE_DESC["beo-source-plex.service"]="Plex Source (Port 8778)"
 SERVICE_DESC["beo-source-jellyfin.service"]="Jellyfin Source (Port 8781)"
 SERVICE_DESC["beo-source-news.service"]="News Source (Port 8776)"
 SERVICE_DESC["beo-source-radio.service"]="Radio Source (Port 8779)"
+# Exits cleanly at startup when no speakers are configured, so it is listed
+# unconditionally rather than gated like the optional sources.
+SERVICE_DESC["beo-airplay-out.service"]="AirPlay Output (Port 8780)"
 SERVICE_DESC["beo-source-airplay.service"]="AirPlay Source (Port 8782)"
 SERVICE_DESC["beo-ui.service"]="Chromium UI Kiosk"
 
