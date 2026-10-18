@@ -150,6 +150,33 @@ const AppConfig = {
         return;
     }
 
+    // Point the service URLs at whichever host served this page.
+    //
+    // The defaults above say localhost because that is what the kiosk on the
+    // device needs. Open the same page from a phone, a laptop or a TV and
+    // every one of them resolves to its own localhost instead, so the arc
+    // loads and then nothing behind it answers. Rewriting here keeps one set
+    // of defaults working from both sides.
+    //
+    // Only for a device-served page: a dev server on a LAN address is in demo
+    // mode and returned above, and its fetch interception matches the literal
+    // "localhost:87xx", so rewriting there would route around the emulator.
+    const host = location.hostname;
+    if (host && host !== 'localhost' && host !== '127.0.0.1' && host !== '[::1]') {
+        const retarget = (obj) => {
+            for (const [k, v] of Object.entries(obj)) {
+                if (typeof v === 'string') {
+                    obj[k] = v.replace(/^(https?|wss?):\/\/localhost\b/,
+                                       (_, scheme) => `${scheme}://${host}`);
+                } else if (v && typeof v === 'object' && !Array.isArray(v)) {
+                    retarget(v);
+                }
+            }
+        };
+        retarget(AppConfig);
+        console.log(`[CONFIG] Service URLs follow the serving host (${host})`);
+    }
+
     // Child frames (softarc pages) inherit from the shell that embedded them.
     // Belt and braces: the shell may have been opened with ?demo=true, which
     // its iframes don't carry.
