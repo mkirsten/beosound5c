@@ -1149,6 +1149,31 @@ body.playback-paused #now-playing .media-view-artwork img {
 
 .backdrop-toast.show { opacity: 1; }
 
+/* The track text over a visualizer. One step above the canvas it sits on,
+   and still below the canvas panel, which carries its own copy — the two
+   backdrops are never up at the same time. */
+.visualizer-text,
+.canvas-text-mirror {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--ui-w, 1024px);
+  height: var(--ui-h, 768px);
+  color: white;
+  pointer-events: none;
+}
+
+/* Above the canvas it sits on, and below the canvas panel, which carries
+   its own copy — the two backdrops are never up at the same time. */
+.visualizer-text {
+  position: fixed;
+  z-index: 99989;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+
+/* Inside the canvas panel's own stacking context, above its video. */
+.canvas-text-mirror { z-index: 2; }
+
 /* ── Spotify Canvas Video Panel ────────────────────────────────── */
 
 .canvas-panel {

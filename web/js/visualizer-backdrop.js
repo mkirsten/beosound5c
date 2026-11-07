@@ -20,6 +20,11 @@
         : (window.AppConfig?.visualizerUrl || 'http://localhost:8783');
 
     let canvas = null, ctx = null, parent = null;
+    // The track text, copied on top. The canvas covers the whole screen and
+    // is painted on the body, so the real text — nested inside #viewport,
+    // which has a transform and therefore its own stacking context — cannot
+    // be raised above it. See js/text-mirror.js.
+    let textLayer = null;
     let mode = 'vu';
     let running = false, rafId = null;
     let W = 0, H = 0, DPR = 1;
@@ -595,8 +600,15 @@
             canvas.className = 'visualizer-backdrop';
             ctx = canvas.getContext('2d');
         }
+        if (!textLayer) {
+            textLayer = document.createElement('div');
+            textLayer.className = 'visualizer-text';
+        }
         parent = host || document.body;
         if (canvas.parentNode !== parent) parent.appendChild(canvas);
+        if (textLayer.parentNode !== parent) parent.appendChild(textLayer);
+        window.TextMirror?.register(textLayer);
+        window.TextMirror?.render(textLayer);
         if (which) mode = which;
         // Stale caches: these are sized to the previous canvas.
         lakeSky = null; lakeWater = null; feedback = null;
@@ -618,6 +630,10 @@
         ws = null;
         audio.connected = false;
         if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
+        if (textLayer) {
+            window.TextMirror?.unregister(textLayer);
+            if (textLayer.parentNode) textLayer.parentNode.removeChild(textLayer);
+        }
     }
 
     window.BeoVisualizer = {
