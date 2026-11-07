@@ -8,6 +8,16 @@
   -webkit-text-size-adjust: 100%;
 }
 
+:root {
+  /* The size the interface is authored at. Everything below is laid out in
+     these coordinates and js/ui-scale.js fits the result to the screen, so
+     viewport units must not appear past this point: on a 16:9 Cast receiver
+     they resolve against a viewport a third shorter than the design and the
+     bottom of the arc is silently clipped. */
+  --ui-w: 1024px;
+  --ui-h: 768px;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -15,10 +25,29 @@ html, body {
   background-color: black;
 }
 
+body {
+  width: var(--ui-w);
+  height: var(--ui-h);
+  transform-origin: top left;
+  transform: translate(var(--ui-offset-x, 0px), var(--ui-offset-y, 0px))
+             scale(var(--ui-scale, 1));
+}
+
+/* Where full-screen media hangs: beside body, so it is measured against
+   the screen instead of the letterboxed design box. See js/ui-scale.js.
+   Out of flow and zero-sized — it is a parent, not a box. */
+#ui-stage {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+}
+
 .container {
   overflow: hidden;
   width: 100%;
-  height: 100vh;
+  height: 100%;
   position: relative;
 }
 
@@ -361,8 +390,8 @@ body.playback-paused #now-playing .media-view-artwork img {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100vw;
-  height: 100vh;
+  width: var(--ui-w);
+  height: var(--ui-h);
   background: black;
   z-index: 99999;
   display: flex;
@@ -493,10 +522,10 @@ body.playback-paused #now-playing .media-view-artwork img {
 /* One camera: take the width both slots would have used, keeping the 4:3
    frame and leaving room for the header and button hints. */
 .camera-feeds-dual.single .camera-feed-container {
-  width: min(904px, 92vw);
+  width: min(904px, calc(var(--ui-w) * 0.92));
   height: auto;
   aspect-ratio: 4 / 3;
-  max-height: 62vh;
+  max-height: calc(var(--ui-h) * 0.62);
 }
 
 .camera-feed {
@@ -1118,8 +1147,12 @@ body.playback-paused #now-playing .media-view-artwork img {
   position: fixed;
   top: 0;
   left: 0;
-  width: 1024px;
-  height: 768px;
+  /* Of the screen, not of the design box. The panel hangs on the stage,
+     outside the scaled composition, so a music video — usually 16:9 and
+     object-fit:cover — fills a 16:9 screen instead of being framed in
+     black inside the bars the composition leaves. */
+  width: 100%;
+  height: 100%;
   z-index: 99989;
   opacity: 0;
   pointer-events: none;

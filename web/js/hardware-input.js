@@ -91,10 +91,20 @@ function updateTransitionStyles() {
             }
 
             /* Speed up rendering with hardware acceleration hints */
-            body, svg, #viewport {
+            svg, #viewport {
                 will-change: transform;
                 backface-visibility: hidden;
                 transform: translateZ(0);
+            }
+
+            /* body carries the fit-to-screen transform from js/ui-scale.js.
+               A promotion hint written as transform: translateZ(0) would
+               replace it and put the interface back at design size, clipped.
+               will-change on its own gets the same layer without touching
+               the value. */
+            body {
+                will-change: transform;
+                backface-visibility: hidden;
             }
         `;
         document.head.appendChild(transitionStyle);
