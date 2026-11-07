@@ -40,6 +40,9 @@ const AppConfig = {
     // Jellyfin source
     jellyfinServiceUrl: 'http://localhost:8781',
 
+    // Screen mirroring to a Google Cast receiver
+    castServiceUrl: 'http://localhost:8784',
+
     // USB file source
     usbServiceUrl: 'http://localhost:8773',
 

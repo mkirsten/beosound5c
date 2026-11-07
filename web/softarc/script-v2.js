@@ -1044,6 +1044,7 @@ class ArcList {
             const el = document.createElement('div');
             el.className = 'arc-item';
             el.dataset.itemId = item.id;
+            el.dataset.itemSig = this._itemSignature(item);
 
             const isSelected = Math.abs(item.index - this.currentIndex) < 0.5;
             if (isSelected) el.classList.add('selected');
@@ -1072,6 +1073,20 @@ class ArcList {
         this.updateCounter();
     }
 
+    /** Everything about an item that ends up on screen.
+     *
+     *  The fast path below reuses the elements it already has, which is what
+     *  makes scrolling cheap. It used to key that decision on the id alone,
+     *  so a list whose rows keep their ids but change their contents — a
+     *  status readout, a device that is now the active one — kept rendering
+     *  the text it was first given. Comparing what is actually drawn costs a
+     *  string join per visible row and makes a reload show.
+     */
+    _itemSignature(item) {
+        if (!item) return '';
+        return [item.name, item.icon, item.color, item.image].join('\u0000');
+    }
+
     _updateExistingElements() {
         const existing = Array.from(this.container.querySelectorAll('.arc-item:not(.breadcrumb)'));
         const visibleItems = this.getVisibleItems();
@@ -1080,6 +1095,9 @@ class ArcList {
 
         for (let i = 0; i < existing.length; i++) {
             if (existing[i].dataset.itemId !== visibleItems[i]?.id) return false;
+            // Contents changed: fall through to the full render rather than
+            // duplicate its element-building here.
+            if (existing[i].dataset.itemSig !== this._itemSignature(visibleItems[i])) return false;
         }
 
         existing.forEach((el, i) => {

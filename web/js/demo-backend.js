@@ -67,6 +67,8 @@
             { id: 'scenes', title: 'SCENES' },
             { id: 'security', title: 'SECURITY', type: 'webpage',
               url: 'softarc/security.html' },
+            { id: 'cast', title: 'CAST', type: 'webpage',
+              url: 'softarc/cast.html' },
             { id: 'system', title: 'SYSTEM' },
         ],
         active_source: 'spotify',
@@ -180,6 +182,27 @@
         airplay:     { '/status': 'airplay_status.json' },
     };
 
+    // Cast receivers. Two of them, so picking one and seeing the other stay
+    // idle is something you can actually try without a Chromecast on the
+    // desk. Which one is showing lives in sessionStorage rather than a
+    // variable: the view is an iframe rebuilt on every entry, bringing a
+    // fresh copy of this file with it, so a variable would forget the moment
+    // you left the view and the toggle would look broken.
+    const DEMO_RECEIVERS = [
+        { name: 'Living Room TV', model: 'Smart TV', host: '192.168.1.60' },
+        { name: 'Kitchen Display', model: 'Cast Display', host: '192.168.1.61' },
+    ];
+    const CAST_KEY = 'demo.cast.receiver';
+    function castTarget() {
+        try { return sessionStorage.getItem(CAST_KEY); } catch (e) { return null; }
+    }
+    function setCastTarget(name) {
+        try {
+            if (name) sessionStorage.setItem(CAST_KEY, name);
+            else sessionStorage.removeItem(CAST_KEY);
+        } catch (e) { /* storage blocked: the toggle just will not persist */ }
+    }
+
     // radio_browse.json is keyed by browse path; the others are served as-is.
     const KEYED_BY_PATH = new Set(['radio_browse.json']);
 
@@ -282,6 +305,33 @@
             if (url.includes(name) && !url.includes('/demo/')) {
                 return realFetch(ROOT + DEMO_JSON + demoName, init);
             }
+        }
+
+        // Screen mirroring. Discovery and the Cast protocol cannot be faked
+        // over HTTP, but the part worth demonstrating is the view: a list of
+        // receivers, one of them showing, and GO toggling between them.
+        const castMatch = url.match(/localhost:8784(\/[^?]*)/);
+        if (castMatch) {
+            const path = castMatch[1];
+            const method = (init?.method || 'GET').toUpperCase();
+            if (path === '/cast' && method === 'POST') {
+                try {
+                    const body = JSON.parse(init.body || '{}');
+                    if (body.receiver) setCastTarget(body.receiver);
+                } catch (e) { /* malformed body: leave the target alone */ }
+            } else if (path === '/stop' && method === 'POST') {
+                setCastTarget(null);
+            }
+            const target = castTarget();
+            return Promise.resolve(jsonResponse({
+                casting: !!target,
+                wanted: target,
+                receiver: target,
+                configured: null,
+                receivers: DEMO_RECEIVERS,
+                last_scan_age: 0,
+                error: null,
+            }));
         }
 
         // Source services: stand in for whichever one the view is browsing.

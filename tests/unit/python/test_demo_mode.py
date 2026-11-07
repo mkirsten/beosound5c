@@ -152,8 +152,14 @@ def test_every_menu_entry_has_data_or_is_static():
     src = BACKEND.read_text()
     menu_ids = set(re.findall(r"\{ id: '([a-z_]+)'", src))
     data_sources = set(re.findall(r"^\s{8}([a-z_]+):\s*\{ '/", src, re.MULTILINE))
-    static = {"playing", "scenes", "system", "showing", "security"}
-    for item in menu_ids - static:
+    static = {"playing", "scenes", "system", "showing"}
+    # Webpage entries embed a page instead of browsing a source, so the
+    # per-source data map never applies to them. Derived rather than named,
+    # so adding another one does not fail this test for the wrong reason.
+    # [^{}]* keeps the match inside one entry and still spans a wrapped line.
+    webpage = set(re.findall(r"\{ id: '([a-z_]+)'[^{}]*type: 'webpage'", src))
+    assert webpage, "no webpage entries found — has the menu shape changed?"
+    for item in menu_ids - static - webpage:
         assert item in data_sources, f"menu item {item} has no demo data"
 
 

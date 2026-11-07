@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cast - Beosound 5c</title>
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/x-icon" href="../assets/favicons/favicon.ico">
+    <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicons/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicons/favicon-32x32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="../assets/favicons/apple-touch-icon.png">
+    <link rel="manifest" href="../assets/favicons/site.webmanifest">
+    <meta name="theme-color" content="#000000">
+
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../assets/phosphor/phosphor.css">
+</head>
+<body>
+    <div id="app">
+        <div class="counter">
+            <div id="counter-path"></div>
+            <span id="current-item">1</span> / <span id="total-items">0</span>
+        </div>
+        <div class="hierarchy-depth-1" id="hierarchy-background"></div>
+        <div class="arc-container" id="arc-container"></div>
+    </div>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/demo-backend.js"></script>
+    <script src="../js/arc-utils.js"></script>
+    <script src="../js/emulator-bridge.js"></script>
+    <script src="script-v2.js"></script>
+    <script>
+        // Google Cast receivers on the network, as an arc. GO starts showing
+        // the BeoSound's interface on the one under the pointer; GO on the
+        // one already showing it stops.
+        //
+        // What is cast is this device's own UI, not a video of its screen —
+        // see services/cast.py for why. So the receiver ends up running the
+        // same web app, following the wheel over beo-input's broadcast.
+        const CAST_URL = getServiceUrl('castServiceUrl', 8784);
+
+        // Discovery walks mDNS and is slow by nature, so the list is only
+        // rebuilt on entry and after an action. Receivers also vanish from
+        // the network entirely while asleep, which is why an empty list is
+        // phrased as a prompt rather than an error.
+        const REFRESH_MS = 30000;
+
+        let state = { casting: false, receiver: null };
+
+        function mapReceiver(r) {
+            const active = state.casting && r.name === state.receiver;
+            return {
+                id: r.name,
+                name: active ? `${r.name}   showing` : r.name,
+                // ph-screencast, not ph-cast: the latter is not in the
+                // bundled Phosphor set and renders as an empty tile.
+                icon: active ? 'screencast' : 'television-simple',
+                color: active ? '#6699ff' : '#ffffff',
+                _name: r.name,
+                _active: active,
+            };
+        }
+
+        async function loadReceivers() {
+            let status = {};
+            try {
+                const r = await fetch(CAST_URL + '/status');
+                if (r.ok) status = await r.json();
+            } catch (e) { /* service down — handled by the empty case */ }
+            state = { casting: !!status.casting, receiver: status.receiver || null };
+
+            let list = status.receivers || [];
+            if (!list.length) {
+                try {
+                    const r = await fetch(CAST_URL + '/receivers');
+                    if (r.ok) list = (await r.json()).receivers || [];
+                } catch (e) { /* fall through to the prompt below */ }
+            }
+            if (!list.length) {
+                return [{
+                    name: 'No Cast receivers found',
+                    _unavailable: true,
+                }];
+            }
+            return list;
+        }
+
+        function mapItem(r) {
+            if (r._unavailable) {
+                return {
+                    id: 'none',
+                    name: r.name,
+                    icon: 'television-simple',
+                    color: 'rgba(255,255,255,0.35)',
+                    actionable: false,
+                    _unavailable: true,
+                };
+            }
+            return mapReceiver(r);
+        }
+
+        async function post(path, body) {
+            const r = await fetch(CAST_URL + path, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body || {}),
+            });
+            return r.json().catch(() => ({}));
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const arcList = new ArcList({
+                    rootLoader: loadReceivers,
+                    levels: [{ itemMapper: mapItem, isContainer: () => false }],
+                    storagePrefix: 'cast_arclist',
+                    context: 'cast',
+                    onGo: async (item) => {
+                        if (item._unavailable) return;
+                        // Casting takes several seconds: the receiver has to
+                        // be found, the previous app quit and the new one
+                        // launched. Nothing to do but let it run and redraw
+                        // from the service's own state afterwards.
+                        if (item._active) await post('/stop');
+                        else await post('/cast', { receiver: item._name });
+                        await arcList.reloadData().catch(() => {});
+                    },
+                });
+                window.arcListInstance = arcList;
+
+                setInterval(() => {
+                    arcList.reloadData().catch(() => {});
+                }, REFRESH_MS);
+            } catch (error) {
+                console.error('Cast view initialization error:', error);
+                document.body.innerHTML =
+                    '<div style="color:#ff4444;padding:20px;">Error: ' + error.message + '</div>';
+            }
+        });
+    </script>
+</body>
+</html>
