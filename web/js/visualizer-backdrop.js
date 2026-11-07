@@ -604,7 +604,7 @@
             textLayer = document.createElement('div');
             textLayer.className = 'visualizer-text';
         }
-        parent = host || document.body;
+        parent = host || window.UiScale?.stage?.() || document.body;
         if (canvas.parentNode !== parent) parent.appendChild(canvas);
         if (textLayer.parentNode !== parent) parent.appendChild(textLayer);
         window.TextMirror?.register(textLayer);

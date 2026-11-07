@@ -76,15 +76,20 @@
 
     // ── Applying ──
 
-    // On the body, next to the canvas panel, and for the same reason.
+    // On the stage, next to the canvas panel, and for the same reason.
     //
     // position:fixed resolves against the nearest ancestor with a
     // transform, and #viewport and #contentArea both carry one — the GPU
     // promotion hints in hardware-input.js. Mounted inside #now-playing
     // the layer inherited that box: right size, but starting 180px in,
     // leaving a strip of artwork down the left of the screen.
+    //
+    // The body has a transform of its own, the letterboxing scale in
+    // js/ui-scale.js, which would hold the visualizer inside the 4:3
+    // composition. The stage is outside it, so the layer covers the
+    // whole screen; without that file this is the body as before.
     function host() {
-        return document.body;
+        return window.UiScale?.stage?.() || document.body;
     }
 
     // Only while PLAYING is on screen. The layer is a full-screen fixed

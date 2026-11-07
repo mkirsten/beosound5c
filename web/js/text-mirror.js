@@ -37,10 +37,29 @@
             into = document.createElement('div');
             host.appendChild(into);
         }
+        // The source and the host need not share a coordinate space. The
+        // source is inside the scaled composition; a full-bleed backdrop
+        // is mounted outside it, on the stage, so its own box is in screen
+        // pixels while the source's computed sizes are in design pixels.
+        // Copying the rect straight across put the text 19px left and
+        // 119px high of the line it was copying on a 16:9 receiver, at the
+        // design font size over a composition rendered at 0.70.
+        //
+        // So convert: place the copy at the source's real position on
+        // screen, expressed in the host's own units, and scale it by as
+        // much as the source is scaled and the host is not. Both ratios
+        // are 1 on the device, where this is the no-op it was before.
         const rect = src.getBoundingClientRect();
+        const hostRect = host.getBoundingClientRect();
+        const srcScale = src.offsetWidth ? rect.width / src.offsetWidth : 1;
+        const hostScale = host.offsetWidth ? hostRect.width / host.offsetWidth : 1;
         into.style.cssText =
-            'position:absolute;left:' + rect.left + 'px;top:' + rect.top + 'px;' +
-            'width:' + rect.width + 'px;';
+            'position:absolute;' +
+            'left:' + ((rect.left - hostRect.left) / hostScale) + 'px;' +
+            'top:' + ((rect.top - hostRect.top) / hostScale) + 'px;' +
+            'width:' + src.offsetWidth + 'px;' +
+            'transform-origin:top left;' +
+            'transform:scale(' + (srcScale / hostScale) + ');';
         into.innerHTML = src.innerHTML;
         const srcKids = src.children;
         const mirKids = into.children;
@@ -74,6 +93,12 @@
     // into each mirror — see js/elapsed.js.
     document.addEventListener('bs5c:media-update', syncAll);
     document.addEventListener('bs5c:now-playing-text', syncAll);
+
+    // A copy holds screen coordinates, so it goes stale the moment the
+    // screen changes size: the composition is re-centred and re-scaled
+    // under it. A Cast receiver does resize after its first paint.
+    window.addEventListener('resize', syncAll);
+    window.addEventListener('orientationchange', syncAll);
 
     window.TextMirror = { render, register, unregister, syncAll };
 })();
