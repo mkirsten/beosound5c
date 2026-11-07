@@ -108,3 +108,63 @@ async def test_stop_is_a_no_op_when_nothing_is_cast(screen, monkeypatch):
     monkeypatch.setattr(screen, "_stop_sync", lambda receiver: called.append(receiver))
     await screen.stop()
     assert called == []
+
+
+class _Status:
+    def __init__(self, app_id):
+        self.app_id = app_id
+
+
+class _Cast:
+    def __init__(self, status):
+        self.status = status
+
+
+def test_unreachable_receiver_is_not_an_answer(screen, monkeypatch):
+    """"Could not tell" must not read as "not showing".
+
+    This is what turned a television that was simply off into a re-cast
+    attempt every thirty seconds: the check could not reach it, returned
+    False, and the reconcile loop dutifully tried to put the UI back.
+    """
+    def unreachable(receiver):
+        raise LookupError("asleep")
+    monkeypatch.setattr(screen, "_connect_sync", unreachable)
+    assert screen._showing_sync("Hall", "84912283") is None
+
+
+def test_no_status_is_not_an_answer_either(screen, monkeypatch):
+    monkeypatch.setattr(screen, "_connect_sync", lambda r: _Cast(None))
+    assert screen._showing_sync("Hall", "84912283") is None
+
+
+def test_a_reachable_receiver_gives_a_definite_answer(screen, monkeypatch):
+    monkeypatch.setattr(screen, "_connect_sync",
+                        lambda r: _Cast(_Status("84912283")))
+    assert screen._showing_sync("Hall", "84912283") is True
+
+    monkeypatch.setattr(screen, "_connect_sync",
+                        lambda r: _Cast(_Status("something-else")))
+    assert screen._showing_sync("Hall", "84912283") is False
+
+
+def test_discovery_reads_what_the_browser_already_knows(screen, monkeypatch):
+    """No scan per call: the browser listens continuously, so a lookup is a
+    dict read. Starting and stopping one per operation is what produced
+    zeroconf's "instance loop must be running" every thirty seconds."""
+    class Info:
+        friendly_name, model_name, host = "Hall", "Some TV", "10.0.0.7"
+
+    class Browser:
+        devices = {"uuid-1": Info()}
+
+    screen._browser = Browser()
+    assert screen._discover_sync() == [
+        {"name": "Hall", "model": "Some TV", "host": "10.0.0.7"}]
+
+
+def test_stopping_something_already_gone_is_not_an_error(screen, monkeypatch):
+    def unreachable(receiver):
+        raise LookupError("asleep")
+    monkeypatch.setattr(screen, "_connect_sync", unreachable)
+    screen._stop_sync("Hall")        # must not raise

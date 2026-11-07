@@ -56,9 +56,14 @@ log = install_logging("beo-cast")
 # prerequisite for showing your own page on your own television.
 DEFAULT_APP_ID = "84912283"
 
-# Discovery walks mDNS and is slow by nature; receivers also drop off the
-# network entirely when they sleep, so a miss is normal rather than an error.
-DISCOVERY_TIMEOUT = 20.0
+# Connecting to a receiver, once the browser has found it. Receivers drop
+# off the network entirely when they sleep, so failing to reach one is
+# normal rather than an error.
+CONNECT_TIMEOUT = 20.0
+
+# How long to give the browser before answering the first question. It
+# listens continuously after that, so only the first caller waits.
+FIRST_SCAN_SETTLE = 6.0
 
 # How often to check that the receiver is still showing us. A television
 # switched to another input, or woken from standby, comes back with a
@@ -103,6 +108,9 @@ class CastScreen:
         # belongs, and the reconcile loop needs to know that to keep trying.
         self._target: str | None = None       # where the UI belongs
         self._active = False                  # and whether it got there
+        self._browser = None
+        self._zconf = None
+        self._unreachable = 0
         self._receivers: list[dict] = []
         self._last_scan = 0.0
         self._last_error: str | None = None
@@ -112,80 +120,110 @@ class CastScreen:
 
     # ── pychromecast lives on threads ──
     #
-    # The library is synchronous and starts its own zeroconf browser, so every
-    # call goes through the executor rather than blocking the event loop.
+    # The library is synchronous and keeps its own zeroconf browser, so every
+    # call below goes through the executor rather than blocking the loop.
+    #
+    # One browser, held open for as long as the service runs. The obvious
+    # shape is get_chromecasts() per operation, which starts a browser, waits
+    # out a discovery timeout and tears it down again — and on a device that
+    # checks every thirty seconds, forever, that fails: zeroconf throws
+    # "Zeroconf instance loop must be running, was it already stopped?" as
+    # one teardown races the next lookup. Measured 25 of them in two hours.
+    # A long-lived browser keeps .devices current in the background instead,
+    # so a lookup is a dict read and costs nothing.
 
-    @staticmethod
-    def _discover_sync(timeout: float):
-        import pychromecast
-        casts, browser = pychromecast.get_chromecasts(timeout=timeout)
+    def _ensure_browser(self):
+        if self._browser is not None:
+            return
+        import zeroconf
+        from pychromecast.discovery import CastBrowser, SimpleCastListener
+        self._zconf = zeroconf.Zeroconf()
+        self._browser = CastBrowser(SimpleCastListener(), self._zconf)
+        self._browser.start_discovery()
+        log.info("Cast discovery started")
+
+    def _close_browser(self):
         try:
-            return [{
-                "name": c.cast_info.friendly_name,
-                "model": c.cast_info.model_name,
-                "host": str(c.cast_info.host),
-            } for c in casts]
-        finally:
-            browser.stop_discovery()
+            if self._browser is not None:
+                self._browser.stop_discovery()
+        except Exception as e:                  # noqa: BLE001 — shutting down
+            log.debug("Browser stop failed: %s", e)
+        try:
+            if self._zconf is not None:
+                self._zconf.close()
+        except Exception as e:                  # noqa: BLE001 — shutting down
+            log.debug("Zeroconf close failed: %s", e)
+        self._browser = self._zconf = None
+
+    def _discover_sync(self):
+        """Whatever the browser has seen so far. Not a scan: it is listening
+        the whole time, so this is a read of what is already known."""
+        self._ensure_browser()
+        return [{
+            "name": info.friendly_name,
+            "model": info.model_name,
+            "host": str(info.host),
+        } for info in self._browser.devices.values()]
+
+    def _info_for(self, receiver: str):
+        self._ensure_browser()
+        for info in self._browser.devices.values():
+            if info.friendly_name == receiver:
+                return info
+        return None
+
+    def _connect_sync(self, receiver: str):
+        """A connected Chromecast for one of the discovered devices."""
+        import pychromecast
+        info = self._info_for(receiver)
+        if info is None:
+            raise LookupError(f"{receiver!r} is not on the network — asleep?")
+        tv = pychromecast.get_chromecast_from_cast_info(info, self._zconf)
+        tv.wait(timeout=CONNECT_TIMEOUT)
+        return tv
 
     def _cast_sync(self, receiver: str, url: str) -> str:
-        import pychromecast
         from pychromecast.controllers.dashcast import DashCastController
-
-        casts, browser = pychromecast.get_chromecasts(timeout=DISCOVERY_TIMEOUT)
-        try:
-            tv = next((c for c in casts
-                       if c.cast_info.friendly_name == receiver), None)
-            if tv is None:
-                raise LookupError(f"{receiver!r} is not answering — asleep?")
-            tv.wait(timeout=DISCOVERY_TIMEOUT)
-            last = None
-            for attempt in range(1, LAUNCH_ATTEMPTS + 1):
-                try:
-                    tv.quit_app()
-                    time.sleep(LAUNCH_BACKOFF)
-                    tv.wait(timeout=DISCOVERY_TIMEOUT)
-                    controller = DashCastController()
-                    tv.register_handler(controller)
-                    controller.load_url(url, force=True)
-                    return url
-                except Exception as e:      # noqa: BLE001 — retried below
-                    last = e
-                    log.info("Cast attempt %d/%d failed: %s",
-                             attempt, LAUNCH_ATTEMPTS, e)
-                    time.sleep(LAUNCH_BACKOFF)
-            raise RuntimeError(f"could not launch on {receiver!r}: {last}")
-        finally:
-            browser.stop_discovery()
-
-    @staticmethod
-    def _showing_sync(receiver: str, app_id: str) -> bool:
-        import pychromecast
-        casts, browser = pychromecast.get_chromecasts(timeout=DISCOVERY_TIMEOUT)
-        try:
-            tv = next((c for c in casts
-                       if c.cast_info.friendly_name == receiver), None)
-            if tv is None:
-                return False
-            tv.wait(timeout=DISCOVERY_TIMEOUT)
-            return tv.status is not None and tv.status.app_id == app_id
-        except Exception:                   # noqa: BLE001 — treated as "no"
-            return False
-        finally:
-            browser.stop_discovery()
-
-    @staticmethod
-    def _stop_sync(receiver: str) -> None:
-        import pychromecast
-        casts, browser = pychromecast.get_chromecasts(timeout=DISCOVERY_TIMEOUT)
-        try:
-            tv = next((c for c in casts
-                       if c.cast_info.friendly_name == receiver), None)
-            if tv is not None:
-                tv.wait(timeout=DISCOVERY_TIMEOUT)
+        tv = self._connect_sync(receiver)
+        last = None
+        for attempt in range(1, LAUNCH_ATTEMPTS + 1):
+            try:
                 tv.quit_app()
-        finally:
-            browser.stop_discovery()
+                time.sleep(LAUNCH_BACKOFF)
+                tv.wait(timeout=CONNECT_TIMEOUT)
+                controller = DashCastController()
+                tv.register_handler(controller)
+                controller.load_url(url, force=True)
+                return url
+            except Exception as e:              # noqa: BLE001 — retried below
+                last = e
+                log.info("Cast attempt %d/%d failed: %s",
+                         attempt, LAUNCH_ATTEMPTS, e)
+                time.sleep(LAUNCH_BACKOFF)
+        raise RuntimeError(f"could not launch on {receiver!r}: {last}")
+
+    def _showing_sync(self, receiver: str, app_id: str):
+        """True, False, or None for "could not tell".
+
+        The distinction is the whole point. Treating a failed lookup as
+        "not showing" is what turned a sleeping television into a re-cast
+        every thirty seconds: the check could not reach it, said no, and
+        the reconcile loop dutifully tried to put the UI back. Only a
+        definite answer should move anything.
+        """
+        try:
+            tv = self._connect_sync(receiver)
+        except Exception as e:                  # noqa: BLE001 — unknown, not no
+            log.debug("Could not reach %r to check: %s", receiver, e)
+            return None
+        status = tv.status
+        return None if status is None else status.app_id == app_id
+
+    def _stop_sync(self, receiver: str) -> None:
+        try:
+            self._connect_sync(receiver).quit_app()
+        except Exception as e:                  # noqa: BLE001 — already gone
+            log.info("Nothing to stop on %r: %s", receiver, e)
 
     # ── what to show ──
 
@@ -208,8 +246,13 @@ class CastScreen:
 
     async def refresh(self) -> list[dict]:
         loop = asyncio.get_running_loop()
-        self._receivers = await loop.run_in_executor(
-            None, self._discover_sync, DISCOVERY_TIMEOUT)
+        if self._browser is None:
+            # Starting the browser is instant; hearing anything is not. Only
+            # the first caller pays this, and without it an empty list would
+            # come back from a network that has receivers on it.
+            await loop.run_in_executor(None, self._ensure_browser)
+            await asyncio.sleep(FIRST_SCAN_SETTLE)
+        self._receivers = await loop.run_in_executor(None, self._discover_sync)
         self._last_scan = time.monotonic()
         log.info("Found %d Cast receiver(s): %s", len(self._receivers),
                  ", ".join(r["name"] for r in self._receivers) or "none")
@@ -255,12 +298,22 @@ class CastScreen:
                 loop = asyncio.get_running_loop()
                 showing = await loop.run_in_executor(
                     None, self._showing_sync, self._target, self._app_id)
-                if not showing:
+                if showing is None:
+                    # Could not reach it. Not an answer, so nothing moves.
+                    # A television that is off would otherwise be "not
+                    # showing" every thirty seconds forever.
+                    self._unreachable += 1
+                    if self._unreachable in (1, 10, 100):
+                        log.info("%r is not reachable (%d checks)",
+                                 self._target, self._unreachable)
+                    continue
+                self._unreachable = 0
+                if showing:
+                    self._active = True
+                else:
                     log.info("%r is not showing the UI — casting",
                              self._target)
                     await self.start(self._target)
-                else:
-                    self._active = True
             except Exception as e:          # noqa: BLE001 — retried next tick
                 self._last_error = str(e)
                 log.info("Reconcile failed (will retry): %s", e)
@@ -368,6 +421,8 @@ class CastScreen:
             await self._tasks.cancel_all()
             if self._runner:
                 await self._runner.cleanup()
+            await asyncio.get_running_loop().run_in_executor(
+                None, self._close_browser)
 
     async def _auto_start(self):
         """Cast on boot, without holding up the rest of start-up.
