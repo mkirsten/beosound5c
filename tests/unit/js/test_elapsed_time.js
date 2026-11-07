@@ -40,7 +40,11 @@ global.document = {
     querySelector: (sel) => sel === '.immersive-info-time' ? overlayRow : null,
 };
 let mirrorRefreshes = 0;
-global.window = { CanvasPanel: { refreshText: () => { mirrorRefreshes++; } } };
+global.window = {};
+global.CustomEvent = class { constructor(type) { this.type = type; } };
+global.document.dispatchEvent = (e) => {
+    if (e.type === 'bs5c:now-playing-text') mirrorRefreshes++;
+};
 
 const elapsed = require('../../../web/js/elapsed.js');
 
@@ -119,9 +123,9 @@ describe('every place the text appears', () => {
         elapsed._set({ positionMs: 30_000, durationMs: 90_000, atWallClock: 0, playing: false });
         elapsed._tick();
         const after = mirrorRefreshes;
-        assert.ok(after > 0, 'the mirror was never told');
+        assert.ok(after > 0, 'nothing was announced');
         elapsed._tick();                       // paused: same second, same text
         assert.equal(mirrorRefreshes, after,
-                     'the mirror was re-laid out for an unchanged string');
+                     'an unchanged string was announced as a change');
     });
 });

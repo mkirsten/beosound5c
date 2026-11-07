@@ -85,10 +85,15 @@
             if (node.textContent !== text) { node.textContent = text; changed = true; }
             node.classList.toggle('has-time', show);
         }
-        // The canvas mirror is a copy taken at show() time, so it has to be
-        // told when the text underneath it moved on. Only on a real change:
-        // re-laying the mirror out every second would be work for nothing.
-        if (changed) window.CanvasPanel?.refreshText?.();
+        // Anything copying this text — the canvas panel over a video, and
+        // the visualizer backdrop — took its copy at mount time and has no
+        // way to know the string moved on. Announced rather than called, so
+        // the clock does not have to know who is listening. Only on a real
+        // change: re-laying a mirror out every second would be work for
+        // nothing, and a paused track changes nothing at all.
+        if (changed) {
+            document.dispatchEvent(new CustomEvent('bs5c:now-playing-text'));
+        }
     }
 
     function start() {

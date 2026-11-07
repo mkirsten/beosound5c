@@ -460,13 +460,15 @@
     }
 
     // Expose for debugging / external coordination
+    // The mirror is a snapshot of the immersive overlay taken when the
+    // panel appears, so it has to be told when the text under it moved on
+    // — the elapsed-time row ticking, most of the time.
+    document.addEventListener('bs5c:now-playing-text', function () {
+        if (active) syncTextMirror();
+    });
+
     window.CanvasPanel = {
         show: show, hide: hide,
-        // The mirror is a snapshot of the immersive overlay taken when the
-        // panel appears. Anything that changes the text under it — the
-        // elapsed-time row ticking, most of the time — asks for a re-sync
-        // rather than the panel polling for changes it cannot predict.
-        refreshText: function () { if (active) syncTextMirror(); },
         setSuppressed: function (value) {
             suppressed = !!value;
             if (suppressed) { stopCycle(); hide(); }
