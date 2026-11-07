@@ -49,6 +49,9 @@ const DEFAULT_PLAYING_PRESET = {
         const titleEl = container.querySelector('.media-view-title');
         const artistEl = container.querySelector('.media-view-artist');
         const albumEl = container.querySelector('.media-view-album');
+        if (titleEl && titleEl.textContent !== (data.title || '—')) {
+            window.ElapsedTime?.reset();
+        }
         crossfadeText(titleEl, data.title || '—');
         crossfadeText(artistEl, data.artist || '—');
         crossfadeText(albumEl, data.album || '—');
@@ -80,6 +83,7 @@ const DEFAULT_PLAYING_PRESET = {
         }
     },
     onMount(container) {
+        window.ElapsedTime?.start();
         const flipper = container.querySelector('.playing-flipper');
         if (flipper) {
             flipper._clickHandler = () => {
@@ -94,6 +98,7 @@ const DEFAULT_PLAYING_PRESET = {
         }
     },
     onRemove(container) {
+        window.ElapsedTime?.stop();
         const flipper = container.querySelector('.playing-flipper');
         if (flipper?._clickHandler) {
             flipper.removeEventListener('click', flipper._clickHandler);

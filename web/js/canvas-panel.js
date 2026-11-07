@@ -148,7 +148,14 @@
         }
     }
 
+    // Set by js/backdrop.js when the PLAYING view is showing something
+    // else — a visualizer, the bare artwork, a CD's track list. The panel
+    // otherwise takes the screen on its own as soon as a canvas loads,
+    // which would pull the rug out from under whatever the user picked.
+    var suppressed = false;
+
     function show() {
+        if (suppressed) return;
         if (active) return;
         if (!currentUrl || !videoReady) return;
         if (isPaused()) return;
@@ -169,6 +176,7 @@
     // ── Auto-cycle ──
 
     function tryStartCycle() {
+        if (suppressed) return;
         if (cycling) return;
         if (!currentUrl || !videoReady) return;
         if (isPaused()) return;
@@ -454,6 +462,16 @@
     // Expose for debugging / external coordination
     window.CanvasPanel = {
         show: show, hide: hide,
+        // The mirror is a snapshot of the immersive overlay taken when the
+        // panel appears. Anything that changes the text under it — the
+        // elapsed-time row ticking, most of the time — asks for a re-sync
+        // rather than the panel polling for changes it cannot predict.
+        refreshText: function () { if (active) syncTextMirror(); },
+        setSuppressed: function (value) {
+            suppressed = !!value;
+            if (suppressed) { stopCycle(); hide(); }
+        },
+        get suppressed()     { return suppressed; },
         get active()         { return active; },
         get cycling()        { return cycling; },
         get hasCanvas()      { return !!(canvasUrl || musicVideoUrl) && videoReady; },

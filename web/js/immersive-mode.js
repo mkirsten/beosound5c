@@ -55,7 +55,11 @@
                 '<div class="immersive-info-state"></div>' +
                 '<div class="immersive-info-title"></div>' +
                 '<div class="immersive-info-artist"></div>' +
-                '<div class="immersive-info-album"></div>';
+                '<div class="immersive-info-album"></div>' +
+                // Same row as the normal panel. The canvas text mirror
+                // clones this overlay wholesale, so adding it here is also
+                // what puts the clock over a canvas or a music video.
+                '<div class="immersive-info-time"></div>';
             container.appendChild(el);
         }
         return el;

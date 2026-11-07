@@ -484,6 +484,75 @@ class LocalPlayer(PlayerBase):
         finally:
             s.close()
 
+    async def _mpv_ipc_get(self, prop):
+        """Read one mpv property. None if mpv is not there or will not say.
+
+        _mpv_ipc() above sends and forgets, which is all a set_property
+        needs; a get has to read the reply back off the same socket.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._mpv_ipc_get_sync, prop)
+
+    def _mpv_ipc_get_sync(self, prop):
+        import socket as sock
+        s = sock.socket(sock.AF_UNIX, sock.SOCK_STREAM)
+        s.settimeout(2)
+        try:
+            s.connect(IPC_SOCKET)
+            s.sendall((json.dumps({'command': ['get_property', prop]}) + '\n').encode())
+            buf = b''
+            # mpv pushes its own events down this socket, so the reply is
+            # not necessarily the first line back. Only replies carry an
+            # 'error' key, so read lines until one does, or until the
+            # socket timeout gives up.
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    return None
+                buf += chunk
+                while b'\n' in buf:
+                    line, buf = buf.split(b'\n', 1)
+                    if not line.strip():
+                        continue
+                    try:
+                        msg = json.loads(line)
+                    except ValueError:
+                        continue
+                    if 'error' in msg:
+                        return msg.get('data') if msg['error'] == 'success' else None
+        except Exception as e:
+            logger.debug("mpv IPC get %s failed: %s", prop, e)
+            return None
+        finally:
+            s.close()
+
+    async def get_position(self):
+        """Ask whichever backend currently owns the audio.
+
+        Both of them know; neither of them volunteers it. go-librespot
+        reports milliseconds in /status, mpv reports seconds over its IPC
+        socket, and the media broadcast carries neither — its "position" is
+        whatever the track-change event held, which is to say roughly zero,
+        for the whole track.
+        """
+        if self._active_backend == 'mpv':
+            pos = await self._mpv_ipc_get('time-pos')
+            dur = await self._mpv_ipc_get('duration')
+            if pos is None or not dur:
+                return None
+            return int(float(pos) * 1000), int(float(dur) * 1000)
+
+        try:
+            status = await self._librespot.status()
+        except Exception as e:
+            logger.debug("Position: librespot status failed: %s", e)
+            return None
+        track = (status or {}).get('track') or {}
+        pos, dur = track.get('position'), track.get('duration')
+        if pos is None or not dur:
+            return None
+        return int(pos), int(dur)
+
     async def fade_volume(self, target: float, duration: float = 0.5):
         """Smoothly fade mpv volume to target (0-100) over duration seconds."""
         if self._active_backend != 'mpv' or not self._process or self._process.poll() is not None:
