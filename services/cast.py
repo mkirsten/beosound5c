@@ -110,6 +110,8 @@ class CastScreen:
         self._active = False                  # and whether it got there
         self._browser = None
         self._zconf = None
+        self._cast = None
+        self._cast_name: str | None = None
         self._unreachable = 0
         self._receivers: list[dict] = []
         self._last_scan = 0.0
@@ -143,6 +145,7 @@ class CastScreen:
         log.info("Cast discovery started")
 
     def _close_browser(self):
+        self._disconnect_sync()
         try:
             if self._browser is not None:
                 self._browser.stop_discovery()
@@ -173,14 +176,53 @@ class CastScreen:
         return None
 
     def _connect_sync(self, receiver: str):
-        """A connected Chromecast for one of the discovered devices."""
+        """A connected Chromecast, reused between calls.
+
+        One connection per receiver, held open. Building a fresh one per
+        call looks harmless and is not: each carries a socket and a thread,
+        and nothing closes them. The reconcile check runs every thirty
+        seconds, so they accumulate at two a minute — measured 32 of them
+        against one television after half an hour, at which point it stops
+        accepting connections and the service can no longer reach the set
+        it is supposed to be driving. It had shut itself out.
+
+        Connecting is also slow, several seconds, so reusing is both the
+        correct and the quick thing.
+        """
         import pychromecast
+        if self._cast is not None and self._cast_name == receiver:
+            if getattr(self._cast.socket_client, "is_connected", False):
+                return self._cast
+            self._disconnect_sync()
+        elif self._cast is not None:        # a different receiver now
+            self._disconnect_sync()
+
         info = self._info_for(receiver)
         if info is None:
             raise LookupError(f"{receiver!r} is not on the network — asleep?")
         tv = pychromecast.get_chromecast_from_cast_info(info, self._zconf)
-        tv.wait(timeout=CONNECT_TIMEOUT)
+        try:
+            tv.wait(timeout=CONNECT_TIMEOUT)
+        except Exception:
+            # Half-built: it still owns a socket and a thread, and dropping
+            # the reference would leak exactly what this method exists to
+            # avoid.
+            try:
+                tv.disconnect(blocking=False)
+            except Exception:               # noqa: BLE001 — nothing to do
+                pass
+            raise
+        self._cast, self._cast_name = tv, receiver
         return tv
+
+    def _disconnect_sync(self) -> None:
+        tv, self._cast, self._cast_name = self._cast, None, None
+        if tv is None:
+            return
+        try:
+            tv.disconnect(blocking=False)
+        except Exception as e:              # noqa: BLE001 — going away anyway
+            log.debug("Disconnect failed: %s", e)
 
     def _cast_sync(self, receiver: str, url: str) -> str:
         from pychromecast.controllers.dashcast import DashCastController
@@ -224,6 +266,9 @@ class CastScreen:
             self._connect_sync(receiver).quit_app()
         except Exception as e:                  # noqa: BLE001 — already gone
             log.info("Nothing to stop on %r: %s", receiver, e)
+        finally:
+            # Nothing left to drive, so nothing to keep a socket for.
+            self._disconnect_sync()
 
     # ── what to show ──
 

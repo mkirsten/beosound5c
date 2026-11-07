@@ -168,3 +168,94 @@ def test_stopping_something_already_gone_is_not_an_error(screen, monkeypatch):
         raise LookupError("asleep")
     monkeypatch.setattr(screen, "_connect_sync", unreachable)
     screen._stop_sync("Hall")        # must not raise
+
+
+# ── Connection reuse ──────────────────────────────────────────────────────
+# pychromecast is deliberately absent from the test environment (see the
+# import test above), so the library is stood in for rather than imported.
+
+class _Socket:
+    def __init__(self, connected=True):
+        self.is_connected = connected
+
+
+class _LiveCast:
+    def __init__(self):
+        self.socket_client = _Socket()
+        self.disconnected = False
+        self.status = _Status("84912283")
+
+    def wait(self, timeout=None):
+        pass
+
+    def disconnect(self, blocking=True):
+        self.disconnected = True
+
+    def quit_app(self):
+        pass
+
+
+@pytest.fixture
+def fake_lib(monkeypatch, screen):
+    """Stands in for pychromecast, which cast.py imports inside its
+    methods. Hands back whatever the test puts in `built`."""
+    import sys, types
+    built = []
+    mod = types.ModuleType("pychromecast")
+
+    def factory(info, zconf):
+        tv = built.pop(0) if built else _LiveCast()
+        factory.made.append(tv)
+        return tv
+    factory.made = []
+    mod.get_chromecast_from_cast_info = factory
+
+    monkeypatch.setitem(sys.modules, "pychromecast", mod)
+    monkeypatch.setattr(screen, "_info_for", lambda r: object())
+    return factory
+
+
+def test_one_connection_is_reused_not_rebuilt(screen, fake_lib):
+    """Each connection carries a socket and a thread, and nothing closes
+    them. Built per check they accumulate at two a minute, until the
+    television stops accepting connections — measured 32 against one set
+    after half an hour, after which the service could not reach it at all.
+    """
+    first = screen._connect_sync("Hall")
+    for _ in range(5):
+        assert screen._connect_sync("Hall") is first
+    assert len(fake_lib.made) == 1, \
+        f"built {len(fake_lib.made)} connections for one receiver"
+
+
+def test_a_dead_connection_is_replaced_and_closed(screen, fake_lib):
+    first = screen._connect_sync("Hall")
+    first.socket_client.is_connected = False      # the set went away
+    second = screen._connect_sync("Hall")
+    assert second is not first
+    assert first.disconnected, "the dead connection was abandoned, not closed"
+
+
+def test_switching_receiver_closes_the_old_one(screen, fake_lib):
+    first = screen._connect_sync("Hall")
+    screen._connect_sync("Kitchen")
+    assert first.disconnected
+
+
+def test_a_failed_connect_does_not_leak(screen, fake_lib):
+    """A half-built connection still owns a socket; dropping the reference
+    would leak exactly what the reuse exists to avoid."""
+    tv = _LiveCast()
+
+    def boom(timeout=None):
+        raise TimeoutError("wait timed out")
+    tv.wait = boom
+
+    import sys
+    sys.modules["pychromecast"].get_chromecast_from_cast_info = \
+        lambda info, zconf: tv
+
+    with pytest.raises(TimeoutError):
+        screen._connect_sync("Hall")
+    assert tv.disconnected, "a failed connect left its socket open"
+    assert screen._cast is None
