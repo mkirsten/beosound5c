@@ -228,6 +228,18 @@
             }));
         }
 
+        // Where the track is. The demo already runs a position ticker for
+        // the media view, so the clock reads the same number the artwork
+        // does rather than inventing a second one that drifts from it.
+        if (url.includes('/player/position')) {
+            return Promise.resolve(jsonResponse({
+                supported: true,
+                position_ms: positionMs,
+                duration_ms: DURATION_MS,
+                state: 'playing',
+            }));
+        }
+
         if (url.includes('/player/status') || url.includes('/player/state')) {
             return Promise.resolve(jsonResponse({
                 state: 'playing', player: 'sonos', volume: 32,
