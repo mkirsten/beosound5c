@@ -33,6 +33,17 @@ body {
              scale(var(--ui-scale, 1));
 }
 
+/* Where full-screen media hangs: beside body, so it is measured against
+   the screen instead of the letterboxed design box. See js/ui-scale.js.
+   Out of flow and zero-sized — it is a parent, not a box. */
+#ui-stage {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+}
+
 .container {
   overflow: hidden;
   width: 100%;
@@ -1136,8 +1147,12 @@ body.playback-paused #now-playing .media-view-artwork img {
   position: fixed;
   top: 0;
   left: 0;
-  width: 1024px;
-  height: 768px;
+  /* Of the screen, not of the design box. The panel hangs on the stage,
+     outside the scaled composition, so a music video — usually 16:9 and
+     object-fit:cover — fills a 16:9 screen instead of being framed in
+     black inside the bars the composition leaves. */
+  width: 100%;
+  height: 100%;
   z-index: 99989;
   opacity: 0;
   pointer-events: none;

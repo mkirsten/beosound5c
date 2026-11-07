@@ -46,6 +46,38 @@
             Math.round((window.innerHeight - DESIGN_H * scale) / 2) + 'px');
     }
 
+    // ── The stage: everything that should NOT be letterboxed ──────────
+    //
+    // Letterboxing is right for the composition and wrong for full-screen
+    // media. A canvas, a music video or a visualizer is meant to fill the
+    // glass, and on a 16:9 receiver the bars put a third of the screen
+    // beyond its reach.
+    //
+    // Such a layer cannot simply be a child of <body>, because body is
+    // what carries the transform. That makes body the containing block for
+    // every fixed box inside it, so position:fixed resolves against the
+    // 1024x768 design box rather than the screen, and body's overflow:
+    // hidden then clips anything reaching past it.
+    //
+    // The stage sits beside body instead, so a fixed layer mounted on it
+    // is measured against the real viewport and 100% means the screen.
+    // It holds no layout of its own: it is out of flow and zero-sized,
+    // purely somewhere to hang those layers.
+    var stageEl = null;
+
+    function stage() {
+        if (!stageEl || !stageEl.isConnected) {
+            stageEl = document.createElement('div');
+            stageEl.id = 'ui-stage';
+            document.documentElement.appendChild(stageEl);
+        }
+        return stageEl;
+    }
+
+    // Consumers fall back to document.body when this file is absent, where
+    // body is untransformed and 100% means the screen anyway.
+    window.UiScale = { stage: stage };
+
     apply();
     window.addEventListener('resize', apply);
     // A Cast receiver can resize its viewport after the first paint.
