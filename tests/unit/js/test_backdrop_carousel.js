@@ -214,3 +214,46 @@ describe('leaving the view', () => {
         assert.equal(unmounted, before);
     });
 });
+
+describe('a backdrop that arrives late', () => {
+    // Canvas and video are not available the instant a track starts: the
+    // metadata lands first, the media loads after, and the panel only
+    // counts them once they can actually play. A choice made in that gap
+    // used to fall back to Auto and stay there for the rest of the song —
+    // the name was remembered but never reconsidered.
+    it('falls back to Auto while the choice is unavailable', () => {
+        withServices({});                       // no canvas yet
+        backdrop._setChosen('canvas');
+        backdrop.refresh();
+        assert.equal(backdrop.applied, 'auto');
+        assert.equal(backdrop.chosen, 'canvas', 'the choice was forgotten');
+    });
+
+    it('takes it up when the track changes under it', () => {
+        // Driven through the event, not by calling refresh() by hand: the
+        // fault was never in refresh, it was that nothing ever called it.
+        withServices({});
+        backdrop._setChosen('canvas');
+        backdrop.refresh();
+        assert.equal(backdrop.applied, 'auto');
+
+        withServices({ canvas: true });         // next track has one
+        fire('bs5c:media-update', {});
+        assert.equal(backdrop.applied, 'canvas',
+                     'a media update did not reconsider the choice');
+    });
+
+    it('goes back to Auto if it disappears again', () => {
+        // The next track has no canvas of its own.
+        withServices({ canvas: true });
+        backdrop._setChosen('canvas');
+        backdrop.refresh();
+        assert.equal(backdrop.applied, 'canvas');
+
+        withServices({});
+        backdrop.refresh();
+        assert.equal(backdrop.applied, 'auto');
+        assert.equal(backdrop.chosen, 'canvas',
+                     'a track without one should not change what you picked');
+    });
+});

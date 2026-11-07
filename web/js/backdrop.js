@@ -156,6 +156,7 @@
         // feels broken even when it is only slow.
         chosen = id;
         apply(id);
+        if (chosen !== applied) watchForArrival();
         toast(entry(id).label);
         fetch(routerUrl('/router/backdrop'), {
             method: 'POST',
@@ -194,10 +195,11 @@
 
     function onBackdrop(data) {
         if (!data || typeof data.backdrop !== 'string') return;
-        if (data.backdrop === chosen) { apply(chosen); return; }
+        const same = data.backdrop === chosen;
         chosen = data.backdrop;
         apply(chosen);
-        toast(entry(chosen).label);
+        if (chosen !== applied) watchForArrival();
+        if (!same) toast(entry(chosen).label);
     }
 
     function onBackdropStep(data) {
@@ -205,11 +207,29 @@
     }
 
     // Availability moves with the track: a canvas arrives a second after
-    // the metadata, a video later still. Re-apply so a chosen backdrop that
-    // was unavailable at track change appears as soon as it can.
+    // the metadata, a video later still, and both have to finish loading
+    // before the panel counts them. A choice made in that gap falls back to
+    // Auto and would stay there — the name is remembered but never
+    // reconsidered, so picking Canvas on a track whose canvas is still
+    // arriving leaves you on Auto for the rest of the song.
+    //
+    // So while the choice is not the thing on screen, look again. The check
+    // is a handful of property reads, and it stops the moment the two agree,
+    // which for most tracks is immediately.
+    const SETTLE_MS = 2000;
+    let settleTimer = null;
+
     function refresh() {
         applied = null;          // force re-evaluation
         apply(chosen);
+    }
+
+    function watchForArrival() {
+        clearInterval(settleTimer);
+        settleTimer = setInterval(() => {
+            if (!onPlaying || chosen === applied) { clearInterval(settleTimer); return; }
+            refresh();
+        }, SETTLE_MS);
     }
 
     // The shell announces every view change; canvas-panel listens to the
@@ -221,6 +241,16 @@
         if (was === onPlaying) return;
         applied = null;          // force a fresh decision either way
         apply(chosen);
+        if (onPlaying && chosen !== applied) watchForArrival();
+        if (!onPlaying) clearInterval(settleTimer);
+    });
+
+    // A new track brings new availability: the canvas and video the last
+    // one had are gone, and this one's have not arrived yet.
+    document.addEventListener('bs5c:media-update', () => {
+        if (!onPlaying) return;
+        refresh();
+        if (chosen !== applied) watchForArrival();
     });
 
     function init() {
@@ -248,8 +278,9 @@
     if (typeof module !== 'undefined' && module.exports) {
         // Node.js environment (unit tests). No DOM, so nothing boots.
         module.exports = { CATALOGUE, available, step, publish, entry,
-                           handleNav, onBackdrop, onBackdropStep,
+                           handleNav, onBackdrop, onBackdropStep, refresh,
                            get chosen() { return chosen; },
+                           get applied() { return applied; },
                            _setChosen: (v) => { chosen = v; } };
     } else if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => setTimeout(init, 400));
