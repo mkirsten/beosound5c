@@ -259,3 +259,21 @@ def test_a_failed_connect_does_not_leak(screen, fake_lib):
         screen._connect_sync("Hall")
     assert tv.disconnected, "a failed connect left its socket open"
     assert screen._cast is None
+
+
+@pytest.mark.asyncio
+async def test_a_cast_records_when_it_happened(screen, fake_lib, monkeypatch):
+    """The reconcile check skips a receiver that was just cast to. It takes
+    a few seconds to finish launching and the status we hold lags it, so a
+    check straight afterwards sees the old app and casts again — which the
+    viewer sees as the picture loading twice."""
+    async def refresh():
+        screen._receivers = [{"name": "Hall", "model": "x", "host": "10.0.0.7"}]
+    monkeypatch.setattr(screen, "refresh", refresh)
+    monkeypatch.setattr(cast, "_local_address_towards", lambda host: "10.0.0.9")
+    monkeypatch.setattr(screen, "_cast_sync", lambda receiver, url: url)
+
+    assert screen._cast_at == 0.0
+    await screen.start("Hall")
+    assert screen._cast_at > 0.0, "nothing recorded when the cast happened"
+    assert screen._active is True

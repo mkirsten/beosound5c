@@ -70,6 +70,12 @@ FIRST_SCAN_SETTLE = 6.0
 # different app running.
 RECONCILE_INTERVAL = 30.0
 
+# Quiet period after casting before the check runs again. The receiver
+# takes a few seconds to finish launching, and the status we hold lags it,
+# so a check straight afterwards sees the old app and casts a second time —
+# which the viewer sees as the picture loading twice.
+RECONCILE_GRACE = 60.0
+
 # Launching DashCast on top of a running app intermittently lands on the
 # default receiver instead, and then its namespace is not there to send the
 # URL to. Quitting first and retrying clears it. Measured 2 failures in 5
@@ -112,6 +118,7 @@ class CastScreen:
         self._zconf = None
         self._cast = None
         self._cast_name: str | None = None
+        self._cast_at = 0.0
         self._unreachable = 0
         self._receivers: list[dict] = []
         self._last_scan = 0.0
@@ -315,6 +322,7 @@ class CastScreen:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._cast_sync, receiver, url)
             self._active = True
+            self._cast_at = time.monotonic()
             self._last_error = None
             log.info("Mirroring to %r: %s", receiver, url)
 
@@ -339,6 +347,8 @@ class CastScreen:
             await asyncio.sleep(RECONCILE_INTERVAL)
             if not self._target:
                 continue
+            if time.monotonic() - self._cast_at < RECONCILE_GRACE:
+                continue        # just cast; let it finish arriving
             try:
                 loop = asyncio.get_running_loop()
                 showing = await loop.run_in_executor(
