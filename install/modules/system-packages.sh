@@ -56,7 +56,9 @@ install_system_packages() {
 
     log_info "Installing audio/TTS packages..."
     apt-get install -y \
-        espeak-ng
+        espeak-ng \
+        pipewire-bin \
+        python3-numpy
 
     # Tailscale is NOT installed here. Remote support is a thing you opt into,
     # not something every device should carry a daemon for — `bs5c-support`

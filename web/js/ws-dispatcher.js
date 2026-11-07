@@ -137,6 +137,19 @@ function processWebSocketEvent(message) {
             handleExternalNavigation(uiStore, data);
             break;
 
+        case 'backdrop':
+            // Another client changed what PLAYING is drawing, or this one
+            // just connected and is being told.
+            window.Backdrop?.onBackdrop(data);
+            break;
+
+        case 'backdrop_step':
+            // FORMAT on the remote. Which backdrops exist depends on the
+            // track, so the router sends only the step and the UI resolves
+            // it — see services/router.py.
+            window.Backdrop?.onBackdropStep(data);
+            break;
+
         case 'camera_overlay':
             handleCameraOverlayEvent(data);
             break;

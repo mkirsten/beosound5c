@@ -40,6 +40,9 @@ const AppConfig = {
     // Jellyfin source
     jellyfinServiceUrl: 'http://localhost:8781',
 
+    // Visualizer feed (audio measurements over WebSocket)
+    visualizerUrl: 'http://localhost:8783',
+
     // USB file source
     usbServiceUrl: 'http://localhost:8773',
 

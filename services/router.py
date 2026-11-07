@@ -17,6 +17,7 @@ Port: 8770
 """
 
 import asyncio
+import json
 import logging
 import os
 import signal
@@ -78,6 +79,45 @@ STATIC_VIEWS = {"showing", "system", "scenes", "playing"}
 GROUPING_PLAYER_TYPES = {"sonos", "heos", "bluesound", "wiim", "mozart"}
 
 
+# ── Backdrop ──────────────────────────────────────────────────────────
+#
+# What fills the PLAYING screen behind the text: the artwork, a Spotify
+# canvas, a music video, a CD's track list, or one of the visualizer's
+# modes. "auto" is the original behaviour, where a canvas or a video takes
+# over by itself when the track has one.
+#
+# The router holds nothing but the chosen name. Which choices exist depends
+# on the track and on which services are up, and the UI is where that is
+# known — it resolves the next one and posts it back. Keeping the knowledge
+# out of here means a new backdrop needs no change on this side.
+#
+# It lives here rather than in a browser because there can be more than one
+# browser: the UI is also shown on a television over Cast, and two screens
+# disagreeing about what they are drawing would be worse than either choice.
+BACKDROP_STATE_FILE = os.path.join(
+    os.getenv("BS5C_CONFIG_DIR", "/etc/beosound5c"), "backdrop-state.json")
+DEFAULT_BACKDROP = "auto"
+
+
+def _load_backdrop() -> str:
+    try:
+        with open(BACKDROP_STATE_FILE) as f:
+            value = json.load(f).get("backdrop")
+            if isinstance(value, str) and value:
+                return value
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+    return DEFAULT_BACKDROP
+
+
+def _save_backdrop(value: str) -> None:
+    try:
+        with open(BACKDROP_STATE_FILE, "w") as f:
+            json.dump({"backdrop": value}, f)
+    except OSError as e:
+        logger.warning("Could not persist backdrop choice: %s", e)
+
+
 # ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
@@ -101,6 +141,7 @@ class EventRouter:
         self._local_button_views: set[str] = {"menu/system"}
         self._default_source_id: str | None = cfg("remote", "default_source", default=None)
         self._source_buttons: dict[str, str] = {}
+        self._backdrop: str = _load_backdrop()
         self._handle_audio: bool = True
         self._handle_video: bool = False
         self._last_activity: float = time.monotonic()
@@ -397,6 +438,25 @@ class EventRouter:
             "active_player": active.player if active else None,
         }
 
+    # ── Backdrop ──
+
+    @property
+    def backdrop(self) -> str:
+        return self._backdrop
+
+    async def set_backdrop(self, value: str) -> None:
+        """Record the choice and tell every client.
+
+        Broadcast even when unchanged: a client that just connected, or one
+        that was showing something else because it missed an earlier event,
+        needs the same answer as everyone else.
+        """
+        if value != self._backdrop:
+            self._backdrop = value
+            _save_backdrop(value)
+            logger.info("Backdrop: %s", value)
+        await self.media.broadcast("backdrop", {"backdrop": self._backdrop})
+
     # ── Event routing ──
 
     async def route_event(self, payload: dict):
@@ -407,6 +467,21 @@ class EventRouter:
 
         is_local = (device_type == "Audio" and self._handle_audio) or \
                    (device_type == "Video" and self._handle_video)
+
+        # 0a. FORMAT — step the PLAYING backdrop.
+        #
+        # masterlink.py has decoded this key all along and nothing used it.
+        # It reads as "change how the picture is presented", which is what
+        # this does, and unlike LIST or MENU it is not a key anyone expects
+        # to navigate with.
+        #
+        # Only the step is sent. Which backdrops exist depends on the track
+        # and on which services are up, so the UI resolves the next one and
+        # posts it back to /router/backdrop.
+        if action == "format":
+            logger.info("-> backdrop: step")
+            await self.media.broadcast("backdrop_step", {"delta": 1})
+            return
 
         # Actions that cause a track change — broadcast a skip hint so the UI
         # can immediately stop video panels without waiting for the full
@@ -1346,6 +1421,28 @@ async def handle_queue_play(request: web.Request) -> web.Response:
             return web.json_response({"status": "error"}, status=500)
 
 
+async def handle_backdrop(request: web.Request) -> web.Response:
+    """GET  /router/backdrop — the chosen backdrop.
+       POST /router/backdrop  body: {"backdrop": "<name>"}
+
+    The value is opaque here. Validating it would mean teaching the router
+    which modes the visualizer offers and which tracks have a canvas, which
+    is exactly the coupling this avoids.
+    """
+    if request.method == "GET":
+        return web.json_response({"backdrop": router_instance.backdrop})
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid json"}, status=400)
+    value = data.get("backdrop")
+    if not isinstance(value, str) or not value:
+        return web.json_response({"error": "backdrop must be a name"}, status=400)
+    await router_instance.set_backdrop(value)
+    return web.json_response({"backdrop": router_instance.backdrop})
+
+
 async def handle_broadcast(request: web.Request) -> web.Response:
     try:
         payload = await request.json()
@@ -1419,6 +1516,8 @@ def create_app() -> web.Application:
     app.router.add_get("/router/ws", router_instance._handle_ws)
     app.router.add_post("/router/media", router_instance._handle_media_post)
     app.router.add_get("/router/media", router_instance._handle_media_get)
+    app.router.add_get("/router/backdrop", handle_backdrop)
+    app.router.add_post("/router/backdrop", handle_backdrop)
     app.router.add_post("/router/broadcast", handle_broadcast)
     app.router.add_post("/router/touch", handle_touch)
     app.router.add_get("/router/queue", handle_queue)

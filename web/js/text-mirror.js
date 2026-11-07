@@ -1,0 +1,104 @@
+/**
+ * Copies the now-playing text on top of a full-screen backdrop.
+ *
+ * The text that is actually visible on PLAYING lives in .immersive-info,
+ * nested inside #viewport. #viewport carries a transform — the GPU hint
+ * from hardware-input.js — which makes it a stacking context, so nothing
+ * inside it can be raised above a backdrop painted on the body. The canvas
+ * panel and the visualizer are both painted there.
+ *
+ * So the text is copied rather than raised: same strings, same computed
+ * sizes, positioned over the original, inside the backdrop's own stacking
+ * context. Both backdrops needed this; it lives here so there is one copy
+ * of it rather than one each.
+ *
+ * A mirror is registered once and re-synced whenever what it is copying
+ * changes — a track change, or the elapsed clock ticking.
+ */
+(function () {
+    'use strict';
+
+    const mirrors = new Set();
+
+    /**
+     * `host` is a full-viewport, positioned box belonging to the backdrop.
+     * The copy goes inside it, at the original's coordinates.
+     *
+     * The geometry is set on that child and never on the host, because the
+     * host's stacking is the backdrop's business: writing a z-index here
+     * put a body-level layer on z-index 2 and buried the text under the
+     * very backdrop it was supposed to sit on.
+     */
+    function render(host) {
+        const src = document.querySelector('.immersive-info');
+        if (!src || !host) return;
+        let into = host.firstElementChild;
+        if (!into) {
+            into = document.createElement('div');
+            host.appendChild(into);
+        }
+        // The source and the host need not share a coordinate space. The
+        // source is inside the scaled composition; a full-bleed backdrop
+        // is mounted outside it, on the stage, so its own box is in screen
+        // pixels while the source's computed sizes are in design pixels.
+        // Copying the rect straight across put the text 19px left and
+        // 119px high of the line it was copying on a 16:9 receiver, at the
+        // design font size over a composition rendered at 0.70.
+        //
+        // So convert: place the copy at the source's real position on
+        // screen, expressed in the host's own units, and scale it by as
+        // much as the source is scaled and the host is not. Both ratios
+        // are 1 on the device, where this is the no-op it was before.
+        const rect = src.getBoundingClientRect();
+        const hostRect = host.getBoundingClientRect();
+        const srcScale = src.offsetWidth ? rect.width / src.offsetWidth : 1;
+        const hostScale = host.offsetWidth ? hostRect.width / host.offsetWidth : 1;
+        into.style.cssText =
+            'position:absolute;' +
+            'left:' + ((rect.left - hostRect.left) / hostScale) + 'px;' +
+            'top:' + ((rect.top - hostRect.top) / hostScale) + 'px;' +
+            'width:' + src.offsetWidth + 'px;' +
+            'transform-origin:top left;' +
+            'transform:scale(' + (srcScale / hostScale) + ');';
+        into.innerHTML = src.innerHTML;
+        const srcKids = src.children;
+        const mirKids = into.children;
+        for (let i = 0; i < srcKids.length && i < mirKids.length; i++) {
+            const cs = getComputedStyle(srcKids[i]);
+            mirKids[i].style.cssText =
+                'font-size:' + cs.fontSize + ';font-weight:' + cs.fontWeight +
+                ';margin-bottom:' + cs.marginBottom + ';opacity:' + cs.opacity +
+                ';height:' + cs.height + ';line-height:' + cs.lineHeight +
+                ';letter-spacing:' + cs.letterSpacing +
+                ';visibility:' + cs.visibility +
+                ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' +
+                'width:' + cs.width + ';';
+            mirKids[i].textContent = srcKids[i].textContent;
+        }
+    }
+
+    function register(el) { if (el) mirrors.add(el); }
+    function unregister(el) { mirrors.delete(el); }
+
+    function syncAll() {
+        for (const el of mirrors) {
+            // A mirror whose backdrop has gone is left alone rather than
+            // unregistered behind the owner's back; it costs one check.
+            if (el.isConnected) render(el);
+        }
+    }
+
+    // A new track rewrites everything being copied. So does the elapsed
+    // clock, once a second, which announces itself rather than reaching
+    // into each mirror — see js/elapsed.js.
+    document.addEventListener('bs5c:media-update', syncAll);
+    document.addEventListener('bs5c:now-playing-text', syncAll);
+
+    // A copy holds screen coordinates, so it goes stale the moment the
+    // screen changes size: the composition is re-centred and re-scaled
+    // under it. A Cast receiver does resize after its first paint.
+    window.addEventListener('resize', syncAll);
+    window.addEventListener('orientationchange', syncAll);
+
+    window.TextMirror = { render, register, unregister, syncAll };
+})();

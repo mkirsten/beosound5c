@@ -90,6 +90,7 @@
         });
 
         document.body.appendChild(container);
+        window.TextMirror?.register(textMirror);
     }
 
     // ── Show / Hide ──
@@ -127,28 +128,20 @@
         });
     }
 
+    // Shared with the visualizer backdrop, which has the same problem for
+    // the same reason — see js/text-mirror.js.
     function syncTextMirror() {
-        var src = document.querySelector('.immersive-info');
-        if (!src || !textMirror) return;
-        var rect = src.getBoundingClientRect();
-        textMirror.style.cssText =
-            'position:absolute;left:' + rect.left + 'px;top:' + rect.top + 'px;' +
-            'width:' + rect.width + 'px;color:white;pointer-events:none;z-index:2;';
-        textMirror.innerHTML = src.innerHTML;
-        var srcKids = src.children;
-        var mirKids = textMirror.children;
-        for (var i = 0; i < srcKids.length && i < mirKids.length; i++) {
-            var cs = getComputedStyle(srcKids[i]);
-            mirKids[i].style.cssText =
-                'font-size:' + cs.fontSize + ';font-weight:' + cs.fontWeight +
-                ';margin-bottom:' + cs.marginBottom + ';opacity:' + cs.opacity +
-                ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' +
-                'width:' + cs.width + ';';
-            mirKids[i].textContent = srcKids[i].textContent;
-        }
+        if (textMirror) window.TextMirror?.render(textMirror);
     }
 
+    // Set by js/backdrop.js when the PLAYING view is showing something
+    // else — a visualizer, the bare artwork, a CD's track list. The panel
+    // otherwise takes the screen on its own as soon as a canvas loads,
+    // which would pull the rug out from under whatever the user picked.
+    var suppressed = false;
+
     function show() {
+        if (suppressed) return;
         if (active) return;
         if (!currentUrl || !videoReady) return;
         if (isPaused()) return;
@@ -169,6 +162,7 @@
     // ── Auto-cycle ──
 
     function tryStartCycle() {
+        if (suppressed) return;
         if (cycling) return;
         if (!currentUrl || !videoReady) return;
         if (isPaused()) return;
@@ -454,6 +448,11 @@
     // Expose for debugging / external coordination
     window.CanvasPanel = {
         show: show, hide: hide,
+        setSuppressed: function (value) {
+            suppressed = !!value;
+            if (suppressed) { stopCycle(); hide(); }
+        },
+        get suppressed()     { return suppressed; },
         get active()         { return active; },
         get cycling()        { return cycling; },
         get hasCanvas()      { return !!(canvasUrl || musicVideoUrl) && videoReady; },

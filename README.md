@@ -65,7 +65,7 @@ talks to. Worth knowing before you install one:
 
 - **The local HTTP API has no authentication.** Anything on your LAN can read
   device status and drive playback (`/router/*`, `/player/*`, the source
-  services on ports 8766–8781). That's deliberate — it's how the kiosk, the
+  services on ports 8766–8783). That's deliberate — it's how the kiosk, the
   phone setup page and Home Assistant all talk to it.
 - **Config changes and updates reject cross-site browsers.** `POST /config` and
   `POST /update/run` accept requests from the device's own setup page, Home
@@ -103,6 +103,7 @@ touch ~/beosound5c/NO_TELEMETRY
 - [Audio, players & sources](docs/audio-setup.md) — player types, source compatibility, Spotify setup, volume adapters
 - [Home Assistant integration](docs/home-assistant.md) — MQTT, webhooks, automation examples
 - [Remotes & IR](docs/remotes.md) — BeoRemote One pairing, IR source buttons, Beo6
+- [The PLAYING backdrop](docs/backdrop.md) — artwork, canvas, video or a visualizer, on the wheel and FORMAT
 - [Development & contributing](docs/CONTRIBUTING.md) — local dev setup, repo layout, deploy script
 
 ## Acknowledgments
