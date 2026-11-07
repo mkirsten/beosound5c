@@ -255,10 +255,19 @@
 
     function init() {
         onPlaying = (window.uiStore?.currentRoute === 'menu/playing');
+        const settle = () => {
+            // The page can load mid-track, with the canvas or video already
+            // playing but not yet counted. Without this the choice read from
+            // the router is applied once, falls back to Auto, and stays
+            // there until the next track — which on a screen that is cast to
+            // a television and reloaded on every cast is most of the time.
+            if (onPlaying && chosen !== applied) watchForArrival();
+        };
         fetch(routerUrl('/router/backdrop'))
             .then(r => r.json())
-            .then(d => { if (d && d.backdrop) { chosen = d.backdrop; apply(chosen); } })
-            .catch(() => apply(chosen));
+            .then(d => { if (d && d.backdrop) chosen = d.backdrop; })
+            .catch(() => { /* router down; the remembered choice stands */ })
+            .then(() => { apply(chosen); settle(); });
     }
 
     window.Backdrop = {
