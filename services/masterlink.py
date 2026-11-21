@@ -129,8 +129,18 @@ class MessageQueue:
         self.command_counts = defaultdict(int)  # For deduplication
         self.last_message_time = {}  # Track the last message time for each command
         self.last_webhook_time = {}  # Track the last webhook time for each command
+        # Optional callable run after every add(); the sender uses it to
+        # wake up instead of polling an empty queue.
+        self.on_add = None
 
     def add(self, message):
+        """Add a message to the queue and wake the sender, if one is waiting."""
+        self._add(message)
+        notify = self.on_add
+        if notify is not None:
+            notify()
+
+    def _add(self, message):
         """Add a message to the queue with timestamp."""
         with self.lock:
             now = time.time()
@@ -382,6 +392,10 @@ class PC2Device:
         """Start sniffing USB messages and sending them via webhook"""
         self.running = True
         self.loop = asyncio.new_event_loop()
+        self._queue_event = asyncio.Event()
+        # add() runs on the sniffer thread; hop onto the sender loop to wake it.
+        self.message_queue.on_add = lambda: self.loop.call_soon_threadsafe(
+            self._queue_event.set)
 
         self.sniffer_thread = threading.Thread(target=self._sniff_loop)
         self.sniffer_thread.daemon = True
@@ -543,11 +557,20 @@ class PC2Device:
             try:
                 message = self.message_queue.get()
 
-                if message:
-                    tasks = [self._send_webhook_async(message)]
-                    await asyncio.gather(*tasks, return_exceptions=True)
+                if message is None:
+                    # Sleep until the sniffer adds something.  The timeout
+                    # keeps the loop checking self.running for shutdown.
+                    # add() sets the event via call_soon_threadsafe, which
+                    # runs on this loop after clear(), so no wakeup is lost.
+                    self._queue_event.clear()
+                    try:
+                        await asyncio.wait_for(self._queue_event.wait(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        pass
+                    continue
 
-                await asyncio.sleep(0.001)
+                await asyncio.gather(self._send_webhook_async(message),
+                                     return_exceptions=True)
 
             except Exception as e:
                 logger.error("Error in sender loop: %s", e, exc_info=True)
