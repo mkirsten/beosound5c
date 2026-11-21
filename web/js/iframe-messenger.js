@@ -134,6 +134,34 @@ const IframeMessenger = {
      * List of routes that handle their own navigation via iframes
      * @returns {string[]} Array of route paths
      */
+    /**
+     * Webpage menu items (config "type": "webpage") show an external page in
+     * an iframe. By default the wheel scrolls it and buttons go to the HA
+     * webhook. A same-origin page can take the wheel and buttons itself by
+     * setting `window.beoHandlesInput = true`; it then receives the same
+     * 'nav' / 'button' messages as our own iframe pages.
+     *
+     * Returns the page's window if it opted in, else null.
+     */
+    getOptedInWebpage(doc = document) {
+        const iframe = doc.querySelector('#contentArea .webpage-iframe');
+        if (!iframe) return null;
+        try {
+            const win = iframe.contentWindow;
+            return win && win.beoHandlesInput === true ? win : null;
+        } catch (e) {
+            return null; // cross-origin: we can't see the flag
+        }
+    },
+
+    /** Send a nav/button message to an opted-in webpage. True if sent. */
+    sendToWebpage(type, data, doc = document) {
+        const win = this.getOptedInWebpage(doc);
+        if (!win) return false;
+        win.postMessage({ type, ...data }, '*');
+        return true;
+    },
+
     getLocalHandledRoutes() {
         const staticRoutes = Object.keys(window.Constants?.iframes || {
             'menu/scenes': 'scenes-iframe',
@@ -145,4 +173,5 @@ const IframeMessenger = {
 };
 
 // Make available globally
-window.IframeMessenger = IframeMessenger;
+if (typeof window !== 'undefined') window.IframeMessenger = IframeMessenger;
+if (typeof module !== 'undefined') module.exports = { IframeMessenger };
