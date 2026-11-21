@@ -16,6 +16,9 @@ const AppConfig = {
     // Webhook forwarding endpoint (backend forwards to HA)
     webhookUrl: 'http://localhost:8767/forward',
 
+    // beo-input command endpoint (same commands HA sends to /webhook)
+    inputCommandUrl: 'http://localhost:8767/webhook',
+
     // Router service
     routerUrl: 'http://localhost:8770',
 

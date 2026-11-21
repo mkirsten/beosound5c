@@ -1643,6 +1643,21 @@ async def _forward_to_router(event_type: str, data: dict):
 
 MAX_OVERLAY_CAMERAS = 2
 
+# True while a camera overlay is up that switched on a dark screen. Closing
+# the overlay (from HA or on the device) then puts the screen back to sleep
+# instead of leaving it on until auto-standby.
+_camera_woke_screen = False
+
+
+def _camera_overlay_closed():
+    """Restore the screen state from before show_camera turned it on."""
+    global _camera_woke_screen
+    if _camera_woke_screen:
+        _camera_woke_screen = False
+        logger.info('Camera overlay had woken the screen - turning it off again')
+        set_backlight(False)
+
+
 
 def normalize_show_camera_cameras(params: dict) -> list:
     """Normalize show_camera params into a [{'title','entity'}] list.
@@ -1695,6 +1710,7 @@ async def process_command(data: dict) -> dict:
 
     Returns a result dict with 'status' and other fields.
     """
+    global _camera_woke_screen
     command = data.get('command', '')
     params = data.get('params', {})
 
@@ -1778,6 +1794,8 @@ async def process_command(data: dict) -> dict:
         else:
             # No cameras named — the overlay falls back to config.json.
             logger.info('Showing camera overlay: cameras from config')
+        if not is_backlight_on():
+            _camera_woke_screen = True
         set_backlight(True)
         payload = {'action': 'show', 'actions': params.get('actions', {})}
         if cameras:
@@ -1789,7 +1807,14 @@ async def process_command(data: dict) -> dict:
     elif command == 'dismiss_camera':
         logger.info('Dismissing camera overlay')
         await _forward_to_router('camera_overlay', {'action': 'hide'})
+        _camera_overlay_closed()
         return {'status': 'ok', 'command': 'dismiss_camera'}
+
+    elif command == 'camera_closed':
+        # Sent by the UI when the overlay closes on the device itself
+        # (GO or auto-timeout); the overlay is already hidden there.
+        _camera_overlay_closed()
+        return {'status': 'ok', 'command': 'camera_closed'}
 
     elif command == 'add_menu_item':
         preset = params.get('preset')
