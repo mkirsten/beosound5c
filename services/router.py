@@ -276,13 +276,28 @@ class EventRouter:
 
     # ── Auto-standby ──
 
+    # Re-check at least this often once the timeout has passed (e.g. while
+    # something is still playing), so standby follows soon after it stops.
+    STANDBY_RECHECK_S = 60
+
+    @classmethod
+    def _standby_wait(cls, timeout_s: float, idle_s: float) -> float:
+        """Seconds to sleep before the next auto-standby check.
+
+        Wakes when the idle timeout would expire instead of on a fixed
+        10-minute tick, which could leave the device on for up to
+        timeout + 10 min.
+        """
+        return max(cls.STANDBY_RECHECK_S, timeout_s - idle_s)
+
     async def _auto_standby_loop(self):
         timeout_min = int(cfg("auto_standby", "timeout", default=30))
         if timeout_min <= 0:
             return
         while True:
             try:
-                await asyncio.sleep(600)  # check every 10 minutes
+                idle_s = time.monotonic() - self._last_activity
+                await asyncio.sleep(self._standby_wait(timeout_min * 60, idle_s))
                 idle_min = (time.monotonic() - self._last_activity) / 60
                 if idle_min < timeout_min:
                     continue
