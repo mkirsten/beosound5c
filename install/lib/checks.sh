@@ -7,6 +7,18 @@
 run_preflight_checks() {
     log_section "Pre-flight Checks"
 
+    # Must run on the Pi itself (Debian/Raspberry Pi OS), not on the machine
+    # you SSH from — people do clone + run this on their Mac.
+    if [ "$(uname -s)" != "Linux" ] || ! command -v apt-get &>/dev/null; then
+        log_error "This installer must run ON the Raspberry Pi (Raspberry Pi OS Bookworm), not on this $(uname -s) machine."
+        log_error "SSH into the Pi first, then clone and install there:"
+        log_error "  ssh <user>@<pi-hostname>.local"
+        log_error "  git clone https://github.com/mkirsten/beosound5c ~/beosound5c"
+        log_error "  cd ~/beosound5c && sudo ./install/install.sh"
+        exit 1
+    fi
+    log_success "Linux with apt detected"
+
     # Must run as root
     if [ "$EUID" -ne 0 ]; then
         log_error "This script must be run as root (use sudo)"

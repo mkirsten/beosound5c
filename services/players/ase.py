@@ -21,7 +21,7 @@ Mozart Open API.
              NOW_PLAYING_LEGACY, NUMBER_AND_NAME, SHUTDOWN.
 
 Where this comes from: the B&O app v7.6.2 decompiled (private/apk/FINDINGS.md)
-and watched live against an emulated ASE product (private/bo-emulator —
+and watched live against an emulated ASE product (bs9000-gateway's bo-emulator/ —
 "what the B&O app actually does"), plus a real BeoLink Converter NL/ML probed
 on the LAN (private/blc-nlml-bs9000-re.md). It has not yet been run against
 an ASE *speaker*. Beolink multiroom on ASE is NOT wired — standalone player

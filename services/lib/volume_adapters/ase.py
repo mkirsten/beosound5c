@@ -13,7 +13,7 @@ so far — so the router's 0–100 percent is scaled through the range maximum
 read once from /Sound/Volume.
 
 Sources: B&O app v7.6.2 decompiled and watched live (private/apk,
-private/bo-emulator), plus a real BeoLink Converter NL/ML
+bs9000-gateway's bo-emulator/), plus a real BeoLink Converter NL/ML
 (private/blc-nlml-bs9000-re.md). Not yet run against an ASE speaker;
 note a BLC answers 501 to every volume call because volume is rendered
 by the MasterLink product behind it.

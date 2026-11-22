@@ -47,7 +47,9 @@ const _usbController = (() => {
             if (sendToIframe('button', { button })) return true;
             // Iframe not mounted → PLAYING page media controls
             if (!_playing) return false;
-            const cmd = { go: 'toggle', left: 'prev', right: 'next' }[button];
+            // LEFT/RIGHT step albums (matches the IR action_map in the USB
+            // service); tracks are the nav wheel and the prev/next keys.
+            const cmd = { go: 'toggle', left: 'prev_album', right: 'next_album' }[button];
             if (!cmd) return false;
             fetch(`${USB_URL()}/command`, {
                 method: 'POST',

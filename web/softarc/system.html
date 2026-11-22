@@ -1648,7 +1648,7 @@
                                 this.renderRemotesList(this.btRemotes);
                             } else if (data.type === 'bt_pairing') {
                                 const statusEl = document.getElementById('pairing-status');
-                                if (data.status === 'started') {
+                                if (data.status === 'started' || data.status === 'progress') {
                                     statusEl.textContent = data.message || 'Scanning...';
                                 } else if (data.status === 'completed') {
                                     statusEl.textContent = data.message || 'Pairing complete';
@@ -2068,14 +2068,15 @@
 
             renderRemotesList(remotes) {
                 const list = document.getElementById('remotes-list');
-                if (!remotes || remotes.length === 0) {
-                    list.innerHTML = '<span class="people-loading">No paired BeoRemote devices</span>';
-                    this.remoteItems = [];
-                    this.currentRemoteItem = 0;
-                    return;
-                }
+                remotes = remotes || [];
+                // The pair item sits after the remotes, so it must stay
+                // reachable (and selected) when nothing is paired yet.
+                this.currentRemoteItem = Math.min(this.currentRemoteItem, remotes.length);
 
-                let html = remotes.map((r, i) => {
+                let html = remotes.length === 0
+                    ? '<span class="people-loading">No paired BeoRemote devices</span>'
+                    : '';
+                html += remotes.map((r, i) => {
                     const statusClass = r.connected ? 'running' : 'stopped';
                     const rssiText = r.rssi != null ? `${r.rssi} dBm` : '—';
                     const batteryText = r.battery != null ? `${r.battery}%` : '—';
@@ -2116,18 +2117,14 @@
 
             startBTPairing() {
                 const statusEl = document.getElementById('pairing-status');
-                statusEl.textContent = 'Scanning for remotes... (60s)';
 
+                // Progress and the result arrive as bt_pairing messages.
                 if (this.inputWs && this.inputWs.readyState === WebSocket.OPEN) {
+                    statusEl.textContent = 'Starting Bluetooth...';
                     this.inputWs.send(JSON.stringify({ type: 'command', command: 'start_bt_pairing' }));
                 } else {
-                    fetch('http://localhost:8767/bt/remotes', { method: 'POST' }).catch(() => {});
+                    statusEl.textContent = 'Input service not connected — try again shortly';
                 }
-
-                setTimeout(() => {
-                    statusEl.textContent = '';
-                    this.fetchBTRemotes();
-                }, 60000);
             }
 
             // ── People ──

@@ -12,7 +12,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-UI_SH = Path(__file__).resolve().parents[3] / "services" / "ui.sh"
+SERVICES = Path(__file__).resolve().parents[3] / "services"
+# Chromium is launched from the xinit client, which ui.sh runs from its own file.
+UI_SH = SERVICES / "ui-session.sh"
 
 
 def _flags(kind: str) -> list[str]:
@@ -43,3 +45,16 @@ def test_previously_dropped_features_are_still_requested():
 def test_enable_features_kept_both():
     enabled = _flags("enable")[0].split(",")
     assert "WebUIDarkMode" in enabled and "OverlayScrollbar" in enabled
+
+
+def test_xinit_session_is_not_inline():
+    """ui.sh must start the X session from a file, not `bash -c '<script>'`.
+
+    bash reports a killed background job by echoing its command text, so an
+    inline session script was dumped into the journal on every beo-ui stop —
+    its log() strings ("Chromium failed to create a window...") then showed
+    up as false failures in log greps.
+    """
+    xinit_lines = [line for line in (SERVICES / "ui.sh").read_text().splitlines()
+                   if line.lstrip().startswith("xinit ")]
+    assert xinit_lines == ['xinit /bin/bash "$SCRIPT_DIR/ui-session.sh" -- :0 vt7 &']

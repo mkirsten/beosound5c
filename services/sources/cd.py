@@ -156,6 +156,71 @@ class CDDrive:
             log.error(f"Eject failed: {e}")
 
 
+def select_medium(release: dict, disc_id: str = "", toc_track_count: int = 0) -> dict | None:
+    """Pick the one medium (physical disc) in a release that matches the disc in
+    the drive.
+
+    A multi-disc release lists every disc under ``medium-list``, and MusicBrainz
+    numbers tracks *per medium*. Flattening them all gave CD3 of a 3-CD set 39
+    tracks with three different tracks numbered 1, which is both too long and
+    ambiguous for ``play_track``.
+
+    Matching, in order of reliability:
+      1. the disc ID MusicBrainz lists per medium (present with the
+         default ``artists``/``recordings`` includes; the ``discids`` include
+         is rejected with HTTP 400 by this endpoint)
+      2. a *uniquely* matching track count against the physical TOC
+      3. the only medium, if the release has one
+
+    Returns None when the disc genuinely can't be identified.
+    """
+    media = release.get('medium-list') or []
+    if not media:
+        return None
+
+    if disc_id:
+        for medium in media:
+            for d in (medium.get('disc-list') or []):
+                if d.get('id') == disc_id:
+                    return medium
+
+    if toc_track_count:
+        sized = [m for m in media
+                 if len(m.get('track-list') or []) == toc_track_count]
+        if len(sized) == 1:
+            return sized[0]
+        if sized:
+            # Several discs in the set have the same length. Titles may come
+            # from the wrong one, but a right-length 1..N list still beats a
+            # flattened set with duplicate numbers.
+            log.warning("Disc ambiguous: %d media with %d tracks — using the first",
+                        len(sized), toc_track_count)
+            return sized[0]
+
+    if len(media) == 1:
+        return media[0]
+
+    log.warning("Could not identify which of %d discs is inserted", len(media))
+    return None
+
+
+def medium_tracks(medium: dict) -> list[dict]:
+    """Track dicts for one medium, numbered by its own per-medium positions."""
+    tracks = []
+    for track in medium.get('track-list') or []:
+        rec = track.get('recording') or {}
+        length_ms = int(rec.get('length', 0) or 0)
+        mins = length_ms // 60000
+        secs = (length_ms % 60000) // 1000
+        pos = track.get('position', '?')
+        tracks.append({
+            'num': int(track.get('position', 0) or 0),
+            'title': rec.get('title') or f'Track {pos}',
+            'duration': f'{mins}:{secs:02d}',
+        })
+    return tracks
+
+
 class CDMetadata:
     """Fetches CD metadata from MusicBrainz + Cover Art Archive."""
 
@@ -206,18 +271,14 @@ class CDMetadata:
             date = release.get('date', '')[:4]
             release_id = release.get('id', '')
 
-            tracks = []
-            for medium in release.get('medium-list', []):
-                for track in medium.get('track-list', []):
-                    rec = track.get('recording', {})
-                    length_ms = int(rec.get('length', 0) or 0)
-                    mins = length_ms // 60000
-                    secs = (length_ms % 60000) // 1000
-                    tracks.append({
-                        'num': int(track.get('position', 0)),
-                        'title': rec.get('title', f'Track {track.get("position", "?")}'),
-                        'duration': f'{mins}:{secs:02d}'
-                    })
+            # Only the inserted disc's tracks — not every medium in the set.
+            medium = select_medium(release, disc_id, len(disc.tracks))
+            tracks = medium_tracks(medium) if medium else []
+            disc_number = int(medium.get('position', 0) or 0) if medium else 0
+            disc_total = len(release.get('medium-list') or [])
+            if not tracks:
+                tracks = [{'num': i, 'title': f'Track {i}', 'duration': ''}
+                          for i in range(1, len(disc.tracks) + 1)]
 
             artwork_path = await self._fetch_artwork(release_id, disc_id)
             back_artwork_path = await self._fetch_artwork(release_id, disc_id, 'back')
@@ -244,6 +305,8 @@ class CDMetadata:
                 'album': f'{title} ({date})' if date else title,
                 'tracks': tracks,
                 'track_count': len(tracks) or len(disc.tracks),
+                'disc_number': disc_number,
+                'disc_total': disc_total,
                 'artwork': artwork_path,
                 'back_artwork': back_artwork_path,
                 'alternatives': alternatives
@@ -811,6 +874,10 @@ class CDService(SourceBase):
         self._all_releases = []  # full release list from MusicBrainz
         self._rip_process = None
         self._metadata_task = None  # cancel on eject to prevent phantom playback
+        # STOP twice in a row ejects. Armed by a STOP press and cleared whenever
+        # playback starts or the disc changes, so a single STOP can never eject
+        # and the behaviour doesn't depend on how fast the two presses are.
+        self._stop_armed = False
         self._is_first_detection = True  # suppress navigate (not autoplay) on startup
         self._external_drive_cache = None
         self._external_drive_cache_time = 0
@@ -846,6 +913,7 @@ class CDService(SourceBase):
 
     def add_routes(self, app):
         app.router.add_get('/speakers', self._handle_speakers)
+        app.router.add_get('/cd_state', self._handle_cd_state)
 
     async def handle_status(self) -> dict:
         return {
@@ -877,6 +945,7 @@ class CDService(SourceBase):
 
     async def activate_playback(self):
         """Resume or start CD playback on source button press."""
+        self._stop_armed = False
         if not self.drive.disc_inserted or self.cdplayer.total_tracks == 0:
             return
         if self.cdplayer.state == 'paused':
@@ -919,6 +988,9 @@ class CDService(SourceBase):
         }
 
     async def handle_command(self, cmd, data) -> dict:
+        # Any command other than STOP breaks a STOP-STOP pair.
+        if cmd != 'stop':
+            self._stop_armed = False
         if cmd == '_cd_button':
             return await self._handle_cd_button_action()
         elif cmd == 'play':
@@ -943,9 +1015,16 @@ class CDService(SourceBase):
             await self.cdplayer.prev_track()
             await self._broadcast_cd_update()
         elif cmd == 'stop':
-            await self.cdplayer.stop()
-            await self.register('paused')
-            await self._broadcast_cd_update()
+            if self._stop_armed and self.cdplayer.state != 'playing':
+                self._stop_armed = False
+                log.info("Second STOP — ejecting")
+                await self.register('available')
+                await self.drive.eject()
+            else:
+                await self.cdplayer.stop()
+                self._stop_armed = True
+                await self.register('paused')
+                await self._broadcast_cd_update()
         elif cmd == 'play_track':
             # Track number from action ("5") or explicit track field
             track = data.get('track') or int(data.get('action', 1))
@@ -1013,6 +1092,7 @@ class CDService(SourceBase):
         pass  # Status is available via /status for the debug screen
 
     async def _on_disc_change(self, inserted):
+        self._stop_armed = False
         if inserted:
             import time
             self._action_ts = time.monotonic()  # disc insert = user action
@@ -1094,10 +1174,10 @@ class CDService(SourceBase):
             else:
                 await self._broadcast_cd_update()
 
-    async def _broadcast_cd_update(self):
-        if not self.metadata:
-            return
-        cd_data = {
+    async def _build_cd_update(self) -> dict:
+        """The cd_update payload. Shared by the broadcast and GET /cd_state so the
+        UI's pull path and push path can never drift apart."""
+        return {
             'title': self.metadata.get('title', 'Unknown Album'),
             'artist': self.metadata.get('artist', 'Unknown Artist'),
             'album': self.metadata.get('album', ''),
@@ -1113,6 +1193,11 @@ class CDService(SourceBase):
             'repeat': self.cdplayer.repeat,
             'has_external_drive': await self._detect_external_drive()
         }
+
+    async def _broadcast_cd_update(self):
+        if not self.metadata:
+            return
+        cd_data = await self._build_cd_update()
         await self.broadcast('cd_update', cd_data)
         # Unified PLAYING view metadata via router (only when we have active metadata)
         if cd_data['state'] in ('playing', 'paused'):
@@ -1230,18 +1315,13 @@ class CDService(SourceBase):
             title = release.get('title', 'Unknown Album')
             date = release.get('date', '')[:4]
 
-            tracks = []
-            for medium in release.get('medium-list', []):
-                for track in medium.get('track-list', []):
-                    rec = track.get('recording', {})
-                    length_ms = int(rec.get('length', 0) or 0)
-                    mins = length_ms // 60000
-                    secs = (length_ms % 60000) // 1000
-                    tracks.append({
-                        'num': int(track.get('position', 0)),
-                        'title': rec.get('title', f'Track {track.get("position", "?")}'),
-                        'duration': f'{mins}:{secs:02d}'
-                    })
+            # Same medium selection as the disc lookup — an alternative release
+            # for a boxed set lists every disc too.
+            toc_count = len(self.metadata.get('tracks') or [])
+            medium = select_medium(release, disc_id, toc_count)
+            tracks = medium_tracks(medium) if medium else []
+            disc_number = int(medium.get('position', 0) or 0) if medium else 0
+            disc_total = len(release.get('medium-list') or [])
 
             artwork_path = await self.metadata_lookup._fetch_artwork(release_id, disc_id)
             back_artwork_path = await self.metadata_lookup._fetch_artwork(release_id, disc_id, 'back')
@@ -1263,6 +1343,8 @@ class CDService(SourceBase):
                 'album': f'{title} ({date})' if date else title,
                 'tracks': tracks,
                 'track_count': len(tracks),
+                'disc_number': disc_number,
+                'disc_total': disc_total,
                 'artwork': artwork_path,
                 'back_artwork': back_artwork_path,
                 'alternatives': new_alts
@@ -1308,6 +1390,17 @@ class CDService(SourceBase):
         return web.json_response(
             await self.audio.get_outputs(),
             headers=self._cors_headers())
+
+    async def _handle_cd_state(self, request):
+        """GET /cd_state — current cd_update payload for UI resync.
+
+        cd_update is push-only, so a client that connects after the last
+        broadcast (router resync debounce, missed message, mid-boot page load)
+        would otherwise sit on 'Reading disc...' forever. Returns {} when no
+        disc metadata is loaded.
+        """
+        data = await self._build_cd_update() if self.metadata else {}
+        return web.json_response(data, headers=self._cors_headers())
 
 
 if __name__ == '__main__':

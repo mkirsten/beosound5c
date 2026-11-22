@@ -1,18 +1,21 @@
 """The BS5c's Mozart and ASE clients driven against the B&O device emulator.
 
-private/bo-emulator is the product the Bang & Olufsen app and Home
-Assistant were watched talking to (its README records what each verified
+The bo-emulator (bs9000-gateway repo, bo-emulator/; it lived in
+private/bo-emulator here until 3 Oct 2026) is the product the Bang & Olufsen
+app and Home Assistant were watched talking to (its README records what each verified
 live). Running the real player services and volume adapters against it,
 in-process on loopback ports, pins the whole wire contract — paths, bodies,
 notification frames — rather than hand-picked JSON snippets.
 
-Skipped on public clones: the emulator is private and never published.
+Looked up in a sibling bs9000-gateway checkout (or $BO_EMULATOR = path to
+bo_emulator.py); skipped when neither is there.
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import importlib.util
+import os
 import socket
 import sys
 from pathlib import Path
@@ -22,10 +25,11 @@ import aiohttp
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EMULATOR = REPO_ROOT / "private" / "bo-emulator" / "bo_emulator.py"
+EMULATOR = Path(os.environ.get("BO_EMULATOR")
+                or REPO_ROOT.parent / "bs9000-gateway" / "bo-emulator" / "bo_emulator.py")
 pytestmark = [
     pytest.mark.skipif(not EMULATOR.is_file(),
-                       reason="private/bo-emulator not present (public clone)"),
+                       reason="bo_emulator.py not found (sibling bs9000-gateway checkout or $BO_EMULATOR)"),
     # the emulator registers plain lambdas as aiohttp handlers (its choice)
     pytest.mark.filterwarnings("ignore:Bare functions are deprecated:DeprecationWarning"),
 ]

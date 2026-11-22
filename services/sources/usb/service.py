@@ -55,8 +55,13 @@ class USBService(SourceBase):
         "prev": "prev",
         "up": "next",
         "down": "prev",
-        "right": "next",
-        "left": "prev",
+        # LEFT/RIGHT step whole albums, not tracks: on a 1000-album library
+        # stepping tracks with the arrows is useless, and the nav wheel
+        # (up/down) plus the dedicated prev/next keys already cover tracks.
+        # Falls back to a track step when the mount has no album index
+        # (_album_skip is BM5-only).
+        "right": "next_album",
+        "left": "prev_album",
         "stop": "stop",
         # Beo4 RANDOM key (0xC1) toggles shuffle while USB is active
         "random": "toggle_shuffle",
@@ -429,12 +434,20 @@ class USBService(SourceBase):
             await self._broadcast_update()
 
         elif cmd == 'next_album':
+            # No album index (plain filesystem mount) — a track step is a
+            # better answer for a key press than doing nothing.
             if not await self._album_skip(+1):
-                return {'status': 'error', 'message': 'Album skip unavailable'}
+                await self._player.next_track()
+                if self._player.state == 'playing':
+                    self._update_current_track_meta()
+                    await self._broadcast_update()
 
         elif cmd == 'prev_album':
             if not await self._album_skip(-1):
-                return {'status': 'error', 'message': 'Album skip unavailable'}
+                await self._player.prev_track()
+                if self._player.state == 'playing':
+                    self._update_current_track_meta()
+                    await self._broadcast_update()
 
         elif cmd == 'toggle_shuffle':
             self._player.toggle_shuffle()

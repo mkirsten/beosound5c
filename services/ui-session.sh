@@ -1,0 +1,293 @@
+#!/usr/bin/env bash
+# BeoSound 5c X session — the xinit client started by ui.sh.
+#
+# Lives in its own file rather than as an inline `xinit /bin/bash -c '...'`
+# string: when the session is killed (every beo-ui stop/restart), bash
+# reports the dead background job by echoing its full command text, which
+# dumped this whole script — comments, log() strings and all — into the
+# journal and made `journalctl -u beo-ui | grep fail` match lines that never
+# ran ("Chromium failed to create a window after 5 attempts" on every
+# nightly restart).
+#
+# Inherits SPLASH_IMAGE and CHROMIUM_DATA_DIR from ui.sh's environment.
+
+  # Kill fbi if running (Plymouth already quit with retain-splash)
+  sudo pkill -9 fbi 2>/dev/null || true
+
+  # Set X root window to splash image immediately (fills gap while Chromium loads)
+  # SPLASH_IMAGE is exported from parent script
+  if [ -f "$SPLASH_IMAGE" ] && command -v feh &>/dev/null; then
+    feh --bg-scale "$SPLASH_IMAGE" 2>/dev/null &
+  fi
+
+  # Hide cursor
+  unclutter -idle 0.1 -root &
+
+  # Disable BeoRemote pointer devices - they generate unwanted mouse events
+  # that make the cursor flash visible. Keyboard devices are separate and
+  # remain active. The xorg rule (20-beorc-no-pointer.conf) handles this
+  # permanently, but this catches cases where the rule is missing.
+  (
+    sleep 3  # Wait for X input devices to register
+    for id in $(xinput list 2>/dev/null | grep -i "BEORC" | grep "slave  pointer" | grep -oP "id=\K\d+"); do
+      xinput float "$id" 2>/dev/null && echo "Floated BEORC pointer device id=$id"
+    done
+  ) &
+
+  # Disable screen blanking within X session
+  xset s off
+  xset s noblank
+  xset -dpms
+
+  log() {
+    echo "[$(date "+%Y-%m-%d %H:%M:%S")] $*"
+  }
+
+  # Honor the pre-restart screen state.  X always re-enables HDMI on
+  # session start, but if beo-input had backlight off (e.g. HA fired
+  # screen_off before our nightly cron-restart), turn HDMI back off so
+  # the user does not see a 10-minute window of lit screen at 03:00.
+  (
+    sleep 2  # wait for X to settle and beo-input HTTP to be reachable
+    SCREEN_STATE=$(curl -s --max-time 1 http://localhost:8767/health 2>/dev/null \
+      | grep -oE "\"screen\"\\s*:\\s*\"(on|off)\"" \
+      | grep -oE "(on|off)$")
+    if [ "$SCREEN_STATE" = "off" ]; then
+      log "beo-input reports screen=off — re-applying xrandr --off"
+      xrandr --output HDMI-1 --off 2>/dev/null
+    fi
+  ) &
+
+  # Resolution watchdog — HDMI sometimes renegotiates to the lowest mode
+  # (typically 320x200) after a power cycle or display sleep, leaving the
+  # UI rendered into a tiny viewport. Check every 30s; if HDMI-1 is on
+  # but not at 1024x768, force the mode and kick Chromium so it re-lays
+  # out. Skips when beo-input has the output deliberately --off.
+  (
+    while true; do
+      sleep 30
+      # Exit when the X-session client shell that spawned us is gone —
+      # otherwise each outer-loop X restart leaks another watchdog, and
+      # every leaked copy pkills Chromium on a mode mismatch.
+      kill -0 $$ 2>/dev/null || exit 0
+      HDMI_LINE=$(xrandr --query 2>/dev/null | grep "^HDMI-1 ")
+      # Skip if output is intentionally off (no "WxH+X+Y" geometry).
+      echo "$HDMI_LINE" | grep -qE "[0-9]+x[0-9]+\+[0-9]+\+[0-9]+" || continue
+      # Skip if already at 1024x768.
+      echo "$HDMI_LINE" | grep -q " 1024x768+" && continue
+      CURRENT=$(echo "$HDMI_LINE" | grep -oE "[0-9]+x[0-9]+\+[0-9]+\+[0-9]+" | head -1)
+      log "Resolution watchdog: HDMI-1 at $CURRENT, forcing 1024x768"
+      if xrandr --output HDMI-1 --mode 1024x768 --rate 60 2>/dev/null; then
+        sleep 1
+        pkill -9 chromium 2>/dev/null
+      fi
+    done
+  ) &
+  WATCHDOG_PID=$!
+
+  # Stop crash recovery loop on SIGTERM (also reap the resolution watchdog —
+  # $WATCHDOG_PID expands when the trap is SET, so it must be assigned above)
+  STOPPING=0
+  trap "STOPPING=1; kill $WATCHDOG_PID 2>/dev/null; pkill -9 chromium 2>/dev/null; exit 0" SIGTERM SIGINT
+
+  log "X session started, launching Chromium with crash recovery..."
+
+  # Detect which port the HTTP server is on.
+  # Port 80 is standard (v0.7.2+). Port 8000 is the legacy default — a device
+  # upgrading from <0.7.2 via OTA will not have had its service file updated yet,
+  # so it falls back gracefully without showing a black screen.
+  HTTP_PORT=80
+  log "Waiting for HTTP server..."
+  for i in {1..30}; do
+    if curl -s -o /dev/null -w "%{http_code}" http://localhost/ | grep -q "200"; then
+      HTTP_PORT=80
+      log "HTTP server ready (port 80)"
+      break
+    elif curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/ | grep -q "200"; then
+      HTTP_PORT=8000
+      log "HTTP server ready (port 8000 — legacy, service file not yet updated)"
+      break
+    fi
+    sleep 0.5
+  done
+
+  # Wait for router to be ready (menu data comes from here)
+  log "Waiting for router..."
+  for i in {1..30}; do
+    if curl -s -o /dev/null http://localhost:8770/router/menu 2>/dev/null; then
+      log "Router ready"
+      break
+    fi
+    [ "$i" -eq 30 ] && log "Router not ready after 15s, starting anyway"
+    sleep 0.5
+  done
+
+  # Crash recovery loop - restart Chromium if it exits
+  CRASH_COUNT=0
+  MAX_CRASHES=10
+  CRASH_RESET_TIME=300  # Reset crash count after 5 minutes of stability
+
+  while true; do
+    # Bail out if X died — outer loop will restart the full X session
+    if ! xset q &>/dev/null; then
+      log "X server is gone. Exiting inner loop to restart X..."
+      kill "$WATCHDOG_PID" 2>/dev/null
+      exit 1
+    fi
+
+    START_TIME=$(date +%s)
+    log "Starting Chromium (crash count: $CRASH_COUNT)"
+
+    # Start window health check in background
+    (
+      sleep 15  # Give Chromium time to start
+      # Check if a real Chromium window exists (not just clipboard)
+      if ! xwininfo -root -tree 2>/dev/null | grep -q "Beosound\|localhost"; then
+        log "No Chromium window detected after 15s, killing to trigger restart..."
+
+        # Track window failures in a file (persists across restarts)
+        FAIL_FILE="/tmp/beo-ui-window-failures"
+        if [ -f "$FAIL_FILE" ]; then
+          WINDOW_FAIL_COUNT=$(cat "$FAIL_FILE")
+        else
+          WINDOW_FAIL_COUNT=0
+        fi
+        WINDOW_FAIL_COUNT=$((WINDOW_FAIL_COUNT + 1))
+        echo "$WINDOW_FAIL_COUNT" > "$FAIL_FILE"
+
+        log "Window failure count: $WINDOW_FAIL_COUNT"
+
+        if [ "$WINDOW_FAIL_COUNT" -ge 5 ]; then
+          log "Too many window failures, giving up (check journalctl -u beo-ui)"
+          rm -f "$FAIL_FILE"
+          # Show error on screen instead of rebooting
+          xmessage -center "beo-ui: Chromium failed to create a window after 5 attempts. Check logs." 2>/dev/null &
+          exit 1
+        else
+          pkill -9 chromium
+        fi
+      else
+        # Window appeared successfully, reset failure count
+        rm -f /tmp/beo-ui-window-failures
+      fi
+    ) &
+
+    # Chromium binary: 'chromium-browser' (Bullseye) or 'chromium' (Bookworm+)
+    CHROMIUM_BIN="/usr/bin/chromium-browser"
+    [ -x "$CHROMIUM_BIN" ] || CHROMIUM_BIN="/usr/bin/chromium"
+
+    # Wrap in dbus-run-session so Chromium has a session bus to talk to.
+    # Without this, on trixie+ Chromium spams the journal every ~33s with
+    # "Failed to connect to the bus: Could not parse server address"
+    # from its GCM/notification subsystems.  No-op if dbus-run-session
+    # is missing (older Debian, dev hosts).
+    DBUS_WRAP=()
+    if command -v dbus-run-session &>/dev/null; then
+      DBUS_WRAP=(dbus-run-session --)
+    fi
+
+    # NOTE: --enable-features / --disable-features must each appear EXACTLY
+    # ONCE.  Chromium keeps switches in a map, so a repeated switch silently
+    # replaces the earlier one rather than merging.  This list used to carry
+    # four separate --disable-features flags; only the last one
+    # (InfiniteSessionRestore) ever took effect, so TranslateUI,
+    # IsolateOrigins, site-per-process and MediaRouter were all silently
+    # ignored — the stream of "Cast CRL - Verification failed" errors in the
+    # beo-ui journal was MediaRouter running despite the flag.  Add new
+    # features to the lists below — never as a new flag.
+    # tests/unit/python/test_ui_chromium_flags.py enforces this.
+    #
+    # Disabling site-per-process puts the config-driven webpage iframes (the
+    # HA camera dashboard) in the renderer that owns the UI rather than one
+    # of their own.  That is the intended trade: ~300MB back on a swapless
+    # 4GB Pi, where Chromium memory growth is the documented way these
+    # devices die.  The containment argument for a separate renderer did not
+    # survive contact with the Sep 2026 wedge anyway — the camera iframe had
+    # its own process that whole time (the flag was inert) and still took
+    # the UI down with it.  The leak itself is fixed in view-manager.js.
+    #
+    # --disable-dev-shm-usage was dropped from this list because passing it
+    # here is redundant, NOT because Chromium stopped using /tmp for shared
+    # memory.  Debian ships /etc/chromium.d/dev-shm, which adds the flag
+    # whenever /dev/shm has less than 3.8GB available (Debian #1072299); on
+    # a 4GB Pi /dev/shm is 2GB, so it is always added and shm always lands
+    # in the 200MB /tmp tmpfs.  That is worth knowing when reading fd or
+    # /tmp pressure: every Chromium shared-memory segment is a deleted
+    # /tmp/.org.chromium.Chromium.* file.
+    #
+    # Overriding that (a zz-* snippet in /etc/chromium.d stripping the flag)
+    # would give shm 2GB instead of 200MB, but on a swapless 4GB device it
+    # trades a full-/tmp failure for an OOM kill, so it is deliberately not
+    # done.  Revisit only if /tmp pressure becomes the binding constraint.
+    "${DBUS_WRAP[@]}" "$CHROMIUM_BIN" \
+      --user-data-dir="$CHROMIUM_DATA_DIR" \
+      --force-dark-mode \
+      --enable-features=WebUIDarkMode,OverlayScrollbar \
+      --disable-features=TranslateUI,IsolateOrigins,site-per-process,MediaRouter,InfiniteSessionRestore \
+      --disable-application-cache \
+      --disable-cache \
+      --disable-offline-load-stale-cache \
+      --disk-cache-size=10485760 \
+      --media-cache-size=10485760 \
+      --disable-component-update \
+      --password-store=basic \
+      --kiosk \
+      --app=http://localhost:${HTTP_PORT} \
+      --start-fullscreen \
+      --window-size=1024,768 \
+      --window-position=0,0 \
+      --noerrdialogs \
+      --disable-infobars \
+      --disable-translate \
+      --disable-session-crashed-bubble \
+      --no-first-run \
+      --disable-default-apps \
+      --disable-component-extensions-with-background-pages \
+      --disable-background-networking \
+      --disable-sync \
+      --ignore-certificate-errors \
+      --disable-extensions \
+      --overscroll-history-navigation=0 \
+      --disable-pinch \
+      --disable-gesture-typing \
+      --disable-hang-monitor \
+      --disable-prompt-on-repost \
+      --hide-crash-restore-bubble \
+      --disable-breakpad \
+      --disable-crash-reporter \
+      --remote-debugging-port=9222
+
+    EXIT_CODE=$?
+    END_TIME=$(date +%s)
+    RUN_TIME=$((END_TIME - START_TIME))
+
+    log "Chromium exited with code $EXIT_CODE after ${RUN_TIME}s"
+
+    # Exit if we were told to stop
+    [ "$STOPPING" -eq 1 ] && exit 0
+
+    # If it ran for more than CRASH_RESET_TIME, reset crash count
+    if [ $RUN_TIME -gt $CRASH_RESET_TIME ]; then
+      CRASH_COUNT=0
+      log "Stable run, reset crash count"
+    else
+      CRASH_COUNT=$((CRASH_COUNT + 1))
+      log "Quick exit, crash count now: $CRASH_COUNT"
+    fi
+
+    # If too many crashes, wait longer before restart
+    if [ $CRASH_COUNT -ge $MAX_CRASHES ]; then
+      log "Too many crashes ($CRASH_COUNT), waiting 60s before restart..."
+      sleep 60
+      CRASH_COUNT=0
+    else
+      # Brief delay before restart
+      sleep 2
+    fi
+
+    # Clear lock/crash files but preserve cookies and login state
+    rm -f "$CHROMIUM_DATA_DIR/SingletonLock" "$CHROMIUM_DATA_DIR/SingletonSocket" "$CHROMIUM_DATA_DIR/SingletonCookie"
+    rm -rf "$CHROMIUM_DATA_DIR/Crashpad"
+
+    log "Restarting Chromium..."
+  done

@@ -1300,7 +1300,8 @@ def get_bt_remotes() -> list:
     remotes = []
     try:
         result = subprocess.run(
-            ['bluetoothctl', 'paired-devices'],
+            # `paired-devices` was removed in BlueZ 5.65 (Bookworm ships 5.66)
+            ['bluetoothctl', 'devices', 'Paired'],
             capture_output=True, text=True, timeout=5
         )
         if not result.stdout:
@@ -1371,16 +1372,115 @@ async def _run_cmd(*args, timeout: float = 3.0) -> int:
     return proc.returncode or 0
 
 
-async def start_bt_pairing() -> dict:
-    """Start Bluetooth discoverable + scanning mode for pairing."""
+BT_PAIR_SCAN_SECS = 60       # how long to look for a remote in pairing mode
+BT_PAIR_REMOTE_NAME = 'BEORC'  # BLE name a BeoRemote One advertises
+_bt_pairing_task = None
+_bt_pairing_message = ''
+
+
+async def _bluetoothctl(*args, timeout: float = 5.0) -> str:
+    """Run one bluetoothctl command and return its stdout ('' on timeout)."""
+    proc = await asyncio.create_subprocess_exec(
+        'bluetoothctl', *args,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
     try:
-        await _run_cmd('bluetoothctl', 'discoverable', 'on', timeout=3)
-        await _run_cmd('bluetoothctl', 'scan', 'on', timeout=3)
-        logger.info('BT pairing mode started')
-        return {'status': 'started', 'message': 'Scanning for remotes... Press pairing button on remote.'}
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return ''
+    return out.decode(errors='replace')
+
+
+def parse_bt_devices(text: str) -> dict:
+    """`bluetoothctl devices` output -> {mac: name}."""
+    devices = {}
+    for line in text.splitlines():
+        parts = line.strip().split(' ', 2)
+        if len(parts) == 3 and parts[0] == 'Device':
+            devices[parts[1]] = parts[2]
+    return devices
+
+
+def is_pairable_remote(name: str, info: str) -> bool:
+    """A BeoRemote One that is advertising right now and isn't paired yet.
+
+    BlueZ keeps every device it has ever seen, but only reports an RSSI for
+    one heard during the current discovery — so a stale cache entry (or a
+    remote that isn't in pairing mode) is never picked.
+    """
+    if BT_PAIR_REMOTE_NAME not in name.upper():
+        return False
+    lines = [l.strip() for l in info.splitlines()]
+    if 'Paired: yes' in lines:
+        return False
+    return any(l.startswith('RSSI:') for l in lines)
+
+
+async def _bt_pairing_status(status: str, message: str):
+    global _bt_pairing_message
+    _bt_pairing_message = message
+    logger.info('BT pairing: %s', message)
+    await broadcast(json.dumps({'type': 'bt_pairing', 'status': status, 'message': message}))
+
+
+async def _find_pairable_remote() -> str | None:
+    """Scan until a BeoRemote One in pairing mode shows up; return its MAC."""
+    # Non-interactive bluetoothctl drops discovery when it exits, so keep
+    # this one alive (--timeout) for the whole scan window.
+    scan = await asyncio.create_subprocess_exec(
+        'bluetoothctl', '--timeout', str(BT_PAIR_SCAN_SECS), 'scan', 'on',
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+    try:
+        deadline = time.monotonic() + BT_PAIR_SCAN_SECS
+        while time.monotonic() < deadline:
+            await asyncio.sleep(2)
+            for mac, name in parse_bt_devices(await _bluetoothctl('devices')).items():
+                if is_pairable_remote(name, await _bluetoothctl('info', mac)):
+                    return mac
+        return None
+    finally:
+        if scan.returncode is None:
+            scan.terminate()
+            await scan.wait()
+
+
+async def _run_bt_pairing():
+    try:
+        await _bluetoothctl('power', 'on')
+        await _bt_pairing_status(
+            'started', 'Searching... put the remote in pairing mode '
+                       '(LIST > Settings > Pairing > Pair)')
+        mac = await _find_pairable_remote()
+        if not mac:
+            await _bt_pairing_status(
+                'error', 'No remote found — check it shows "Open for pairing" and try again')
+            return
+        await _bt_pairing_status('progress', f'Found remote {mac}, pairing...')
+        await _bluetoothctl('--timeout', '20', 'pair', mac, timeout=25)
+        if 'Paired: yes' not in await _bluetoothctl('info', mac):
+            await _bt_pairing_status('error', 'Pairing failed — try again')
+            return
+        await _bluetoothctl('trust', mac)
+        await _bt_pairing_status('progress', 'Paired, connecting...')
+        await _bluetoothctl('--timeout', '10', 'connect', mac, timeout=15)
+        await _bt_pairing_status('completed', f'Remote paired ({mac})')
     except Exception as e:
-        logger.error('BT pairing error: %s', e)
-        return {'status': 'error', 'message': str(e)}
+        logger.exception('BT pairing error')
+        await _bt_pairing_status('error', f'Pairing error: {e}')
+
+
+async def start_bt_pairing() -> dict:
+    """Scan for a BeoRemote One in pairing mode, then pair, trust and connect it.
+
+    Runs in the background; progress goes to every UI client as `bt_pairing`
+    messages. A second request while one is running just reports progress.
+    """
+    global _bt_pairing_task
+    if _bt_pairing_task and not _bt_pairing_task.done():
+        return {'status': 'progress', 'message': _bt_pairing_message}
+    _bt_pairing_task = _background_tasks.spawn(_run_bt_pairing(), name='bt_pairing')
+    return {'status': 'started', 'message': 'Starting Bluetooth...'}
 
 
 # Live log streaming

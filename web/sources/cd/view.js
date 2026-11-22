@@ -88,8 +88,35 @@ window.CDView = (() => {
             scrollToPlayingTrack();
             renderArc();
             startAnimation();
+        } else {
+            pullState();
         }
         console.log('[CD] View initialized');
+    }
+
+    /**
+     * Pull current disc state from the CD service.
+     *
+     * cd_update is push-only, so a client that connects after the last
+     * broadcast never learns about the disc already in the drive — the router
+     * debounces resyncs for 5s, which at boot is reliably consumed before
+     * Chromium's page connects. Without this the view sits on "Reading disc..."
+     * until the disc is ejected and reinserted. Same pattern the PLAYING view
+     * uses with GET /router/media.
+     */
+    async function pullState() {
+        let data;
+        try {
+            const resp = await fetch(`${CD_SERVICE_URL}/cd_state`);
+            if (!resp.ok) return;
+            data = await resp.json();
+        } catch {
+            return;  // service down — loading state is honest here
+        }
+        // A broadcast may have landed while this was in flight; it wins.
+        if (metadata || !data?.tracks?.length) return;
+        console.log('[CD] Pulled disc state on mount (no broadcast received)');
+        updateMetadata(data);
     }
 
     function destroy() {

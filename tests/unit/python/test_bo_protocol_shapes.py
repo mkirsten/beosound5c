@@ -2,7 +2,7 @@
 
 Pinned from the Mozart OpenAPI (mozart-api.yaml), the decompiled B&O app
 (private/apk/FINDINGS.md) and the emulator the app and Home Assistant were
-watched against (private/bo-emulator):
+watched against (bs9000-gateway's bo-emulator/):
 
   * Mozart: PlaybackState.state is RenderingState {"value": "started"} — not a
     bare string; metadata uses artistName/albumName; art[] carries small/

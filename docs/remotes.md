@@ -2,7 +2,7 @@
 
 ## BeoRemote One (Bluetooth)
 
-BeoRemote One connects over BLE and is handled by the `beo-bluetooth` service. Pair it on the device: open the **SYSTEM** menu, go to the **Remotes** tab, select **Pair New Remote** (GO), and follow the on-screen instructions (it needs a button press on the remote). The remote MAC is stored in `config.json` under `bluetooth.remote_mac`.
+BeoRemote One connects over BLE and is handled by the `beo-bluetooth` service. Pair it on the device: put the remote in pairing mode (a new remote is already; otherwise LIST > Settings > Pairing > Pair, until it shows "Open for pairing"), then open the **SYSTEM** menu, go to the **Remotes** tab, select **Pair New Remote** and press GO. The BS5c searches for up to 60 seconds, then pairs, trusts and connects the remote, and shows its progress on screen. From the command line, `sudo tools/bt/pair-remote.sh` does the same. Any paired BeoRemote One works; `bluetooth.remote_mac` in `config.json` is optional and only used for logging the remote's battery and signal.
 
 ## IR Source Buttons (Beo4 / BeoRemote One)
 

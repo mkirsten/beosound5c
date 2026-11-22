@@ -194,6 +194,40 @@ ui_watchdog() {
         return 0
     fi
 
+    # --- 1b. shm leak from <video> loads -----------------------------------
+    # Chromium 143 leaks ~3 deleted /tmp shm segments (mostly 64 KB) in the
+    # renderer every time a <video> element loads a source — local file or
+    # remote, fresh element or reused, GC doesn't reclaim them (measured on
+    # Church Nov 2026: ~45 fds/h while music videos cycle).  Only ending the
+    # renderer frees them.  Because shm lives in the 200 MB /tmp tmpfs (see
+    # ui.sh), /tmp fills (~190 MB at 4000 fds) before the fd limit above is
+    # ever reached, so act on /tmp too.
+    #   - screen off + leak built up  → recycle now; nobody is looking and
+    #     ui.sh re-applies screen=off after the restart.
+    #   - /tmp nearly full            → recycle regardless; a visible blip
+    #     beats a wedged UI.
+    local tmp_pct screen
+    tmp_pct=$(df --output=pcent /tmp 2>/dev/null | tail -1 | tr -dc '0-9')
+    [ -n "$tmp_pct" ] || tmp_pct=0
+
+    if [ "$tmp_pct" -ge 85 ]; then
+        logger -t beo-health "/tmp at ${tmp_pct}% (renderer ${worst} fds) — restarting beo-ui before shm runs out"
+        rm -f "$nows_stamp"
+        systemctl restart beo-ui
+        return 0
+    fi
+
+    if [ "$worst" -ge 400 ] || [ "$tmp_pct" -ge 50 ]; then
+        screen=$(curl -s --max-time 2 http://localhost:8767/health 2>/dev/null \
+            | grep -oE '"screen"[[:space:]]*:[[:space:]]*"(on|off)"' | grep -oE '(on|off)"$' | tr -d '"')
+        if [ "$screen" = "off" ]; then
+            logger -t beo-health "Screen off, renderer at ${worst} fds, /tmp ${tmp_pct}% — recycling beo-ui to release leaked shm"
+            rm -f "$nows_stamp"
+            systemctl restart beo-ui
+            return 0
+        fi
+    fi
+
     # --- 2. wedged renderer: no media WS to the router --------------------
     # Only meaningful when the router is up to accept the connection;
     # otherwise the missing socket says nothing about the UI's health.

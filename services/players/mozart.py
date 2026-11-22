@@ -26,7 +26,7 @@ Multiroom (Beolink):
   POST /beolink/leave                  — leave
 
 Shapes above are from the OpenAPI (mozart-api.yaml) and the decompiled B&O
-app (private/apk/FINDINGS.md), cross-checked with private/bo-emulator, which
+app (private/apk/FINDINGS.md), cross-checked with bs9000-gateway's bo-emulator/, which
 HA's bang_olufsen integration and the B&O app both talk to. No SSDP/mDNS
 needed at runtime: /beolink/peers is the network roster. Not yet validated
 against real hardware.

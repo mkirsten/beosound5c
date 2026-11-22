@@ -122,6 +122,10 @@ class SonosArtworkViewer:
         self._player = player  # PlayerBase instance for artwork cache
         self._cached_coordinator = None
         self._coordinator_check_time = 0
+        # Outage state for get_current_track_info() log throttling
+        self._track_info_fail_count = 0
+        self._track_info_fail_since = 0.0
+        self._track_info_last_report = 0.0
 
     def get_coordinator(self):
         """Get the group coordinator for this player with caching."""
@@ -167,10 +171,44 @@ class SonosArtworkViewer:
             if coordinator != self.sonos:
                 logger.debug(f"Using coordinator {coordinator.ip_address} instead of {self.sonos_ip}")
 
+            self._note_track_info_ok()
             return track_info
         except Exception as e:
-            logger.error(f"Error getting track info: {e}")
+            self._note_track_info_failure(e)
             return None
+
+    # The monitor polls every 0.5s, so an unreachable speaker (reboot,
+    # firmware update, WiFi drop) used to log two full tracebacks a second —
+    # ~500 lines for a 4-minute outage, burying everything around it.
+    # Report the outage as edges instead: first failure in full, a one-line
+    # reminder per minute while it lasts, and a recovery line.
+    _TRACK_INFO_REMIND_S = 60
+
+    def _note_track_info_failure(self, err):
+        now = time.monotonic()
+        if not self._track_info_fail_count:
+            self._track_info_fail_count = 1
+            self._track_info_fail_since = now
+            self._track_info_last_report = now
+            logger.error(f"Error getting track info: {err}")
+            return
+        self._track_info_fail_count += 1
+        if now - self._track_info_last_report >= self._TRACK_INFO_REMIND_S:
+            self._track_info_last_report = now
+            logger.error(
+                f"Still failing to get track info: {self._track_info_fail_count} "
+                f"errors over {now - self._track_info_fail_since:.0f}s "
+                f"(latest: {type(err).__name__})")
+        else:
+            logger.debug(f"Error getting track info: {err}")
+
+    def _note_track_info_ok(self):
+        count = self._track_info_fail_count
+        if count:
+            logger.info(
+                f"Track info recovered after {count} errors over "
+                f"{time.monotonic() - self._track_info_fail_since:.0f}s")
+            self._track_info_fail_count = 0
 
     def get_artwork_url(self, track_info=None):
         """Get the artwork URL for the currently playing track.
