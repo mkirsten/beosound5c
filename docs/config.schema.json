@@ -103,6 +103,26 @@
           "format": "uri",
           "description": "HA webhook endpoint for button/event forwarding (used when transport.mode is 'webhook' or 'both').",
           "default": "http://homeassistant.local:8123/api/webhook/beosound5c"
+        },
+        "panel": {
+          "type": "array",
+          "description": "Entities shown in the HOME view, in this order. Read-only readouts. Requires HA_TOKEN in secrets.env; no Home Assistant configuration changes are needed. See docs/home-assistant.md.",
+          "items": {
+            "oneOf": [
+              { "type": "string", "description": "Entity id; the label comes from the entity's friendly_name." },
+              {
+                "type": "object",
+                "required": ["entity"],
+                "properties": {
+                  "entity": { "type": "string", "description": "Home Assistant entity id.", "examples": ["sensor.outdoor_temperature"] },
+                  "label": { "type": "string", "description": "Override the entity's friendly_name." },
+                  "icon": { "type": "string", "description": "Phosphor icon name, e.g. \"thermometer-simple\". Defaults to one picked from the entity domain." }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "default": []
         }
       },
       "additionalProperties": false
