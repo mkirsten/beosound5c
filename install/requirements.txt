@@ -47,3 +47,6 @@ protobuf>=4.0.0
 
 # QR code generation (config page on-device)
 qrcode>=7.0.0
+
+# Google Cast screen mirroring (beo-cast)
+pychromecast>=14.0.0

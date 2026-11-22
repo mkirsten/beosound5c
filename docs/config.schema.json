@@ -27,7 +27,7 @@
 
     "menu": {
       "type": "object",
-      "description": "Menu items shown on the main arc. Keys are display labels (uppercase), values are source IDs or source config objects. Order determines arc order. Two views are left out of the default install because they only do something with a matching Home Assistant setup: \"SHOWING\": \"showing\" (what is playing on an Apple TV — needs showing.entity_id) and \"SECURITY\": {\"url\": \"softarc/security.html\"} (camera snapshots — needs security.cameras). Add either by hand once configured.",
+      "description": "Menu items shown on the main arc. Keys are display labels (uppercase), values are source IDs or source config objects. Order determines arc order. Two views are left out of the default install because they only do something with a matching Home Assistant setup: \"SHOWING\": \"showing\" (what is playing on an Apple TV — needs showing.entity_id) and \"SECURITY\": {\"url\": \"softarc/security.html\"} (camera snapshots — needs security.cameras). Add either by hand once configured. \"CAST\": {\"url\": \"softarc/cast.html\"} mirrors this interface to a Google Cast receiver and needs beo-cast running.",
       "additionalProperties": {
         "oneOf": [
           {
@@ -342,6 +342,36 @@
           "type": "string",
           "description": "Home Assistant media_player entity to monitor.",
           "examples": ["media_player.living_room_apple_tv", "media_player.cinema_appletv"]
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "cast": {
+      "type": "object",
+      "description": "Screen mirroring to a Google Cast receiver (beo-cast). Optional — the CAST view works without this section, and only needs it to remember a receiver or to start on boot.",
+      "properties": {
+        "receiver": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Friendly name of the receiver to use by default, exactly as it appears in the Google Home app. Null means pick one in the CAST view each time.",
+          "examples": ["Living Room TV", "Kitchen Display"]
+        },
+        "auto_start": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start mirroring to \"receiver\" when the service starts. A receiver that is asleep at boot is retried, not given up on."
+        },
+        "url": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Page to show instead of this device's own interface. Null uses the UI, which is the point of the feature; set it to put a dashboard on the screen instead.",
+          "examples": ["http://10.0.0.5/softarc/visualizer.html"]
+        },
+        "app_id": {
+          "type": "string",
+          "default": "84912283",
+          "description": "Cast receiver application to launch. The default is DashCast, which loads an arbitrary URL and needs no developer registration. Change it only if you have published a receiver of your own."
         }
       },
       "additionalProperties": false

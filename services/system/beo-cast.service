@@ -1,0 +1,22 @@
+[Unit]
+Description=BeoSound5c Screen Mirroring (Google Cast)
+After=network-online.target beo-http.service
+Wants=network-online.target
+OnFailure=beo-notify-failure@%n.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__HOME__/beosound5c/services
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 __HOME__/beosound5c/services/cast.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
