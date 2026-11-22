@@ -154,7 +154,9 @@ class MenuManager {
                     }
                 } else {
                     const existing = this.menuItems.find(m => m.path === path);
-                    newItems.push(existing || { title: item.title, path });
+                    // Keep the existing entry (it may carry extra fields) but take the
+                    // title from the router, so a renamed item shows its new name.
+                    newItems.push(existing ? { ...existing, title: item.title } : { title: item.title, path });
                 }
             }
             this.menuItems = newItems;

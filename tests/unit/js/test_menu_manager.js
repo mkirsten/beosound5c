@@ -203,3 +203,40 @@ describe('MenuManager.getAngleStep (shared spacing with laser mapper)', () => {
         );
     });
 });
+
+
+describe('MenuManager.fetchMenu (titles come from the router)', () => {
+    async function rebuildWith(items) {
+        const m = new MenuManager();
+        // No DOM here: skip rendering, and fail loudly instead of retrying.
+        m.renderMenuItems = () => {};
+        m._cleanupRemovedRoute = () => {};
+        const saved = global.fetch;
+        global.fetch = async () => ({ json: async () => ({ items }) });
+        try {
+            await m.fetchMenu();
+            assert.equal(m._menuRetries, 0, 'fetchMenu fell into its retry path');
+        } finally {
+            global.fetch = saved;
+        }
+        return m;
+    }
+
+    it('a built-in item takes the title configured in the menu', async () => {
+        const m = new MenuManager();
+        const builtin = m.menuItems.find(i => !i.dynamic);
+        const id = builtin.path.replace(/^menu\//, '');
+        const rebuilt = await rebuildWith([{ id, title: 'RENAMED' }]);
+        const item = rebuilt.menuItems.find(i => i.path === builtin.path);
+        assert.equal(item.title, 'RENAMED');
+    });
+
+    it('extra fields of the existing entry are kept', async () => {
+        const m = new MenuManager();
+        const builtin = m.menuItems.find(i => !i.dynamic);
+        const id = builtin.path.replace(/^menu\//, '');
+        const rebuilt = await rebuildWith([{ id, title: 'RENAMED' }]);
+        const item = rebuilt.menuItems.find(i => i.path === builtin.path);
+        assert.deepEqual(item, { ...builtin, title: 'RENAMED' });
+    });
+});
