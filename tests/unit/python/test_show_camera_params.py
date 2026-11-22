@@ -179,6 +179,11 @@ def setup_function(_):
     beo_input._camera_woke_screen = False
 
 
+def _closed():
+    """camera_closed as the UI sends it for the latest show_camera overlay."""
+    return {"overlay_id": beo_input._camera_overlay_id}
+
+
 def test_dismiss_turns_screen_off_again_if_camera_woke_it():
     assert _run("show_camera", backlight_on=False) == [True]
     assert _run("dismiss_camera", backlight_on=True) == [False]
@@ -186,17 +191,76 @@ def test_dismiss_turns_screen_off_again_if_camera_woke_it():
 
 def test_device_close_turns_screen_off_again_if_camera_woke_it():
     _run("show_camera", backlight_on=False)
-    assert _run("camera_closed", backlight_on=True) == [False]
+    assert _run("camera_closed", backlight_on=True, params=_closed()) == [False]
 
 
 def test_screen_that_was_on_stays_on():
     _run("show_camera", backlight_on=True)
     assert _run("dismiss_camera", backlight_on=True) == []
-    assert _run("camera_closed", backlight_on=True) == []
+    assert _run("camera_closed", backlight_on=True, params=_closed()) == []
 
 
 def test_restore_happens_once():
     _run("show_camera", backlight_on=False)
-    assert _run("camera_closed", backlight_on=True) == [False]
+    assert _run("camera_closed", backlight_on=True, params=_closed()) == [False]
     # HA dismissing an overlay the device already closed is a no-op.
     assert _run("dismiss_camera", backlight_on=False) == []
+
+
+def test_show_camera_tags_its_overlay():
+    first = _forwarded({})["overlay_id"]
+    assert _forwarded({})["overlay_id"] == first + 1
+
+
+def test_close_of_an_untagged_or_older_overlay_leaves_screen_alone():
+    # The Security view opens its own overlay (no id); an older id is stale.
+    _run("show_camera", backlight_on=False)
+    assert _run("camera_closed", backlight_on=True) == []
+    assert _run("camera_closed", backlight_on=True,
+                params={"overlay_id": beo_input._camera_overlay_id - 1}) == []
+    assert _run("camera_closed", backlight_on=True, params=_closed()) == [False]
+
+
+# ── Any other screen change hands the screen back to the user ────────────────
+#
+# These use the real set_backlight (only the hardware writes are stubbed), so
+# the screen state actually changes between commands.
+
+def _screen(on):
+    beo_input.state_byte1 = (beo_input.state_byte1 | 0x40) if on \
+        else (beo_input.state_byte1 & ~0x40)
+
+
+def _cmd(command, params=None):
+    with patch.object(beo_input, "_forward_to_router", AsyncMock()), \
+            patch.object(beo_input, "bs5_send_cmd"), \
+            patch.object(beo_input._xrandr_pool, "submit"):
+        asyncio.run(beo_input.process_command(
+            {"command": command, "params": params or {}}))
+
+
+def test_manual_off_then_on_means_close_leaves_screen_on():
+    # Doorbell at night wakes the screen; the user turns it off and back on
+    # by hand, then the overlay times out while they are using it.
+    _screen(False)
+    _cmd("show_camera")
+    assert beo_input._camera_woke_screen
+    _cmd("screen_off")
+    _cmd("screen_on")
+    _cmd("camera_closed", _closed())
+    assert beo_input.is_backlight_on()
+
+
+def test_close_still_restores_when_nothing_else_touched_the_screen():
+    _screen(False)
+    _cmd("show_camera")
+    _cmd("camera_closed", _closed())
+    assert not beo_input.is_backlight_on()
+
+
+def test_ha_wake_during_overlay_keeps_screen_on():
+    _screen(False)
+    _cmd("show_camera")
+    _cmd("wake")
+    _cmd("camera_closed", _closed())
+    assert beo_input.is_backlight_on()

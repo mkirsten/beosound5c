@@ -160,9 +160,21 @@ def _run_xrandr(on: bool):
     except Exception as e:
         logger.warning("xrandr failed: %s", e)
 
+# True while a camera overlay is up that switched on a dark screen. Closing
+# the overlay (from HA or on the device) then puts the screen back to sleep
+# instead of leaving it on until auto-standby. Cleared by any other screen
+# change (see set_backlight).
+_camera_woke_screen = False
+
+
 def set_backlight(on: bool):
     """Turn backlight bit on/off."""
-    global state_byte1
+    global state_byte1, _camera_woke_screen
+
+    # Anything else setting the screen (power button, wheel wake, HA's
+    # screen_on/off/wake, ...) means it is no longer the camera overlay's to
+    # restore. show_camera re-arms the flag after its own wake.
+    _camera_woke_screen = False
 
     if on:
         state_byte1 |= 0x40
@@ -1645,10 +1657,10 @@ async def _forward_to_router(event_type: str, data: dict):
 
 MAX_OVERLAY_CAMERAS = 2
 
-# True while a camera overlay is up that switched on a dark screen. Closing
-# the overlay (from HA or on the device) then puts the screen back to sleep
-# instead of leaving it on until auto-standby.
-_camera_woke_screen = False
+# Id of the latest show_camera overlay. The UI echoes it back in
+# camera_closed, so a close only restores the screen for that overlay and not
+# for one opened on the device (Security view GO), which carries no id.
+_camera_overlay_id = 0
 
 
 def _camera_overlay_closed():
@@ -1712,7 +1724,7 @@ async def process_command(data: dict) -> dict:
 
     Returns a result dict with 'status' and other fields.
     """
-    global _camera_woke_screen
+    global _camera_woke_screen, _camera_overlay_id
     command = data.get('command', '')
     params = data.get('params', {})
 
@@ -1796,10 +1808,13 @@ async def process_command(data: dict) -> dict:
         else:
             # No cameras named — the overlay falls back to config.json.
             logger.info('Showing camera overlay: cameras from config')
-        if not is_backlight_on():
-            _camera_woke_screen = True
+        woke = not is_backlight_on()
         set_backlight(True)
-        payload = {'action': 'show', 'actions': params.get('actions', {})}
+        # After set_backlight, which clears the flag on any screen change.
+        _camera_woke_screen = woke
+        _camera_overlay_id += 1
+        payload = {'action': 'show', 'actions': params.get('actions', {}),
+                   'overlay_id': _camera_overlay_id}
         if cameras:
             payload['cameras'] = cameras
         await _forward_to_router('camera_overlay', payload)
@@ -1814,8 +1829,10 @@ async def process_command(data: dict) -> dict:
 
     elif command == 'camera_closed':
         # Sent by the UI when the overlay closes on the device itself
-        # (GO or auto-timeout); the overlay is already hidden there.
-        _camera_overlay_closed()
+        # (GO or auto-timeout); the overlay is already hidden there. Only
+        # the overlay show_camera opened last may restore the screen.
+        if params.get('overlay_id') == _camera_overlay_id:
+            _camera_overlay_closed()
         return {'status': 'ok', 'command': 'camera_closed'}
 
     elif command == 'add_menu_item':

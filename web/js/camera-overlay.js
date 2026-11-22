@@ -320,11 +320,16 @@ const CameraOverlayManager = {
 
     // Tell beo-input the overlay closed on the device, so it can put the
     // screen back to sleep if show_camera was what woke it.
+    // Only overlays opened by show_camera carry an overlay_id; one opened on
+    // the device (Security view) didn't wake the screen, so it says nothing.
     notifyClosed() {
+        const overlayId = this.currentData?.overlay_id;
+        if (overlayId === undefined) return;
         fetch(AppConfig.inputCommandUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: 'camera_closed' })
+            body: JSON.stringify({ command: 'camera_closed',
+                                   params: { overlay_id: overlayId } })
         }).catch(error => {
             console.log(`[CAMERA] camera_closed notify failed: ${error.message}`);
         });
