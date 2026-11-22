@@ -89,7 +89,10 @@
             stopCycle();
         });
 
-        document.body.appendChild(container);
+        // On the stage, outside the scaled composition, so the panel
+        // covers the screen rather than the 4:3 design box — see
+        // js/ui-scale.js. Falls back to the body without that file.
+        (window.UiScale?.stage?.() || document.body).appendChild(container);
     }
 
     // ── Show / Hide ──
@@ -131,9 +134,18 @@
         var src = document.querySelector('.immersive-info');
         if (!src || !textMirror) return;
         var rect = src.getBoundingClientRect();
+        // The source is inside the scaled composition and this panel is
+        // not, so its computed sizes are in design pixels over a screen
+        // measured in real ones. Lay the copy out at design size and
+        // scale it by as much as the source is scaled: on a 16:9 receiver
+        // fitting 1024x768 into 960x540 that is 0.70, and writing the
+        // sizes out untouched left the text 42% too large. On the device
+        // the ratio is 1 and this is the no-op it has always been.
+        var scale = src.offsetWidth ? rect.width / src.offsetWidth : 1;
         textMirror.style.cssText =
             'position:absolute;left:' + rect.left + 'px;top:' + rect.top + 'px;' +
-            'width:' + rect.width + 'px;color:white;pointer-events:none;z-index:2;';
+            'width:' + src.offsetWidth + 'px;color:white;pointer-events:none;' +
+            'z-index:2;transform-origin:top left;transform:scale(' + scale + ');';
         textMirror.innerHTML = src.innerHTML;
         var srcKids = src.children;
         var mirKids = textMirror.children;
@@ -415,6 +427,13 @@
 
         // Sync dot classes when canvas/video URLs arrive asynchronously
         document.addEventListener('bs5c:media-update', function() {
+            if (active) syncTextMirror();
+        });
+
+        // The copy holds screen coordinates, so it goes stale the moment
+        // the screen changes size and the composition is re-fitted under
+        // it. A Cast receiver does resize after its first paint.
+        window.addEventListener('resize', function() {
             if (active) syncTextMirror();
         });
 
