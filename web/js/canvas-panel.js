@@ -148,14 +148,7 @@
         }
     }
 
-    // Set by js/backdrop.js when the PLAYING view is showing something
-    // else — a visualizer, the bare artwork, a CD's track list. The panel
-    // otherwise takes the screen on its own as soon as a canvas loads,
-    // which would pull the rug out from under whatever the user picked.
-    var suppressed = false;
-
     function show() {
-        if (suppressed) return;
         if (active) return;
         if (!currentUrl || !videoReady) return;
         if (isPaused()) return;
@@ -176,7 +169,6 @@
     // ── Auto-cycle ──
 
     function tryStartCycle() {
-        if (suppressed) return;
         if (cycling) return;
         if (!currentUrl || !videoReady) return;
         if (isPaused()) return;
@@ -469,11 +461,6 @@
 
     window.CanvasPanel = {
         show: show, hide: hide,
-        setSuppressed: function (value) {
-            suppressed = !!value;
-            if (suppressed) { stopCycle(); hide(); }
-        },
-        get suppressed()     { return suppressed; },
         get active()         { return active; },
         get cycling()        { return cycling; },
         get hasCanvas()      { return !!(canvasUrl || musicVideoUrl) && videoReady; },

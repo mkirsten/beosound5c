@@ -215,12 +215,14 @@ body.playback-paused #now-playing .media-view-artwork img {
    Added below the album, but the panel grows *upward* to fit it. The
    bottom edge is where the eye expects the block to end, and moving it
    down on every track that happens to report a position would make the
-   layout breathe. The negative margin above cancels this row's height, so
-   the column's total is unchanged and nothing below it moves.
+   layout breathe. The negative margin cancels this row's height, so the
+   column's total is unchanged and nothing below it moves.
 
-   Like the state line, the row always reserves its height even when it
-   has nothing to say — a stream with no duration must not shuffle the
-   rest of the panel.
+   The row only exists on players that can report a position at all
+   (.time-supported, set by elapsed.js). There it always reserves its
+   height, even when it has nothing to say — a stream with no duration must
+   not shuffle the rest of the panel. Players that never report one (Sonos,
+   Bluesound) keep the layout exactly as it was.
 
    One number governs both the row and the compensation, and the row
    carries no margin of its own: a margin would sit outside the height and
@@ -228,10 +230,13 @@ body.playback-paused #now-playing .media-view-artwork img {
    is the separation from the album line. */
 :root { --media-time-line: 28px; }
 
-.media-view-info { margin-top: calc(-1 * var(--media-time-line)); }
+.media-view-info:has(.media-view-time.time-supported) {
+  margin-top: calc(-1 * var(--media-time-line));
+}
 
 .media-view-time,
 .immersive-info-time {
+  display: none;
   height: var(--media-time-line);
   line-height: var(--media-time-line);
   font-size: 14px;
@@ -240,6 +245,9 @@ body.playback-paused #now-playing .media-view-artwork img {
   opacity: 0.55;
   visibility: hidden;
 }
+
+.media-view-time.time-supported,
+.immersive-info-time.time-supported { display: block; }
 
 /* The immersive overlay is positioned rather than stacked, so its copy of
    the row needs no compensation — only the same shape, since the canvas

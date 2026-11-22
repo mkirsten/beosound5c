@@ -10,9 +10,8 @@
  *
  * It is not part of the media broadcast for the same reason: metadata
  * changes at track boundaries, a position changes always, and pushing it
- * would mean a message a second to every connected browser — including the
- * television, which is showing the same UI over Cast — whether or not any
- * of them has a clock on screen.
+ * would mean a message a second to every connected browser whether or not
+ * any of them has a clock on screen.
  *
  * Nothing here runs unless PLAYING is mounted. See media-manager.js.
  */
@@ -24,6 +23,10 @@
 
     let pollTimer = null, tickTimer = null;
     let known = null;         // { positionMs, durationMs, atWallClock, playing }
+    // Whether this player can report a position at all. Only then does the
+    // row reserve its height; a Sonos never can, and must not get an empty
+    // row with the track text pushed up above it.
+    let supported = false;
 
     // The track text appears in three places: the normal panel, the
     // immersive overlay, and the canvas panel's mirror of that overlay
@@ -43,10 +46,7 @@
     }
 
     function playerUrl(path) {
-        const base = (typeof getServiceUrl === 'function')
-            ? getServiceUrl('playerUrl', 8766)
-            : (window.AppConfig?.playerUrl || 'http://localhost:8766');
-        return base + path;
+        return getServiceUrl('playerUrl', 8766) + path;
     }
 
     async function poll() {
@@ -54,6 +54,9 @@
             const r = await fetch(playerUrl('/player/position'), { cache: 'no-store' });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const d = await r.json();
+            // Stopped while this was in flight: don't bring the clock back.
+            if (!pollTimer) return;
+            supported = !!d.supported;
             if (!d.supported || !d.duration_ms) { known = null; return; }
             known = {
                 positionMs: d.position_ms,
@@ -84,10 +87,10 @@
         for (const node of nodes) {
             if (node.textContent !== text) { node.textContent = text; changed = true; }
             node.classList.toggle('has-time', show);
+            node.classList.toggle('time-supported', supported);
         }
-        // Anything copying this text — the canvas panel over a video, and
-        // the visualizer backdrop — took its copy at mount time and has no
-        // way to know the string moved on. Announced rather than called, so
+        // Anything copying this text — the canvas panel over a video — took
+        // its copy at mount time and has no way to know the string moved on. Announced rather than called, so
         // the clock does not have to know who is listening. Only on a real
         // change: re-laying a mirror out every second would be work for
         // nothing, and a paused track changes nothing at all.
@@ -107,8 +110,9 @@
         clearInterval(pollTimer); pollTimer = null;
         clearInterval(tickTimer); tickTimer = null;
         known = null;
+        supported = false;
         for (const node of rows()) {
-            node.classList.remove('has-time');
+            node.classList.remove('has-time', 'time-supported');
             node.textContent = '';
         }
     }
