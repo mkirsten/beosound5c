@@ -2144,10 +2144,14 @@ async def handle_ha_panel(request):
     ha_url = cfg("home_assistant", "url", default="http://homeassistant.local:8123")
     ha_token = os.getenv('HA_TOKEN', '')
 
-    # Nothing configured, or HA was never set up: answer empty rather than
-    # probing, so the view can say so and the log stays quiet.
-    if not panel or not ha_token:
+    # Nothing configured, or HA was never set up: answer without probing,
+    # so the view can say which and the log stays quiet.
+    if not panel:
         response = web.json_response([])
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+    if not ha_token:
+        response = web.json_response({'error': 'no_token'}, status=503)
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
 

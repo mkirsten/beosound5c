@@ -38,6 +38,15 @@
         // panel that acts on GO would be a trap.
         const PANEL_URL = getServiceUrl('inputServiceUrl', 8767) + '/ha/panel';
 
+        // Take the wheel and buttons from the shell (see docs/webpage-input.md).
+        // Other local webpage items stay passive unless they opt in too.
+        window.beoHandlesInput = true;
+
+        function setupRow(label) {
+            return [{ entity_id: 'setup', label, state: '', unit: '',
+                      icon: 'house', available: true }];
+        }
+
         // How often to re-read. Slow on purpose: these are house readings,
         // not transport state, and reloadData() keeps the selected row.
         const REFRESH_MS = 15000;
@@ -78,20 +87,13 @@
 
         async function loadPanel() {
             const resp = await fetch(PANEL_URL);
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const data = await resp.json();
+            const data = await resp.json().catch(() => null);
+            // Say what's missing rather than showing a blank arc that looks
+            // like a failure.
+            if (data?.error === 'no_token') return setupRow('Set a Home Assistant token');
+            if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
             if (!Array.isArray(data) || data.length === 0) {
-                // An empty answer means either no entities configured or no
-                // Home Assistant token — say so rather than showing a blank
-                // arc that looks like a failure.
-                return [{
-                    entity_id: 'setup',
-                    label: 'Add entities to home_assistant.panel',
-                    state: '',
-                    unit: '',
-                    icon: 'house',
-                    available: true,
-                }];
+                return setupRow('Add entities to home_assistant.panel');
             }
             return data;
         }
