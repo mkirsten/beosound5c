@@ -309,12 +309,25 @@ const CameraOverlayManager = {
         // Left/right send webhook but keep overlay open
         if (button === 'go' || button === 'timeout') {
             this.hide();
+            this.notifyClosed();
         } else {
             // Send webhook for left/right buttons (keep overlay open)
             this.sendWebhook(button);
         }
 
         return true;
+    },
+
+    // Tell beo-input the overlay closed on the device, so it can put the
+    // screen back to sleep if show_camera was what woke it.
+    notifyClosed() {
+        fetch(AppConfig.inputCommandUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: 'camera_closed' })
+        }).catch(error => {
+            console.log(`[CAMERA] camera_closed notify failed: ${error.message}`);
+        });
     },
 
     sendWebhook(button) {

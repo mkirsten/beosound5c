@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "services"))
@@ -155,3 +155,48 @@ def test_bare_command_omits_cameras_so_the_overlay_uses_config():
 def test_actions_still_ride_along():
     data = _forwarded({"actions": {"left": "Open door"}})
     assert data["actions"] == {"left": "Open door"}
+
+
+# ── Screen state is restored when the overlay closes ─────────────────────────
+#
+# A doorbell at night turns the screen on for the camera. Closing the
+# overlay — from HA (dismiss_camera) or on the device (GO / timeout, which
+# the UI reports as camera_closed) — should put it back to sleep, but must
+# leave a screen that was already on alone.
+
+def _run(command, backlight_on, params=None):
+    """Run one command with the backlight in a given state; return set_backlight calls."""
+    setter = MagicMock()
+    with patch.object(beo_input, "_forward_to_router", AsyncMock()), \
+            patch.object(beo_input, "set_backlight", setter), \
+            patch.object(beo_input, "is_backlight_on", return_value=backlight_on):
+        asyncio.run(beo_input.process_command(
+            {"command": command, "params": params or {}}))
+    return [c.args[0] for c in setter.call_args_list]
+
+
+def setup_function(_):
+    beo_input._camera_woke_screen = False
+
+
+def test_dismiss_turns_screen_off_again_if_camera_woke_it():
+    assert _run("show_camera", backlight_on=False) == [True]
+    assert _run("dismiss_camera", backlight_on=True) == [False]
+
+
+def test_device_close_turns_screen_off_again_if_camera_woke_it():
+    _run("show_camera", backlight_on=False)
+    assert _run("camera_closed", backlight_on=True) == [False]
+
+
+def test_screen_that_was_on_stays_on():
+    _run("show_camera", backlight_on=True)
+    assert _run("dismiss_camera", backlight_on=True) == []
+    assert _run("camera_closed", backlight_on=True) == []
+
+
+def test_restore_happens_once():
+    _run("show_camera", backlight_on=False)
+    assert _run("camera_closed", backlight_on=True) == [False]
+    # HA dismissing an overlay the device already closed is a no-op.
+    assert _run("dismiss_camera", backlight_on=False) == []
