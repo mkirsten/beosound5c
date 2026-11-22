@@ -31,6 +31,7 @@ ALL_SERVICES=(
     "beo-source-news.service"
     "beo-source-radio.service"
     "beo-source-airplay.service"
+    "beo-visualizer.service"
     "beo-ui.service"
     "beo-notify-failure@.service"
     "beo-health.service"
@@ -63,6 +64,7 @@ STATUS_SERVICES=(
     "beo-source-news.service"
     "beo-source-radio.service"
     "beo-source-airplay.service"
+    "beo-visualizer.service"
     "beo-ui.service"
 )
 
@@ -92,6 +94,7 @@ SERVICE_DESC["beo-source-jellyfin.service"]="Jellyfin Source (Port 8781)"
 SERVICE_DESC["beo-source-news.service"]="News Source (Port 8776)"
 SERVICE_DESC["beo-source-radio.service"]="Radio Source (Port 8779)"
 SERVICE_DESC["beo-source-airplay.service"]="AirPlay Source (Port 8782)"
+SERVICE_DESC["beo-visualizer.service"]="Visualizer Feed (Port 8783)"
 SERVICE_DESC["beo-ui.service"]="Chromium UI Kiosk"
 
 # Optional sources: menu_key|service|emoji|label
@@ -107,4 +110,5 @@ OPTIONAL_SOURCES=(
     "NEWS|beo-source-news.service|📰|News source"
     "RADIO|beo-source-radio.service|📻|Radio Browser source"
     "AIRPLAY|beo-source-airplay.service|📶|AirPlay source"
+    "VISUALIZER|beo-visualizer.service|📊|Visualizer feed"
 )

@@ -181,10 +181,20 @@ function routeNavToView(page, data, uiStore) {
         return true; // source page always consumes
     }
 
-    // Playing page — active source owns nav
-    if (page === 'menu/playing' && uiStore.activeSource) {
-        const ctrl = window.SourcePresets?.[uiStore.activeSource]?.controller;
-        if (ctrl?.isActive && ctrl.handleNavEvent && ctrl.handleNavEvent(data)) return true;
+    // Playing page — active source first, then the backdrop carousel.
+    //
+    // The source gets first refusal because some of them do something
+    // useful here; the ones that do not forward to a browse iframe that
+    // is not mounted and return false. What used to happen after that was
+    // nothing at all: the fall-through set uiStore.topWheelPosition, which
+    // no code has ever read. So the wheel that picks albums and stations
+    // was idle on this view, and that is what the carousel takes.
+    if (page === 'menu/playing') {
+        if (uiStore.activeSource) {
+            const ctrl = window.SourcePresets?.[uiStore.activeSource]?.controller;
+            if (ctrl?.isActive && ctrl.handleNavEvent && ctrl.handleNavEvent(data)) return true;
+        }
+        if (window.Backdrop?.handleNav && window.Backdrop.handleNav(data)) return true;
     }
 
     // Iframe page — iframe owns nav

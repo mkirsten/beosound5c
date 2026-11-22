@@ -583,126 +583,6 @@ window.CDView = (() => {
 
     // ── Playing View Flip (Progressive — follows nav wheel) ──
 
-    /**
-     * Handle nav wheel on PLAYING page.
-     * Clockwise = flip front→back. Counter-clockwise = flip back→front.
-     * If already showing the target face, does nothing.
-     * flipProgress accumulates based on wheel speed, applies rotateY transform.
-     * Auto-snaps after 200ms idle: commit if >= 0.5, snap back if < 0.5.
-     */
-    function handlePlayingNav(data) {
-        const container = document.getElementById('now-playing');
-        if (!container) return false;
-        const flipper = container.querySelector('.playing-flipper');
-        const back = flipper?.querySelector('.playing-back');
-        if (!flipper || !back || back.style.display === 'none') return false;
-
-        const speed = data.speed || 10;
-        const increment = 0.02128 + (speed * 0.001064); // 30% slower than original
-
-        // No flip in progress — check if this direction can start one
-        if (flipProgress === 0) {
-            // Clockwise → flip to back, counter-clockwise → flip to front
-            const wantsBack = (data.direction === 'clock');
-            if (wantsBack && flipIsFlipped) return true;   // Already on back
-            if (!wantsBack && !flipIsFlipped) return true;  // Already on front
-            flipDirection = data.direction;
-        }
-
-        // Advance or reverse based on whether direction matches the flip direction
-        if (data.direction === flipDirection) {
-            flipProgress = Math.min(flipProgress + increment, 1.0);
-        } else {
-            flipProgress = Math.max(flipProgress - increment, 0.0);
-        }
-
-        // Apply transform directly
-        applyFlipTransform(flipper);
-
-        // Commit at boundaries
-        if (flipProgress >= 1.0) {
-            commitFlip(flipper);
-            return true;
-        }
-        if (flipProgress <= 0.0) {
-            cancelFlipGesture(flipper);
-            return true;
-        }
-
-        // Reset snap timer (200ms idle → auto-snap)
-        if (flipSnapTimer) clearTimeout(flipSnapTimer);
-        flipSnapTimer = setTimeout(() => snapFlip(flipper), 200);
-
-        return true;
-    }
-
-    /** Map flipProgress 0..1 to rotateY angle based on current face. */
-    function applyFlipTransform(flipper) {
-        let angle;
-        if (flipIsFlipped) {
-            // On back face: 180° → 0° as progress increases (flipping to front)
-            angle = 180 - (flipProgress * 180);
-        } else {
-            // On front face: 0° → 180° as progress increases (flipping to back)
-            angle = flipProgress * 180;
-        }
-
-        // Remove snap transition — we're tracking the wheel directly
-        flipper.classList.remove('playing-flipper-snap');
-        flipper.classList.remove('flipped');
-        flipper.style.transform = `rotateY(${angle}deg)`;
-    }
-
-    /** Flip reached 1.0 — commit to other face, reset progress. */
-    function commitFlip(flipper) {
-        if (flipSnapTimer) { clearTimeout(flipSnapTimer); flipSnapTimer = null; }
-        flipIsFlipped = !flipIsFlipped;
-        flipProgress = 0;
-        flipDirection = null;
-        setFlipRestState(flipper);
-        if (window.uiStore?.sendClickCommand) window.uiStore.sendClickCommand();
-    }
-
-    /** Flip returned to 0.0 — stay on current face. */
-    function cancelFlipGesture(flipper) {
-        if (flipSnapTimer) { clearTimeout(flipSnapTimer); flipSnapTimer = null; }
-        flipProgress = 0;
-        flipDirection = null;
-        setFlipRestState(flipper);
-    }
-
-    /** Auto-snap after 200ms idle. */
-    function snapFlip(flipper) {
-        flipSnapTimer = null;
-
-        // Add transition for smooth snap animation
-        flipper.classList.add('playing-flipper-snap');
-
-        if (flipProgress >= 0.5) {
-            // Animate to commit
-            const targetAngle = flipIsFlipped ? 0 : 180;
-            flipper.style.transform = `rotateY(${targetAngle}deg)`;
-
-            setTimeout(() => {
-                flipIsFlipped = !flipIsFlipped;
-                flipProgress = 0;
-                flipDirection = null;
-                setFlipRestState(flipper);
-                if (window.uiStore?.sendClickCommand) window.uiStore.sendClickCommand();
-            }, 200);
-        } else {
-            // Snap back to current face
-            const targetAngle = flipIsFlipped ? 180 : 0;
-            flipper.style.transform = `rotateY(${targetAngle}deg)`;
-
-            setTimeout(() => {
-                flipProgress = 0;
-                flipDirection = null;
-                setFlipRestState(flipper);
-            }, 200);
-        }
-    }
-
     /** Set flipper to its rest state (CSS class-based, no inline transform). */
     function setFlipRestState(flipper) {
         flipper.classList.remove('playing-flipper-snap');
@@ -719,9 +599,13 @@ window.CDView = (() => {
     function handleNavEvent(data) {
         const route = window.uiStore?.currentRoute;
 
-        // On PLAYING page: progressive flip
+        // On PLAYING the wheel belongs to the backdrop carousel, which
+        // offers the track list as one of its choices and calls
+        // setFlipped() when you land on it. Returning false lets the event
+        // through. The progressive, speed-tracking flip gesture goes with
+        // it: the carousel steps, so the card does too.
         if (route === 'menu/playing') {
-            return handlePlayingNav(data);
+            return false;
         }
 
         // On CD menu: scroll the arc browser
@@ -803,11 +687,46 @@ window.CDView = (() => {
         }
     }
 
+    /** The flip card, if this track has a back worth showing. */
+    function flipParts() {
+        const container = document.getElementById('now-playing');
+        const flipper = container?.querySelector('.playing-flipper');
+        const back = flipper?.querySelector('.playing-back');
+        if (!flipper || !back || back.style.display === 'none') return null;
+        return { flipper, back };
+    }
+
+    /**
+     * Show the track list, or the cover. Called by js/backdrop.js when the
+     * carousel arrives at or leaves the TRACKS entry.
+     *
+     * Reuses the snap animation the wheel gesture used to end on, so the
+     * card turns the same way it always did. No click is sent: that was
+     * feedback for a wheel gesture, and the carousel announces itself.
+     */
+    function setFlipped(wantBack) {
+        const parts = flipParts();
+        if (!parts) return false;
+        if (flipIsFlipped === !!wantBack) return true;
+        if (flipSnapTimer) { clearTimeout(flipSnapTimer); flipSnapTimer = null; }
+        parts.flipper.classList.add('playing-flipper-snap');
+        parts.flipper.style.transform = `rotateY(${wantBack ? 180 : 0}deg)`;
+        setTimeout(() => {
+            flipIsFlipped = !!wantBack;
+            flipProgress = 0;
+            flipDirection = null;
+            setFlipRestState(parts.flipper);
+        }, 200);
+        return true;
+    }
+
     // ── Public API ──
     return {
         init,
         destroy,
         handleNavEvent,
+        setFlipped,
+        get canFlip() { return !!flipParts(); },
         handleButton,
         updateMetadata,
         sendCommand,

@@ -180,6 +180,9 @@
         airplay:     { '/status': 'airplay_status.json' },
     };
 
+    // Starts on 'auto', like a device out of the box.
+    let demoBackdrop = 'auto';
+
     // radio_browse.json is keyed by browse path; the others are served as-is.
     const KEYED_BY_PATH = new Set(['radio_browse.json']);
 
@@ -209,6 +212,21 @@
 
         // Router menu — the one request that decides the whole arc.
         if (url.includes('/router/menu')) return Promise.resolve(jsonResponse(MENU));
+
+        // Which backdrop the PLAYING view is drawing. The real one lives in
+        // beo-router so that a device and a television showing the same UI
+        // agree; here there is only one screen, so a variable will do.
+        if (url.includes('/router/backdrop')) {
+            if ((init?.method || 'GET').toUpperCase() === 'POST') {
+                try {
+                    const body = JSON.parse(init.body || '{}');
+                    if (typeof body.backdrop === 'string' && body.backdrop) {
+                        demoBackdrop = body.backdrop;
+                    }
+                } catch (e) { /* malformed body: keep the current choice */ }
+            }
+            return Promise.resolve(jsonResponse({ backdrop: demoBackdrop }));
+        }
 
         if (url.includes('/router/media') || url.includes('/player/media')) {
             return Promise.resolve(jsonResponse(mediaPayload()));

@@ -345,6 +345,28 @@
         }
       },
       "additionalProperties": false
+    },
+
+    "visualizer": {
+      "type": "object",
+      "description": "VISUALIZER view tuning. Optional — the defaults are sensible and the view works without this section. The view itself is added as a menu entry with a url, not here.",
+      "properties": {
+        "bands": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 64,
+          "default": 24,
+          "description": "Number of spectrum bands, log-spaced between 40 Hz and 16 kHz. More bands means a finer display and a slightly busier CPU."
+        },
+        "vu_reference_dbfs": {
+          "type": "number",
+          "minimum": -40,
+          "maximum": 0,
+          "default": -14,
+          "description": "Where 0 VU sits, in dBFS. Programme level varies between masters, so this is a taste setting: make it more negative to send the needles higher."
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,

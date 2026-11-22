@@ -1112,6 +1112,75 @@ body.playback-paused #now-playing .media-view-artwork img {
   margin-top: 8px;
 }
 
+/* ── Backdrop: visualizer layer and its label ──────────────────── */
+
+/* Sits over the artwork and under the canvas panel, so choosing a canvas
+   or a video still puts those on top. The now-playing text is drawn above
+   both — this is a backdrop, not a view. */
+.visualizer-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    /* Of the screen, not of the design box: this hangs on the stage,
+       outside the scaled composition, so a 16:9 screen gets a visualizer
+       the full width of the glass instead of one inside the bars the
+       composition leaves. See js/ui-scale.js. */
+    width: 100%;
+    height: 100%;
+    background: #000;
+    z-index: 99988;
+    pointer-events: none;
+}
+
+/* Says where the wheel landed, then gets out of the way. Low enough on the
+   screen to clear the artwork and high enough to clear the progress bar. */
+.backdrop-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 78px;
+    transform: translateX(-50%);
+    font-family: 'Montserrat', sans-serif;
+    font-size: 15px;
+    font-weight: 300;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.75);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+    z-index: 99995;
+}
+
+.backdrop-toast.show { opacity: 1; }
+
+/* The track text over a visualizer. One step above the canvas it sits on,
+   and still below the canvas panel, which carries its own copy — the two
+   backdrops are never up at the same time. */
+.visualizer-text,
+.canvas-text-mirror {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Spans whatever the backdrop turned out to be, which on a 16:9 screen
+     is the screen rather than the design box. js/text-mirror.js converts
+     the coordinates it is given into this box. */
+  width: 100%;
+  height: 100%;
+  color: white;
+  pointer-events: none;
+}
+
+/* Above the canvas it sits on, and below the canvas panel, which carries
+   its own copy — the two backdrops are never up at the same time. */
+.visualizer-text {
+  position: fixed;
+  z-index: 99989;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+
+/* Inside the canvas panel's own stacking context, above its video. */
+.canvas-text-mirror { z-index: 2; }
+
 /* ── Spotify Canvas Video Panel ────────────────────────────────── */
 
 .canvas-panel {

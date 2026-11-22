@@ -26,6 +26,7 @@ SPOTIFY_PORT = 8771  # beo-source-spotify (also canvas endpoint)
 # beo-source-apple-music (SSL_PORT in their service.py) — not free.
 AIRPLAY_PORT = 8782  # beo-source-airplay (also cover-art endpoint)
 RADIO_PORT = 8779    # beo-source-radio
+VISUALIZER_PORT = 8783  # beo-visualizer (audio measurements for the UI)
 
 _BASE = "http://localhost"
 
