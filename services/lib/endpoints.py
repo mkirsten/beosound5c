@@ -22,10 +22,15 @@ PLAYER_PORT = 8766   # beo-player-* (exactly one active per device)
 INPUT_PORT = 8767    # beo-input (hardware HID + LED + webhook)
 ROUTER_PORT = 8770   # beo-router
 SPOTIFY_PORT = 8771  # beo-source-spotify (also canvas endpoint)
+# 8772 is beo-source-spotify's HTTPS OAuth setup page (SSL_PORT in its
+# service.py). Recorded here because it is not otherwise visible from this
+# module, and picking it for a new service produces a bind conflict that only
+# shows up once Spotify happens to be running.
 # 8772 and 8775 are the HTTPS setup pages of beo-source-spotify and
 # beo-source-apple-music (SSL_PORT in their service.py) — not free.
 AIRPLAY_PORT = 8782  # beo-source-airplay (also cover-art endpoint)
 RADIO_PORT = 8779    # beo-source-radio
+AIRPLAY_OUT_PORT = 8780  # beo-airplay-out (mirror to AirPlay receivers)
 
 _BASE = "http://localhost"
 
