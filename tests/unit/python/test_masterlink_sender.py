@@ -51,7 +51,7 @@ def _sender(ml, loop):
     dev.loop = loop
     dev.message_queue = ml.MessageQueue()
     dev._queue_event = asyncio.Event()
-    dev.message_queue.on_add = lambda: loop.call_soon_threadsafe(dev._queue_event.set)
+    dev.message_queue.on_add = dev._wake_sender
     dev.sent = []
     gets = [0]
     real_get = dev.message_queue.get
@@ -92,5 +92,23 @@ def test_sender_idles_and_wakes_on_add_from_other_thread(ml):
 
         loop.run_until_complete(scenario())
         assert dev.sent == ["play"]
+    finally:
+        loop.close()
+
+
+def test_wake_sender_ends_idle_loop_on_shutdown(ml):
+    """stop_sniffing() wakes the idle sender so it exits without a message."""
+    loop = asyncio.new_event_loop()
+    try:
+        dev, _ = _sender(ml, loop)
+
+        async def scenario():
+            task = asyncio.ensure_future(dev._async_sender_loop())
+            await asyncio.sleep(0.05)
+            dev.running = False
+            threading.Thread(target=dev._wake_sender).start()
+            await asyncio.wait_for(task, timeout=0.5)
+
+        loop.run_until_complete(scenario())
     finally:
         loop.close()

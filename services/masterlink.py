@@ -388,14 +388,18 @@ class PC2Device:
         self.send_message([0xF6, 0x10, 0xC1, 0x80, 0x83, 0x05, 0x00, 0x00])
         logger.info("Address filter set (Audio Master mode)")
 
+    def _wake_sender(self):
+        """Wake _async_sender_loop from any thread (new message or shutdown)."""
+        if self.loop and not self.loop.is_closed():
+            self.loop.call_soon_threadsafe(self._queue_event.set)
+
     def start_sniffing(self):
         """Start sniffing USB messages and sending them via webhook"""
         self.running = True
         self.loop = asyncio.new_event_loop()
         self._queue_event = asyncio.Event()
         # add() runs on the sniffer thread; hop onto the sender loop to wake it.
-        self.message_queue.on_add = lambda: self.loop.call_soon_threadsafe(
-            self._queue_event.set)
+        self.message_queue.on_add = self._wake_sender
 
         self.sniffer_thread = threading.Thread(target=self._sniff_loop)
         self.sniffer_thread.daemon = True
@@ -558,15 +562,12 @@ class PC2Device:
                 message = self.message_queue.get()
 
                 if message is None:
-                    # Sleep until the sniffer adds something.  The timeout
-                    # keeps the loop checking self.running for shutdown.
-                    # add() sets the event via call_soon_threadsafe, which
-                    # runs on this loop after clear(), so no wakeup is lost.
+                    # Sleep until the sniffer adds something or
+                    # stop_sniffing() wakes us.  Both set the event via
+                    # call_soon_threadsafe, which runs on this loop after
+                    # clear(), so no wakeup is lost.
                     self._queue_event.clear()
-                    try:
-                        await asyncio.wait_for(self._queue_event.wait(), timeout=1.0)
-                    except asyncio.TimeoutError:
-                        pass
+                    await self._queue_event.wait()
                     continue
 
                 await asyncio.gather(self._send_webhook_async(message),
@@ -1601,6 +1602,9 @@ class PC2Device:
     def stop_sniffing(self):
         """Stop the USB sniffer"""
         self.running = False
+        # Wake the sender loop so it sees running=False now, not on the
+        # next message.
+        self._wake_sender()
 
         # Clean up mixer HTTP server
         if self.loop and self._mixer_runner:

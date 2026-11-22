@@ -131,10 +131,6 @@ const IframeMessenger = {
     },
 
     /**
-     * List of routes that handle their own navigation via iframes
-     * @returns {string[]} Array of route paths
-     */
-    /**
      * Webpage menu items (config "type": "webpage") show an external page in
      * an iframe. By default the wheel scrolls it and buttons go to the HA
      * webhook. A same-origin page can take the wheel and buttons itself by
@@ -162,6 +158,10 @@ const IframeMessenger = {
         return true;
     },
 
+    /**
+     * List of routes that handle their own navigation via iframes
+     * @returns {string[]} Array of route paths
+     */
     getLocalHandledRoutes() {
         const staticRoutes = Object.keys(window.Constants?.iframes || {
             'menu/scenes': 'scenes-iframe',
