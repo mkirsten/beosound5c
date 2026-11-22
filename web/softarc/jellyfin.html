@@ -60,7 +60,7 @@
         async function setupPageUrl() {
             let ip = location.hostname;
             try {
-                const resp = await fetch('http://localhost:8767/info');
+                const resp = await fetch(`${AppConfig.inputServiceUrl}/info`);
                 const data = await resp.json();
                 if (data.ip_address) ip = data.ip_address;
             } catch (e) { /* fall back to whatever served this page */ }

@@ -16,8 +16,8 @@ const CameraOverlayManager = {
         autoTimeoutMs: 30000,  // 30 seconds auto-dismiss
         fadeTransitionMs: 300,
         refreshIntervalMs: 1000,  // Refresh snapshots every 1 second
-        cameraStreamUrl: 'http://localhost:8767/camera/stream',
-        cameraSnapshotUrl: 'http://localhost:8767/camera/snapshot'
+        cameraStreamUrl: `${AppConfig.inputServiceUrl}/camera/stream`,
+        cameraSnapshotUrl: `${AppConfig.inputServiceUrl}/camera/snapshot`
     },
 
     // Cameras come from config.json ("cameras"). No invented fallback: a

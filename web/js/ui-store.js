@@ -94,7 +94,7 @@ class UIStore {
         let ip = null, hostname = null;
         for (let attempt = 0; attempt < 10; attempt++) {
             try {
-                const resp = await fetch('http://localhost:8767/info');
+                const resp = await fetch(`${AppConfig.inputServiceUrl}/info`);
                 const data = await resp.json();
                 ip = data.ip_address || null;
                 hostname = data.hostname || null;
@@ -136,7 +136,7 @@ class UIStore {
             });
         } else {
             qrEl.innerHTML =
-                '<img src="http://localhost:8767/qrcode" style="width:280px;height:280px;">';
+                `<img src="${AppConfig.inputServiceUrl}/qrcode" style="width:280px;height:280px;">`;
         }
     }
 

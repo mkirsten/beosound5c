@@ -248,7 +248,7 @@ class MediaManager {
         }
 
         try {
-            const response = await fetch('http://localhost:8767/appletv');
+            const response = await fetch(`${AppConfig.inputServiceUrl}/appletv`);
             if (!response.ok) return;
 
             const data = await response.json();

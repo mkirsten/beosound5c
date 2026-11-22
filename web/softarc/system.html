@@ -24,6 +24,10 @@
         // the protocol, https also reports an empty port and would otherwise
         // look like a device (which left this page's cards dead on the site).
         window.BEO_DEV_MODE = !(location.protocol === 'http:' && /^(80|)$/.test(location.port));
+        // Opened from a phone or laptop, "localhost" would be that machine, so
+        // a device-served page talks to whichever host served it. In dev mode
+        // the mocks match the literal localhost URLs, so leave those alone.
+        window.BEO_SVC_HOST = window.BEO_DEV_MODE ? 'localhost' : location.hostname;
         if (window.BEO_DEV_MODE)
             document.write('<script src="system-mocks.js"><\/script>');
     </script>
@@ -998,14 +1002,14 @@
                 fetch: async () => {
                     const results = {};
                     await Promise.all([
-                        fetch('http://localhost:8767/webhook', {
+                        fetch(`http://${BEO_SVC_HOST}:8767/webhook`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ command: 'status' }),
                         }).then(r => r.json()).then(d => results.input = d).catch(() => {}),
-                        fetch('http://localhost:8770/router/status')
+                        fetch(`http://${BEO_SVC_HOST}:8770/router/status`)
                             .then(r => r.json()).then(d => results.router = d).catch(() => {}),
-                        fetch('http://localhost:8766/player/status')
+                        fetch(`http://${BEO_SVC_HOST}:8766/player/status`)
                             .then(r => r.json()).then(d => results.player = d).catch(() => {}),
                     ]);
 
@@ -1114,7 +1118,7 @@
                 title: 'BLUETOOTH',
                 service: 'beo-bluetooth',
                 fetch: async () => {
-                    const resp = await fetch('http://localhost:8767/bt/remotes');
+                    const resp = await fetch(`http://${BEO_SVC_HOST}:8767/bt/remotes`);
                     if (!resp.ok) throw new Error('offline');
                     return resp.json();
                 },
@@ -1142,7 +1146,7 @@
                 title: 'MASTERLINK',
                 service: 'beo-masterlink',
                 fetch: async () => {
-                    const resp = await fetch('http://localhost:8768/mixer/status');
+                    const resp = await fetch(`http://${BEO_SVC_HOST}:8768/mixer/status`);
                     if (!resp.ok) throw new Error('offline');
                     return resp.json();
                 },
@@ -1162,7 +1166,7 @@
                 title: 'SONOS',
                 service: 'beo-player-sonos',
                 fetch: async () => {
-                    const resp = await fetch('http://localhost:8766/player/status');
+                    const resp = await fetch(`http://${BEO_SVC_HOST}:8766/player/status`);
                     if (!resp.ok) throw new Error('offline');
                     return resp.json();
                 },
@@ -1190,7 +1194,7 @@
                 title: 'SPOTIFY',
                 service: 'beo-source-spotify',
                 fetch: async () => {
-                    const resp = await fetch('http://localhost:8771/status');
+                    const resp = await fetch(`http://${BEO_SVC_HOST}:8771/status`);
                     if (!resp.ok) throw new Error('offline');
                     return resp.json();
                 },
@@ -1230,7 +1234,7 @@
                 title: 'TIDAL',
                 service: 'beo-source-tidal',
                 fetch: async () => {
-                    const resp = await fetch('http://localhost:8777/status');
+                    const resp = await fetch(`http://${BEO_SVC_HOST}:8777/status`);
                     if (!resp.ok) throw new Error('offline');
                     return resp.json();
                 },
@@ -1270,7 +1274,7 @@
                 title: 'CD',
                 service: 'beo-source-cd',
                 fetch: async () => {
-                    const resp = await fetch('http://localhost:8769/status');
+                    const resp = await fetch(`http://${BEO_SVC_HOST}:8769/status`);
                     if (!resp.ok) throw new Error('offline');
                     return resp.json();
                 },
@@ -1622,7 +1626,7 @@
 
             connectInputWebSocket() {
                 try {
-                    this.inputWs = new WebSocket('ws://localhost:8765');
+                    this.inputWs = new WebSocket(`ws://${BEO_SVC_HOST}:8765`);
 
                     this.inputWs.onopen = () => {
                         console.log('[SYSTEM] Input WS connected');
@@ -2048,7 +2052,7 @@
 
             async fetchBTRemotes() {
                 try {
-                    const resp = await fetch('http://localhost:8767/bt/remotes');
+                    const resp = await fetch(`http://${BEO_SVC_HOST}:8767/bt/remotes`);
                     if (resp.ok) {
                         const remotes = await resp.json();
                         this.btRemotes = remotes;
@@ -2131,7 +2135,7 @@
             async fetchPeople() {
                 const grid = document.getElementById('people-grid');
                 try {
-                    const resp = await fetch('http://localhost:8767/people');
+                    const resp = await fetch(`http://${BEO_SVC_HOST}:8767/people`);
                     if (!resp.ok) throw new Error('Failed to fetch');
                     const people = await resp.json();
 
@@ -2182,7 +2186,7 @@
                 const urlEl = document.getElementById('cfg-qr-url');
                 if (!container) return;
                 try {
-                    const resp = await fetch('http://localhost:8767/info');
+                    const resp = await fetch(`http://${BEO_SVC_HOST}:8767/info`);
                     const data = await resp.json();
                     const ip = data.ip_address || location.hostname;
                     const hostname = data.hostname;
@@ -2200,11 +2204,11 @@
                             correctLevel: QRCode.CorrectLevel.M,
                         });
                     } else {
-                        container.innerHTML = `<img src="http://localhost:8767/qrcode" style="width:180px;height:180px;">`;
+                        container.innerHTML = `<img src="http://${BEO_SVC_HOST}:8767/qrcode" style="width:180px;height:180px;">`;
                     }
                     if (urlEl) urlEl.textContent = displayUrl;
                 } catch (e) {
-                    if (container) container.innerHTML = `<img src="http://localhost:8767/qrcode" style="width:180px;height:180px;">`;
+                    if (container) container.innerHTML = `<img src="http://${BEO_SVC_HOST}:8767/qrcode" style="width:180px;height:180px;">`;
                     if (urlEl) urlEl.textContent = 'Scan to configure';
                 }
             }
