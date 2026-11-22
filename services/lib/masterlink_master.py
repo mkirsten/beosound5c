@@ -230,6 +230,16 @@ class MasterRole:
             self._handle_request_local_source(src_node)
             return
 
+        # Receiving anything at all from a real node proves it is on the
+        # bus, so count the fallthrough as presence too.  Without this a
+        # link device that only emits telegram types we don't yet handle
+        # is never marked seen, wants_distribute() stays False, and
+        # audio_on() never asserts ML distribute toward it — so it stays
+        # silent.  Observed with a BeoLab 3500, which sends
+        # LOCK_MANAGER_COMMAND (p=0x5C) continuously and little else.
+        # _mark_link_seen() filters the broadcast addresses itself.
+        self._mark_link_seen(src_node)
+
         logger.info("ML master: NO HANDLER t=0x%02X p=0x%02X from 0x%02X "
                     "payload=%s — link device may hang",
                     ttype, ptype, src_node,
