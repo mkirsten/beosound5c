@@ -6,6 +6,8 @@ import tempfile
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import os
+import re
+import unicodedata
 import logging
 import aiohttp
 from aiohttp import web, ClientSession
@@ -1940,6 +1942,54 @@ async def handle_forward(request):
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
 
+# Own logos per media_player source, e.g. web/assets/sources/kpn-tv.png for
+# source "KPN TV". A TV (LG webOS, Samsung, ...) reports the HDMI input or
+# app as `source` with no artwork, or only a small app icon; a logo here
+# takes precedence.
+SOURCE_LOGO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               '..', 'web', 'assets', 'sources')
+SOURCE_LOGO_EXTS = ('png', 'svg', 'jpg', 'webp')
+
+
+def source_logo_slug(name: str) -> str:
+    """'Pathé Thuis' -> 'pathe-thuis'."""
+    ascii_name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode()
+    return re.sub(r'[^a-z0-9]+', '-', ascii_name.lower()).strip('-')
+
+
+def find_source_logo(source: str, logo_dir: str = None):
+    """URL path of the logo for a media_player source, or None."""
+    slug = source_logo_slug(source or '')
+    if not slug:
+        return None
+    logo_dir = logo_dir or SOURCE_LOGO_DIR
+    for ext in SOURCE_LOGO_EXTS:
+        if os.path.isfile(os.path.join(logo_dir, f'{slug}.{ext}')):
+            return f'/assets/sources/{slug}.{ext}'
+    return None
+
+
+def showing_from_state(data: dict, ha_url: str, logo_dir: str = None) -> dict:
+    """Turn an HA media_player state into the SHOWING view's payload."""
+    attrs = data.get('attributes', {})
+    source = attrs.get('source') or ''
+    result = {
+        'title': attrs.get('media_title', '—'),
+        # Apple TV reports app_name; TVs usually only report source.
+        'app_name': attrs.get('app_name') or source or '—',
+        'friendly_name': attrs.get('friendly_name', '—'),
+        'artwork': attrs.get('entity_picture', ''),
+        'state': data.get('state', 'unknown')
+    }
+    # Prepend HA URL to artwork if relative
+    if result['artwork'] and not result['artwork'].startswith('http'):
+        result['artwork'] = f'{ha_url}{result["artwork"]}'
+    logo = find_source_logo(source, logo_dir)
+    if logo:
+        result['artwork'] = logo
+    return result
+
+
 async def handle_appletv(request):
     """Fetch Apple TV media info from Home Assistant."""
     # Handle CORS preflight
@@ -1964,18 +2014,7 @@ async def handle_appletv(request):
         async with session.get(f'{ha_url}/api/states/{entity_id}', headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    # Transform for frontend
-                    result = {
-                        'title': data.get('attributes', {}).get('media_title', '—'),
-                        'app_name': data.get('attributes', {}).get('app_name', '—'),
-                        'friendly_name': data.get('attributes', {}).get('friendly_name', '—'),
-                        'artwork': data.get('attributes', {}).get('entity_picture', ''),
-                        'state': data.get('state', 'unknown')
-                    }
-                    # Prepend HA URL to artwork if relative
-                    if result['artwork'] and not result['artwork'].startswith('http'):
-                        result['artwork'] = f'{ha_url}{result["artwork"]}'
-                    response = web.json_response(result)
+                    response = web.json_response(showing_from_state(data, ha_url))
                 else:
                     response = web.json_response({'error': 'Failed to fetch', 'title': '—', 'app_name': '—', 'friendly_name': '—', 'artwork': '', 'state': 'unavailable'}, status=resp.status)
                 response.headers['Access-Control-Allow-Origin'] = '*'
