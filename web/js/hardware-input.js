@@ -193,6 +193,9 @@ function routeNavToView(page, data, uiStore) {
         return true;
     }
 
+    // Webpage that handles input itself (window.beoHandlesInput = true)
+    if (window.IframeMessenger?.sendToWebpage('nav', { data })) return true;
+
     // Webpage iframe — scroll the page, never move the laser
     const webpageIframe = document.querySelector('#contentArea .webpage-iframe');
     if (webpageIframe) {
@@ -455,6 +458,9 @@ function routeButtonToView(page, button, uiStore) {
         window.CameraOverlayManager.show();
         return true;
     }
+
+    // Webpage that handles input itself (window.beoHandlesInput = true)
+    if (window.IframeMessenger?.sendToWebpage('button', { button })) return true;
 
     // Webpage views: buttons fall through to HA webhook (gate/lock, etc.)
     return false;
