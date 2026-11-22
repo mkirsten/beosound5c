@@ -211,6 +211,42 @@ body.playback-paused #now-playing .media-view-artwork img {
   opacity: 0.8;
 }
 
+/* ── Elapsed time ──
+   Added below the album, but the panel grows *upward* to fit it. The
+   bottom edge is where the eye expects the block to end, and moving it
+   down on every track that happens to report a position would make the
+   layout breathe. The negative margin above cancels this row's height, so
+   the column's total is unchanged and nothing below it moves.
+
+   Like the state line, the row always reserves its height even when it
+   has nothing to say — a stream with no duration must not shuffle the
+   rest of the panel.
+
+   One number governs both the row and the compensation, and the row
+   carries no margin of its own: a margin would sit outside the height and
+   quietly put the cancellation out by that much. The generous line-height
+   is the separation from the album line. */
+:root { --media-time-line: 28px; }
+
+.media-view-info { margin-top: calc(-1 * var(--media-time-line)); }
+
+.media-view-time,
+.immersive-info-time {
+  height: var(--media-time-line);
+  line-height: var(--media-time-line);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+  opacity: 0.55;
+  visibility: hidden;
+}
+
+/* The immersive overlay is positioned rather than stacked, so its copy of
+   the row needs no compensation — only the same shape, since the canvas
+   panel mirrors that overlay over a video. */
+.media-view-time.has-time,
+.immersive-info-time.has-time { visibility: visible; }
+
 /* ── Immersive PLAYING mode ──
    Pure CSS transform on artwork — no layout changes, GPU-accelerated.
    JS drives all visual state via inline styles (laser tracking = no transition,

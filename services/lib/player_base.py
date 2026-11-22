@@ -360,6 +360,7 @@ class PlayerBase:
         app.router.add_get("/player/spotify-status", self._handle_spotify_status)
         app.router.add_post("/player/announce", self._handle_announce)
         app.router.add_get("/player/media", self._handle_media)
+        app.router.add_get("/player/position", self._handle_position)
         app.router.add_get("/player/queue", self._handle_queue)
         app.router.add_post("/player/play_from_queue", self._handle_play_from_queue)
         app.router.add_post("/player/play_track_radio", self._handle_play_track_radio)
@@ -656,6 +657,42 @@ class PlayerBase:
             return web.json_response(self._cached_media_data,
                                      headers=self._cors_headers())
         return web.json_response({}, headers=self._cors_headers())
+
+    async def _handle_position(self, request: web.Request) -> web.Response:
+        """GET /player/position — where we are in the track, right now.
+
+        Deliberately not part of the media broadcast. Metadata is pushed
+        because it changes at track boundaries; a position changes every
+        instant, and pushing it would mean a message a second to every
+        client forever, whether or not anything is showing a clock. This is
+        polled by whatever needs it, which is currently the PLAYING view,
+        only while it is on screen, and only when there is a duration to
+        count against.
+
+        ``{"supported": false}`` from players that cannot answer, matching
+        /player/tone. The caller hides its clock rather than showing zeros.
+        """
+        reading = await self.get_position()
+        if reading is None:
+            return web.json_response({"supported": False},
+                                     headers=self._cors_headers())
+        position_ms, duration_ms = reading
+        return web.json_response({
+            "supported": True,
+            "position_ms": position_ms,
+            "duration_ms": duration_ms,
+            "state": self._current_playback_state,
+        }, headers=self._cors_headers())
+
+    async def get_position(self) -> tuple[int, int] | None:
+        """Live ``(position_ms, duration_ms)``, or None if unavailable.
+
+        Overridden by players that can ask their backend where it is. The
+        base class cannot: the cached media data carries whatever position
+        the last metadata event happened to hold, which is near zero and
+        never moves.
+        """
+        return None
 
     async def _handle_toggle(self, request: web.Request) -> web.Response:
         self._stamp_command()

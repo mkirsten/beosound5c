@@ -78,6 +78,7 @@ class MenuManager {
                             <div id="media-title" class="media-view-title">—</div>
                             <div id="media-artist" class="media-view-artist">—</div>
                             <div id="media-album" class="media-view-album">—</div>
+                            <div id="media-time" class="media-view-time"></div>
                         </div>
                     </div>`
             },
